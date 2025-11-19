@@ -1,252 +1,95 @@
-const { Events, EmbedBuilder, Colors, PermissionsBitField, ChannelType } = require("discord.js");
-const { handleStreakMessage, handleMediaStreakMessage, calculateBuffMultiplier } = require("../streak-handler.js");
-const { checkPermissions, checkCooldown } = require("../permission-handler.js");
-const { processReportLogic, sendReportError, getReportSettings } = require("../handlers/report-handler.js");
+const { Events } = require("discord.js");
 
-const DISBOARD_BOT_ID = '302050872383242240'; 
+// قائمة لمنع التكرار (Cooldown) لمدة دقيقة
+const treeCooldowns = new Set();
 
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
-    const now = new Date();
-    const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7; 
-    const friday = new Date(now.setUTCDate(diff));
-    friday.setUTCHours(0, 0, 0, 0); 
-    return friday.toISOString().split('T')[0];
-}
-function safeMerge(base, defaults) {
-    const result = { ...base };
-    for (const key in defaults) {
-        if (result[key] === undefined || result[key] === null) result[key] = defaults[key];
-    }
-    return result;
-}
-
-const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
-const defaultWeeklyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
-const defaultTotalStats = { total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
-
-async function trackMessageStats(message, client) {
-    const sql = client.sql;
-    try {
-        const guildID = message.guild.id;
-        const authorID = message.author.id;
-        const dateStr = getTodayDateString(); 
-        const weekStartDateStr = getWeekStartDateString(); 
-
-        const dailyID = `${authorID}-${guildID}-${dateStr}`;
-        const weeklyID = `${authorID}-${guildID}-${weekStartDateStr}`;
-        const totalID = `${authorID}-${guildID}`;
-
-        let daily = client.getDailyStats.get(dailyID) || { id: dailyID, userID: authorID, guildID: guildID, date: dateStr };
-        let weekly = client.getWeeklyStats.get(weeklyID) || { id: weeklyID, userID: authorID, guildID: guildID, weekStartDate: weekStartDateStr };
-        let total = client.getTotalStats.get(totalID) || { id: totalID, userID: authorID, guildID: guildID };
-
-        daily = safeMerge(daily, defaultDailyStats);
-        weekly = safeMerge(weekly, defaultWeeklyStats);
-        total = safeMerge(total, defaultTotalStats);
-
-        daily.messages++; weekly.messages++; total.total_messages++;
-
-        if (message.attachments.size > 0) {
-            daily.images++; weekly.images++; total.total_images++;
-        }
-        if (message.reference) { 
-            daily.replies_sent++; weekly.replies_sent++; total.total_replies_sent++;
-        }
-        if (message.stickers.size > 0) {
-            daily.stickers++; weekly.stickers++; total.total_stickers++;
-        }
-
-        client.setDailyStats.run(daily);
-        client.setWeeklyStats.run(weekly);
-        
-        client.setTotalStats.run({
-            id: totalID, userID: authorID, guildID: guildID,
-            total_messages: total.total_messages, total_images: total.total_images, total_stickers: total.total_stickers, total_reactions_added: total.total_reactions_added,
-            replies_sent: total.total_replies_sent, mentions_received: total.total_mentions_received,
-            total_vc_minutes: total.total_vc_minutes, total_disboard_bumps: total.total_disboard_bumps
-        });
-
-        if (client.checkQuests) {
-            await client.checkQuests(client, message.member, daily, 'daily', dateStr);
-            await client.checkQuests(client, message.member, weekly, 'weekly', weekStartDateStr);
-            await client.checkAchievements(client, message.member, null, total);
-        }
-    } catch (err) { console.error("Error in trackMessageStats:", err); }
+    const now = new Date(); const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7; 
+    const friday = new Date(now.setUTCDate(diff)); friday.setUTCHours(0, 0, 0, 0); return friday.toISOString().split('T')[0];
 }
 
 module.exports = {
-    name: Events.MessageCreate,
-    async execute(message) {
-        const client = message.client;
+    name: Events.MessageUpdate,
+    async execute(oldMessage, newMessage) {
+        // 1. جلب الرسالة إذا كانت غير محملة
+        if (newMessage.partial) {
+            try { await newMessage.fetch(); } catch (e) { return; }
+        }
+        
+        if (!newMessage.guild || !newMessage.author) return;
+
+        const client = newMessage.client;
         const sql = client.sql;
 
-        if (message.author.bot) {
-            if (message.author.id === DISBOARD_BOT_ID) {
-                if (message.embeds.length > 0 && message.embeds[0].description) {
-                    const desc = message.embeds[0].description;
-                    if (desc.includes('Bump done') || desc.includes('Bump successful') || desc.includes('بومب')) {
-                        const match = desc.match(/<@!?(\d+)>/);
-                        if (match && match[1]) {
-                            const userID = match[1];
-                            try {
-                                const guildID = message.guild.id;
-                                const dateStr = getTodayDateString();
-                                const weekStr = getWeekStartDateString();
-                                const dailyID = `${userID}-${guildID}-${dateStr}`;
-                                const weeklyID = `${userID}-${guildID}-${weekStr}`;
-                                const totalID = `${userID}-${guildID}`;
-
-                                sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(dailyID, userID, guildID, dateStr);
-                                sql.prepare(`INSERT INTO user_weekly_stats (id, userID, guildID, weekStartDate, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(weeklyID, userID, guildID, weekStr);
-                                sql.prepare(`INSERT INTO user_total_stats (id, userID, guildID, total_disboard_bumps) VALUES (?,?,?,1) ON CONFLICT(id) DO UPDATE SET total_disboard_bumps = total_disboard_bumps + 1`).run(totalID, userID, guildID);
-
-                                const member = await message.guild.members.fetch(userID).catch(() => null);
-                                if (member && client.checkQuests) {
-                                    await client.checkQuests(client, member, { disboard_bumps: 1000 }, 'daily', dateStr);
-                                    await client.checkAchievements(client, member, null, { total_disboard_bumps: 1000 });
-                                }
-                            } catch (err) { console.error(err); }
-                        }
-                    }
-                }
-            }
-            return; 
-        }
-
-        if (!message.guild) return; 
-
-        let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
-        let reportSettings = getReportSettings(sql, message.guild.id);
-
-        let Prefix = "-";
-        try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
-
         try {
-            const argsRaw = message.content.trim().split(/ +/);
-            const shortcutWord = argsRaw[0].toLowerCase();
-            const shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?").get(message.guild.id, message.channel.id, shortcutWord);
-            if (shortcut) {
-                const cmd = client.commands.get(shortcut.commandName);
-                if (cmd) {
-                    try { await cmd.execute(message, argsRaw.slice(1)); } catch(e){}
-                    return;
-                }
-            }
-        } catch (err) {}
-
-        if (message.content.startsWith(Prefix)) {
-            const args = message.content.slice(Prefix.length).trim().split(/ +/);
-            const commandName = args.shift().toLowerCase();
-            const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
-            if (command) {
-                let isAllowed = false;
-                if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
-                else {
-                    try {
-                        const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.id);
-                        const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.parentId);
-                        if (channelPerm || categoryPerm) isAllowed = true;
-                        else { const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ?").get(message.guild.id, command.name); if (!hasRestrictions) isAllowed = true; }
-                    } catch (err) { isAllowed = true; }
-                }
-                if (isAllowed) {
-                    if (checkPermissions(message, command)) {
-                        const cooldownMsg = checkCooldown(message, command);
-                        if (cooldownMsg) { if (typeof cooldownMsg === 'string') message.reply(cooldownMsg); } 
-                        else { try { await command.execute(message, args); } catch (error) { console.error(error); message.reply("Error"); } }
-                    }
-                }
+            // 2. جلب الإعدادات
+            const settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(newMessage.guild.id);
+            
+            // إذا لم يتم تحديد البوت أو القناة، لن يعمل الكود
+            if (!settings || !settings.treeBotID || !settings.treeChannelID) {
+                // console.log("[Tree] Settings missing. Please run -sqc treebot and -sqc treechannel");
                 return;
             }
-        }
 
-        if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
-            if (message.content.trim().startsWith("بلاغ")) {
-                const args = message.content.trim().split(/ +/);
-                args.shift(); 
-                await message.delete().catch(() => {});
+            // 3. المطابقة (هل التعديل في القناة الصحيحة ومن البوت الصحيح؟)
+            if (newMessage.channel.id !== settings.treeChannelID) return;
+            if (newMessage.author.id !== settings.treeBotID) return;
 
-                const allowedRoles = sql.prepare("SELECT roleID FROM report_permissions WHERE guildID = ?").all(message.guild.id).map(r => r.roleID);
-                const hasPerm = message.member.permissions.has('Administrator') || allowedRoles.length === 0 || message.member.roles.cache.some(r => allowedRoles.includes(r.id));
-
-                if (!hasPerm) return sendReportError(message, "❖ ليس لـديـك صلاحيـات", "ليس لديك صلاحيات التبليغ.");
-
-                const target = message.mentions.members.first() || message.guild.members.cache.get(args[0]);
-                const reason = args.slice(1).join(" ");
-
-                if (!target || !reason) return sendReportError(message, "✶ خطأ في التنسيق", "`بلاغ @user السبب`");
-                await processReportLogic(client, message, target, reason);
-            }
-            return; 
-        }
-
-        if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
-            const args = message.content.trim().split(/ +/);
-            const commandName = args.shift().toLowerCase();
-            const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
-            if (command && command.category === "Economy") {
-                if (!checkPermissions(message, command)) return;
-                try { await command.execute(message, args); } catch (error) {}
-            }
-            return;
-        }
-
-        try {
-            let blacklist = sql.prepare(`SELECT id FROM blacklistTable WHERE id = ?`);
-            if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
-
-            if (settings && settings.countingChannelID && message.channel.id === settings.countingChannelID) {
-                sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, counting_channel) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET counting_channel = counting_channel + 1`).run(`${message.author.id}-${message.guild.id}-${getTodayDateString()}`, message.author.id, message.guild.id, getTodayDateString());
-                sql.prepare(`INSERT INTO user_weekly_stats (id, userID, guildID, weekStartDate, counting_channel) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET counting_channel = counting_channel + 1`).run(`${message.author.id}-${message.guild.id}-${getWeekStartDateString()}`, message.author.id, message.guild.id, getWeekStartDateString());
-            }
-            if (message.content.toLowerCase().includes('مياو')) {
-                sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, meow_count) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET meow_count = meow_count + 1`).run(`${message.author.id}-${message.guild.id}-${getTodayDateString()}`, message.author.id, message.guild.id, getTodayDateString());
-                let level = client.getLevel.get(message.author.id, message.guild.id);
-                if (level) {
-                     level.total_meow_count = (level.total_meow_count || 0) + 1;
-                     client.setLevel.run(level);
-                     await client.checkAchievements(client, message.member, level, null);
-                }
-            }
-
-            const isMediaChannel = sql.prepare("SELECT * FROM media_streak_channels WHERE guildID = ? AND channelID = ?").get(message.guild.id, message.channel.id);
-            if (isMediaChannel) {
-                if (message.attachments.size > 0 || message.content.includes('http')) {
-                    await handleMediaStreakMessage(message);
-                    return; 
-                }
-            }
-
-            await handleStreakMessage(message);
-            await trackMessageStats(message, client);
+            // 4. استخراج النصوص (من الوصف، العنوان، الحقول)
+            let fullContent = newMessage.content || "";
             
-            let level = client.getLevel.get(message.author.id, message.guild.id);
-            if (!level) level = { ...(client.defaultData || {}), xp: 0, level: 1, totalXP: 0, user: message.author.id, guild: message.guild.id };
-            let getXpfromDB = settings?.customXP || 25;
-            let getCooldownfromDB = settings?.customCooldown || 60000;
-
-            if (!client.talkedRecently.get(message.author.id)) {
-                const buff = calculateBuffMultiplier(message.member, sql);
-                const xp = Math.floor((Math.random() * getXpfromDB + 1) * buff);
-                level.xp += xp; level.totalXP += xp;
-                const nextXP = 5 * (level.level ** 2) + (50 * level.level) + 100;
-                if (level.xp >= nextXP) {
-                    level.xp -= nextXP; level.level++;
-                    if(client.sendLevelUpMessage) await client.sendLevelUpMessage(message, message.member, level.level, level.level-1, level);
+            if (newMessage.embeds.length > 0) {
+                const embed = newMessage.embeds[0];
+                fullContent += " " + (embed.description || "");
+                fullContent += " " + (embed.title || "");
+                if (embed.fields) {
+                    embed.fields.forEach(f => fullContent += " " + f.value);
                 }
-                client.setLevel.run(level);
-                client.talkedRecently.set(message.author.id, Date.now() + getCooldownfromDB);
-                setTimeout(() => client.talkedRecently.delete(message.author.id), getCooldownfromDB);
             }
-            
-            try {
-                let Roles = sql.prepare("SELECT * FROM level_roles WHERE guildID = ? AND level = ?").get(message.guild.id, level.level);
-                if (Roles && message.member && !message.member.roles.cache.has(Roles.roleID)) {
-                    message.member.roles.add(Roles.roleID).catch(e => {});
-                }
-            } catch (e) {}
 
-        } catch (err) {}
+            // 5. البحث عن المنشن
+            const match = fullContent.match(/<@!?(\d+)>/);
+
+            if (match && match[1]) {
+                const userID = match[1];
+
+                // تجاهل البوتات
+                if (userID === client.user.id || userID === settings.treeBotID) return;
+
+                // 6. التحقق من التكرار (هل حسبناها له قبل شوي؟)
+                if (treeCooldowns.has(userID)) {
+                    console.log(`[Tree] Ignored duplicate update for ${userID}`);
+                    return;
+                }
+
+                // إضافة للمؤقت
+                treeCooldowns.add(userID);
+                setTimeout(() => treeCooldowns.delete(userID), 60000); // انتظار دقيقة
+
+                // 7. تسجيل النقاط (SQL مباشر)
+                const guildID = newMessage.guild.id;
+                const dateStr = getTodayDateString();
+                const weekStr = getWeekStartDateString();
+                const dailyID = `${userID}-${guildID}-${dateStr}`;
+                const weeklyID = `${userID}-${guildID}-${weekStr}`;
+
+                console.log(`[Tree] 🌳 Water detected for: ${userID}`);
+
+                sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, water_tree) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET water_tree = water_tree + 1`).run(dailyID, userID, guildID, dateStr);
+                sql.prepare(`INSERT INTO user_weekly_stats (id, userID, guildID, weekStartDate, water_tree) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET water_tree = water_tree + 1`).run(weeklyID, userID, guildID, weekStr);
+
+                // 8. فحص الجوائز
+                const member = await newMessage.guild.members.fetch(userID).catch(() => null);
+                if (member && client.checkQuests) {
+                    // نرسل قيمة وهمية كبيرة لضمان تفعيل الفحص
+                    await client.checkQuests(client, member, { water_tree: 1000 }, 'daily', dateStr);
+                    await client.checkQuests(client, member, { water_tree: 1000 }, 'weekly', weekStr);
+                }
+            }
+
+        } catch (err) {
+            console.error("[Tree Quest Error]", err);
+        }
     },
 };
