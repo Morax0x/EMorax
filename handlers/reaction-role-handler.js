@@ -6,15 +6,20 @@ let GHOST_ROLE_ID = null;
 // (دالة لجلب إعدادات الرتب من قاعدة البيانات إلى الكاش)
 async function loadRoleSettings(sql, antiRolesCache) {
     antiRolesCache.clear();
-    const rows = sql.prepare("SELECT role_id, anti_roles, is_removable FROM role_settings").all();
-    for (const row of rows) {
-        const antiRolesList = row.anti_roles ? row.anti_roles.split(',').map(id => id.trim()).filter(id => id.length > 0) : [];
-        antiRolesCache.set(row.role_id, {
-            anti_roles: antiRolesList,
-            is_removable: Boolean(row.is_removable)
-        });
+    // تأكد من وجود الجدول قبل الاستعلام (لتجنب الأخطاء في أول تشغيل)
+    try {
+        const rows = sql.prepare("SELECT role_id, anti_roles, is_removable FROM role_settings").all();
+        for (const row of rows) {
+            const antiRolesList = row.anti_roles ? row.anti_roles.split(',').map(id => id.trim()).filter(id => id.length > 0) : [];
+            antiRolesCache.set(row.role_id, {
+                anti_roles: antiRolesList,
+                is_removable: Boolean(row.is_removable)
+            });
+        }
+        console.log(`[Reaction Roles] تم تحميل ${antiRolesCache.size} إعداد رول في الذاكرة.`);
+    } catch (e) {
+        console.log(`[Reaction Roles] الجدول غير موجود أو فارغ، تم تخطي التحميل.`);
     }
-    console.log(`[Reaction Roles] تم تحميل ${antiRolesCache.size} إعداد رول في الذاكرة.`);
 }
 
 // (دالة لتحديث رول الروح الهائمة)
@@ -42,7 +47,7 @@ async function handleReactionRole(interaction, client, sql, antiRolesCache) {
         
         const isLocked = menuMaster.is_locked === 1;
 
-        // --- ( جلب بيانات الرولات - هذا هو الجزء الذي تم إصلاحه ) ---
+        // --- ( جلب بيانات الرولات - تم التصحيح ) ---
         const allMenuRoleData = sql.prepare(`
             SELECT T1.role_id, T2.is_removable, T1.value
             FROM role_menu_items T1
