@@ -5,30 +5,10 @@ const fs = require('fs');
 const path = require('path');
 
 // ==================================================================
-// 1. إعداد قاعدة البيانات (مع التصليح الذاتي)
+// 1. Database Setup
 // ==================================================================
-const dbPath = './mainDB.sqlite';
-let sql;
-
-try {
-    sql = new SQLite(dbPath);
-    sql.pragma('journal_mode = WAL');
-} catch (err) {
-    // ( 🌟 هنا الحل: إذا الملف خربان، نحذفه ونبدا من جديد 🌟 )
-    if (err.code === 'SQLITE_NOTADB') {
-        console.error("❌ ملف قاعدة البيانات تالف! جاري حذفه وإنشاء جديد...");
-        try { fs.unlinkSync(dbPath); } catch(e) {}
-        try { if (fs.existsSync(dbPath + '-wal')) fs.unlinkSync(dbPath + '-wal'); } catch(e) {}
-        try { if (fs.existsSync(dbPath + '-shm')) fs.unlinkSync(dbPath + '-shm'); } catch(e) {}
-        
-        // محاولة ثانية بملف نظيف
-        sql = new SQLite(dbPath);
-        sql.pragma('journal_mode = WAL');
-        console.log("✅ تم إنشاء قاعدة بيانات جديدة نظيفة.");
-    } else {
-        throw err; // لو خطأ ثاني، وقف البرنامج
-    }
-}
+const sql = new SQLite('./mainDB.sqlite');
+sql.pragma('journal_mode = WAL');
 
 try {
     const { setupDatabase } = require("./database-setup.js");
@@ -40,26 +20,27 @@ try {
 }
 
 // Ensure critical columns exist (Migration)
-try { sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN chatChannelID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN treeBotID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN treeChannelID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN countingChannelID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN questChannelID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE levels ADD COLUMN lastFarmYield INTEGER DEFAULT 0").run(); } catch (e) {} 
-try { sql.prepare("CREATE TABLE IF NOT EXISTS quest_achievement_roles (guildID TEXT, roleID TEXT, achievementID TEXT)").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN shopChannelID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN bumpChannelID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN customRoleAnchorID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelTitle TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelDescription TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelImage TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelColor TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN lastQuestPanelChannelID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN streakTimerChannelID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN dailyTimerChannelID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN weeklyTimerChannelID TEXT").run(); } catch (e) {}
-try { sql.prepare("CREATE TABLE IF NOT EXISTS rainbow_roles (roleID TEXT PRIMARY KEY, guildID TEXT NOT NULL)").run(); } catch (e) {}
+// (نستخدم try-catch صامت لتجنب الإزعاج عند الإغلاق)
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN chatChannelID TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN treeBotID TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN treeChannelID TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN countingChannelID TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN questChannelID TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastFarmYield INTEGER DEFAULT 0").run(); } catch (e) {} 
+try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS quest_achievement_roles (guildID TEXT, roleID TEXT, achievementID TEXT)").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN shopChannelID TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN bumpChannelID TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN customRoleAnchorID TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelTitle TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelDescription TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelImage TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelColor TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN lastQuestPanelChannelID TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN streakTimerChannelID TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN dailyTimerChannelID TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN weeklyTimerChannelID TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS rainbow_roles (roleID TEXT PRIMARY KEY, guildID TEXT NOT NULL)").run(); } catch (e) {}
 
 // ==================================================================
 // 2. Import Handlers and Files
@@ -111,19 +92,21 @@ client.sql = sql;
 client.generateSingleAchievementAlert = generateSingleAchievementAlert;
 client.generateQuestAlert = generateQuestAlert;
 
-// Prepared Statements (Loaded early)
-client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
-client.setLevel = sql.prepare("INSERT OR REPLACE INTO levels (user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, lastRob, lastGuess, lastRPS, lastRoulette, lastTransfer, lastDeposit, shop_purchases, total_meow_count, boost_count, lastPVP, lastFarmYield) VALUES (@user, @guild, @xp, @level, @totalXP, @mora, @lastWork, @lastDaily, @dailyStreak, @bank, @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @lastCollected, @totalVCTime, @lastRob, @lastGuess, @lastRPS, @lastRoulette, @lastTransfer, @lastDeposit, @shop_purchases, @total_meow_count, @boost_count, @lastPVP, @lastFarmYield);");
-client.defaultData = { user: null, guild: null, xp: 0, level: 1, totalXP: 0, mora: 0, lastWork: 0, lastDaily: 0, dailyStreak: 0, bank: 0, lastInterest: 0, totalInterestEarned: 0, hasGuard: 0, guardExpires: 0, lastCollected: 0, totalVCTime: 0, lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, total_meow_count: 0, boost_count: 0, lastPVP: 0, lastFarmYield: 0 };
+// Prepared Statements
+if (sql.open) {
+    client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
+    client.setLevel = sql.prepare("INSERT OR REPLACE INTO levels (user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, lastRob, lastGuess, lastRPS, lastRoulette, lastTransfer, lastDeposit, shop_purchases, total_meow_count, boost_count, lastPVP, lastFarmYield) VALUES (@user, @guild, @xp, @level, @totalXP, @mora, @lastWork, @lastDaily, @dailyStreak, @bank, @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @lastCollected, @totalVCTime, @lastRob, @lastGuess, @lastRPS, @lastRoulette, @lastTransfer, @lastDeposit, @shop_purchases, @total_meow_count, @boost_count, @lastPVP, @lastFarmYield);");
+    client.defaultData = { user: null, guild: null, xp: 0, level: 1, totalXP: 0, mora: 0, lastWork: 0, lastDaily: 0, dailyStreak: 0, bank: 0, lastInterest: 0, totalInterestEarned: 0, hasGuard: 0, guardExpires: 0, lastCollected: 0, totalVCTime: 0, lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, total_meow_count: 0, boost_count: 0, lastPVP: 0, lastFarmYield: 0 };
 
-client.getDailyStats = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?");
-client.setDailyStats = sql.prepare("INSERT OR REPLACE INTO user_daily_stats (id, userID, guildID, date, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @date, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
-client.getWeeklyStats = sql.prepare("SELECT * FROM user_weekly_stats WHERE id = ?");
-client.setWeeklyStats = sql.prepare("INSERT OR REPLACE INTO user_weekly_stats (id, userID, guildID, weekStartDate, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @weekStartDate, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
-client.getTotalStats = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?");
-client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_reactions_added, @total_replies_sent, @total_mentions_received, @total_vc_minutes, @total_disboard_bumps);");
-client.getQuestNotif = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?");
-client.setQuestNotif = sql.prepare("INSERT OR REPLACE INTO quest_notifications (id, userID, guildID, dailyNotif, weeklyNotif, achievementsNotif, levelNotif) VALUES (@id, @userID, @guildID, @dailyNotif, @weeklyNotif, @achievementsNotif, @levelNotif);");
+    client.getDailyStats = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?");
+    client.setDailyStats = sql.prepare("INSERT OR REPLACE INTO user_daily_stats (id, userID, guildID, date, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @date, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
+    client.getWeeklyStats = sql.prepare("SELECT * FROM user_weekly_stats WHERE id = ?");
+    client.setWeeklyStats = sql.prepare("INSERT OR REPLACE INTO user_weekly_stats (id, userID, guildID, weekStartDate, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @weekStartDate, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
+    client.getTotalStats = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?");
+    client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_reactions_added, @total_replies_sent, @total_mentions_received, @total_vc_minutes, @total_disboard_bumps);");
+    client.getQuestNotif = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?");
+    client.setQuestNotif = sql.prepare("INSERT OR REPLACE INTO quest_notifications (id, userID, guildID, dailyNotif, weeklyNotif, achievementsNotif, levelNotif) VALUES (@id, @userID, @guildID, @dailyNotif, @weeklyNotif, @achievementsNotif, @levelNotif);");
+}
 
 // (Optional) Backup scheduler
 try { require('./handlers/backup-scheduler.js')(client, sql); } catch(e) {}
@@ -149,10 +132,11 @@ function getWeekStartDateString() {
 }
 
 // ==================================================================
-// 4. Core System Functions (Levelling, Quests)
+// 4. Helper Functions
 // ==================================================================
 
 client.checkAndAwardLevelRoles = async function(member, newLevel) {
+    if (!client.sql.open) return;
     try {
         const guild = member.guild;
         const allLevelRoles = sql.prepare("SELECT level, roleID FROM level_roles WHERE guildID = ? ORDER BY level DESC").all(guild.id);
@@ -181,8 +165,8 @@ client.checkAndAwardLevelRoles = async function(member, newLevel) {
     } catch (err) { console.error("[Level Roles] Error:", err.message); }
 }
 
-// Leveling function
 client.sendLevelUpMessage = async function(messageOrInteraction, member, newLevel, oldLevel, xpData) {
+    if (!client.sql.open) return;
     try {
         await client.checkAndAwardLevelRoles(member, newLevel);
         const guild = member.guild;
@@ -226,6 +210,7 @@ client.sendLevelUpMessage = async function(messageOrInteraction, member, newLeve
 }
 
 client.sendQuestAnnouncement = async function(guild, member, quest, questType = 'achievement') {
+    if (!client.sql.open) return;
     try {
         const id = `${member.id}-${guild.id}`;
         let notifSettings = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?").get(id);
@@ -303,6 +288,7 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
 }
 
 client.checkQuests = async function(client, member, stats, questType, dateKey) {
+    if (!client.sql.open) return;
     const questsToCheck = questsConfig[questType] || [];
     for (const quest of questsToCheck) {
         const currentProgress = stats[quest.stat] || 0;
@@ -330,6 +316,7 @@ client.checkQuests = async function(client, member, stats, questType, dateKey) {
 }
 
 client.checkAchievements = async function(client, member, levelData, totalStatsData) {
+    if (!client.sql.open) return;
     for (const ach of questsConfig.achievements) {
         let currentProgress = 0;
         const streakData = sql.prepare("SELECT * FROM streaks WHERE guildID = ? AND userID = ?").get(member.id, member.guild.id);
@@ -387,8 +374,11 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
     }
 }
 
-// Increment Stats
+// Increment Stats ( 🌟 Safety Fix Here 🌟 )
 client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
+    // Safety Check
+    if (!client.sql.open) return;
+
     if (stat === 'messages') {
         if (!client.recentMessageTimestamps.has(guildID)) client.recentMessageTimestamps.set(guildID, []);
         const guildTimestamps = client.recentMessageTimestamps.get(guildID);
@@ -453,10 +443,16 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
                  if (levelData) await client.checkAchievements(client, member, levelData, totalStats);
             }
         }
-    } catch (err) { console.error(`[IncrementQuestStats] Error:`, err.message); }
+    } catch (err) { 
+        // Silent catch during database locks
+        if (!err.message.includes("database connection is not open")) {
+            console.error(`[IncrementQuestStats] Error:`, err.message);
+        }
+    }
 }
 
 client.checkRoleAchievement = async function(member, roleId, achievementId) {
+    if (!client.sql.open) return;
     try {
         const guildID = member.guild.id;
         const userID = member.id;
@@ -492,6 +488,7 @@ client.checkRoleAchievement = async function(member, roleId, achievementId) {
 // ==================================================================
 
 function updateMarketPrices() {
+    if (!sql.open) return;
     try {
         const allItems = sql.prepare("SELECT * FROM market_items").all();
         if (allItems.length === 0) return;
@@ -515,6 +512,7 @@ function updateMarketPrices() {
 }
 
 const checkLoanPayments = async () => {
+    if (!sql.open) return;
     const now = Date.now();
     const ONE_DAY = 24 * 60 * 60 * 1000;
     const activeLoans = sql.prepare("SELECT * FROM user_loans WHERE remainingAmount > 0 AND (lastPaymentDate + ?) <= ?").all(ONE_DAY, now);
@@ -551,6 +549,7 @@ const checkLoanPayments = async () => {
 };
 
 async function processFarmYields() {
+    if (!sql.open) return;
     try {
         const now = Date.now();
         const ONE_DAY = 24 * 60 * 60 * 1000;
@@ -577,6 +576,7 @@ async function processFarmYields() {
 }
 
 async function checkTemporaryRoles(client) {
+    if (!sql.open) return;
     const now = Date.now();
     const expiredRoles = sql.prepare("SELECT * FROM temporary_roles WHERE expiresAt <= ?").all(now);
     for (const record of expiredRoles) {
@@ -598,6 +598,7 @@ async function checkTemporaryRoles(client) {
 }
 
 const calculateInterest = () => {
+    if (!sql.open) return;
     const now = Date.now();
     const INTEREST_RATE = 0.0005; 
     const COOLDOWN = 24 * 60 * 60 * 1000; 
@@ -622,6 +623,7 @@ const calculateInterest = () => {
 };
 
 async function updateTimerChannels(client) {
+    if (!sql.open) return;
     const guilds = client.guilds.cache.values();
     const KSA_OFFSET = 3 * 60 * 60 * 1000; 
     for (const guild of guilds) {
@@ -663,6 +665,7 @@ async function updateTimerChannels(client) {
 }
 
 async function updateRainbowRoles(client) {
+    if (!sql.open) return;
     try {
         const rainbowRoles = sql.prepare("SELECT roleID, guildID FROM rainbow_roles").all();
         if (rainbowRoles.length === 0) return;
@@ -678,7 +681,7 @@ async function updateRainbowRoles(client) {
 }
 
 // ==================================================================
-// 6. تشغيل البوت
+// 6. Start Bot
 // ==================================================================
 client.on(Events.ClientReady, async () => { 
     console.log(`✅ Logged in as ${client.user.username}`);
@@ -714,7 +717,7 @@ client.on(Events.ClientReady, async () => {
     }
     try { 
         await rest.put(Routes.applicationCommands(client.user.id), { body: commands }); 
-        console.log(`✅ Reloaded ${commands.length} commands.`); 
+        console.log(`✅ Successfully reloaded ${commands.length} application (/) commands.`); 
     } catch (error) { console.error("[Deploy Error]", error); }
 
     setInterval(calculateInterest, 60 * 60 * 1000); calculateInterest();
