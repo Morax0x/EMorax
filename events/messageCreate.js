@@ -5,7 +5,6 @@ const { processReportLogic, sendReportError } = require("../handlers/report-hand
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
-// كولداون الردود التلقائية + سقاية الشجرة
 const autoResponderCooldowns = new Collection();
 const treeCooldowns = new Set();
 
@@ -46,11 +45,10 @@ module.exports = {
         const client = message.client;
         const sql = client.sql;
 
-        // فحص أمان القاعدة
         if (!sql || !sql.open) return;
         if (!message.guild) return;
 
-        // 1. كشف البومب
+        // 1. Bump Detection
         if (message.author.id === DISBOARD_BOT_ID) {
             let bumperID = null;
             if (message.interaction && message.interaction.commandName === 'bump') {
@@ -71,7 +69,7 @@ module.exports = {
 
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
 
-        // 2. تتبع سقاية الشجرة
+        // 2. Tree Watering Tracker
         if (settings && settings.treeChannelID && message.channel.id === settings.treeChannelID) {
             if (message.author.bot) {
                 const fullContent = (message.content || "") + " " + (message.embeds[0]?.description || "") + " " + (message.embeds[0]?.title || "");
@@ -100,23 +98,22 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
 
         // ============================================================
-        // 🌟 3. معالج الاختصارات (المحصور بالقناة والدقيق) 🌟
+        // 🌟 3. Shortcut Handler (Strict Channel Only) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
-            // 1. البحث الصارم: يجب أن يتطابق channelID مع القناة الحالية
+            // 1. Strict Search: Must match channelID
             const shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
-            // ( 🛑 تم حذف البحث العام Fallback نهائياً 🛑 )
+            // ( 🛑 Removed Fallback Logic Here 🛑 )
 
             if (shortcut) {
-                // الاسم المسجل في الداتابيس (مثلاً "mora" أو "profile")
                 const targetName = shortcut.commandName.toLowerCase();
 
-                // البحث عن الأمر في الكولكشن (بالاسم أو الـ Alias)
+                // Dynamic Command Search (Name or Alias)
                 const cmd = client.commands.get(targetName) || 
                             client.commands.find(c => c.aliases && c.aliases.includes(targetName));
 
@@ -128,22 +125,19 @@ module.exports = {
                              return;
                         }
                         try {
-                            // تمرير البريفكس الفارغ للأوامر التي تحتاجه
+                            // Pass empty prefix
                             const finalArgs = argsRaw.slice(1);
                             finalArgs.prefix = ""; 
                             await cmd.execute(message, finalArgs); 
                         } catch (e) { console.error(`[Shortcut Error]`, e); }
                     }
-                    return; // ✅ تم التنفيذ وتوقف هنا (لن يكمل للبريفكس)
-                } else {
-                    // إذا كان الاختصار موجود في الداتابيس بس الأمر مو محمل
-                    // console.log(`[Shortcut] Command '${targetName}' not found in loaded commands.`);
+                    return; // ✅ Execution finished, stop here
                 }
             }
         } catch (err) { console.error("[Shortcut Handler Error]", err); }
         // ============================================================
 
-        // 4. معالج البريفكس (التقليدي)
+        // 4. Prefix Handler
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
@@ -175,7 +169,7 @@ module.exports = {
             }
         }
 
-        // 5. القنوات الخاصة
+        // 5. Special Channels
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             if (message.content.trim().startsWith("بلاغ")) {
                 const args = message.content.trim().split(/ +/); args.shift(); await message.delete().catch(() => {});
@@ -206,7 +200,7 @@ module.exports = {
             if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
         } catch (e) {}
 
-        // 6. الردود التلقائية
+        // 6. Auto Responder
         try {
             const autoResponses = sql.prepare("SELECT * FROM auto_responses WHERE guildID = ?").all(message.guild.id);
             const content = message.content.trim().toLowerCase();
@@ -251,13 +245,14 @@ module.exports = {
             }
         } catch (err) { console.error("[Auto Responder Error]", err); }
 
-        // 7. تتبع الإحصائيات
+        // 7. Stats Tracker
         try {
             const userID = message.author.id;
             const guildID = message.guild.id;
 
             if (client.incrementQuestStats) {
                 await client.incrementQuestStats(userID, guildID, 'messages', 1);
+                
                 if (message.attachments.size > 0) await client.incrementQuestStats(userID, guildID, 'images', 1);
                 if (message.stickers.size > 0) await client.incrementQuestStats(userID, guildID, 'stickers', message.stickers.size);
                 
@@ -306,7 +301,7 @@ module.exports = {
             }
         } catch (err) {}
 
-        // 8. نظام XP والستريك
+        // 8. XP & Streak
         await handleStreakMessage(message);
         
         let level = client.getLevel.get(message.author.id, message.guild.id);
