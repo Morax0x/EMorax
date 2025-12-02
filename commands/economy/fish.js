@@ -1,18 +1,36 @@
 const { SlashCommandBuilder, EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags } = require("discord.js");
 const path = require('path');
 
-// استدعاء ملفات الإعدادات
+// 1. تحديد المسار الجذري
 const rootDir = process.cwd();
+
+// 2. استدعاء ملف الإعدادات
 const fishingConfig = require(path.join(rootDir, 'json', 'fishing-config.json'));
 
-// استدعاء دوال الـ PvP
-let pvpCore = {};
+// 3. استدعاء دوال الـ PvP بطريقة آمنة جداً
+let pvpCore;
 try {
-    pvpCore = require('../../handlers/pvp-core.js'); 
+    // نستخدم path.join لضمان المسار الصحيح
+    pvpCore = require(path.join(rootDir, 'handlers', 'pvp-core.js'));
 } catch (e) {
-    console.warn("⚠️ Warning: pvp-core.js not found. Using default values for fishing combat.");
-    pvpCore.getWeaponData = () => null;
+    console.error("[Fish Cmd] Error loading pvp-core.js:", e.message);
+    pvpCore = {}; // كائن فارغ لتجنب الانهيار
+}
+
+// 4. التأكد من وجود الدوال (Self-Healing)
+// إذا لم تكن الدالة موجودة، نضع دالة وهمية تمنع الكراش
+if (typeof pvpCore.getWeaponData !== 'function') {
+    console.warn("[Fish Cmd] Warning: getWeaponData missing, using fallback.");
+    pvpCore.getWeaponData = () => ({ name: "سكين صيد صدئة", currentDamage: 15, currentLevel: 1 });
+}
+if (typeof pvpCore.getUserActiveSkill !== 'function') {
     pvpCore.getUserActiveSkill = () => null;
+}
+if (typeof pvpCore.startPveBattle !== 'function') {
+    console.warn("[Fish Cmd] Warning: startPveBattle missing, using fallback.");
+    pvpCore.startPveBattle = async (i) => {
+        await i.followUp({ content: "⚠️ حدث خطأ: نظام القتال غير جاهز حالياً.", flags: [MessageFlags.Ephemeral] });
+    };
 }
 
 // استخراج البيانات
@@ -26,17 +44,10 @@ const monstersConfig = fishingConfig.monsters || [];
 const OWNER_ID = "1145327691772481577";
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 
-// 🎨 قائمة الألوان المتاحة للعبة المصغرة
+// 🎨 قائمة الألوان
 const COLOR_GAME_OPTIONS = [
-    { id: 'red', emoji: '🔴', label: 'أحمر' },
-    { id: 'blue', emoji: '🔵', label: 'أزرق' },
-    { id: 'green', emoji: '🟢', label: 'أخضر' },
-    { id: 'yellow', emoji: '🟡', label: 'أصفر' },
-    { id: 'purple', emoji: '🟣', label: 'بنفسجي' },
-    { id: 'white', emoji: '⚪', label: 'أبيض' },
-    { id: 'black', emoji: '⚫', label: 'أسود' },
-    { id: 'orange', emoji: '🟠', label: 'برتقالي' },
-    { id: 'brown', emoji: '🟤', label: 'بني' }
+    { id: 'red', emoji: '🔴' }, { id: 'blue', emoji: '🔵' }, { id: 'green', emoji: '🟢' },
+    { id: 'yellow', emoji: '🟡' }, { id: 'purple', emoji: '🟣' }, { id: 'white', emoji: '⚪' }
 ];
 
 module.exports = {
@@ -117,7 +128,7 @@ module.exports = {
 
         if (isSlash) await interactionOrMessage.deferReply();
 
-        // 3. واجهة الانتظار
+        // واجهة الانتظار
         const startEmbed = new EmbedBuilder()
             .setTitle(`🎣 رحلة صيد: ${currentLocation.name}`)
             .setColor(Colors.Blue)
@@ -151,28 +162,21 @@ module.exports = {
             const waitTime = Math.floor(Math.random() * 3000) + 2000;
 
             setTimeout(async () => {
-                // 🎲 إعداد لعبة الألوان
+                // 🎲 لعبة الألوان
                 const targetColor = COLOR_GAME_OPTIONS[Math.floor(Math.random() * COLOR_GAME_OPTIONS.length)];
                 
                 let distractors = COLOR_GAME_OPTIONS.filter(c => c.id !== targetColor.id);
                 distractors = distractors.sort(() => 0.5 - Math.random()).slice(0, 3);
-                
-                let gameButtons = [targetColor, ...distractors];
-                gameButtons = gameButtons.sort(() => 0.5 - Math.random());
+                let gameButtons = [targetColor, ...distractors].sort(() => 0.5 - Math.random());
 
                 const gameRow = new ActionRowBuilder();
                 gameButtons.forEach(btn => {
                     gameRow.addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`fish_click_${btn.id}`)
-                            .setEmoji(btn.emoji)
-                            .setStyle(ButtonStyle.Secondary)
+                        new ButtonBuilder().setCustomId(`fish_click_${btn.id}`).setEmoji(btn.emoji).setStyle(ButtonStyle.Secondary)
                     );
                 });
 
-                // لون عشوائي للايمبد
                 const randomEmbedColor = Math.floor(Math.random() * 0xFFFFFF);
-
                 const biteEmbed = new EmbedBuilder()
                     .setTitle("🎣 الـسنـارة تهـتز اسحـب الان !")
                     .setDescription(`**اسحـب السنـارة بسـرعة اضغـط على** ${targetColor.emoji}`)
@@ -189,18 +193,11 @@ module.exports = {
                     
                     const clickedColorId = j.customId.replace('fish_click_', '');
 
-                    // ❌ إذا ضغط اللون الخطأ
                     if (clickedColorId !== targetColor.id) {
                         pullCollector.stop('wrong_color');
-                        
                         const clickedButtonObj = COLOR_GAME_OPTIONS.find(c => c.id === clickedColorId);
                         const wrongEmoji = clickedButtonObj ? clickedButtonObj.emoji : '❓';
-
-                        const failEmbed = new EmbedBuilder()
-                            .setTitle("❌ أفلتت السنارة!")
-                            .setDescription(`سحـبت السنـارة من المـكان الغـلط ضغـطت زر ${wrongEmoji}`)
-                            .setColor(Colors.Red);
-                        
+                        const failEmbed = new EmbedBuilder().setTitle("❌ أفلتت السنارة!").setDescription(`سحـبت السنـارة من المـكان الغـلط ضغـطت زر ${wrongEmoji}`).setColor(Colors.Red);
                         userData.lastFish = Date.now();
                         client.setLevel.run(userData);
                         await j.editReply({ embeds: [failEmbed], components: [] });
@@ -214,30 +211,31 @@ module.exports = {
                     // ========================================================
                     const monsterChanceBase = Math.random();
                     const isOwner = user.id === OWNER_ID;
-                    
-                    // 50% للمالك، 10% للبقية
                     const monsterTriggered = isOwner ? (monsterChanceBase < 0.50) : (monsterChanceBase < 0.10);
 
-                    // فلترة الوحوش حسب المنطقة
+                    // فلترة الوحوش
                     let possibleMonsters = monstersConfig.filter(m => m.locations.includes(locationId));
-                    // للمالك: إذا المنطقة فارغة، اجلب أي وحش
                     if (isOwner && possibleMonsters.length === 0) possibleMonsters = monstersConfig; 
                     
                     if (possibleMonsters.length > 0 && monsterTriggered) {
                         const monster = possibleMonsters[Math.floor(Math.random() * possibleMonsters.length)];
                         
+                        // هنا الإصلاح: نستخدم pvpCore.getWeaponData بدلاً من افتراض وجوده
                         let playerWeapon = pvpCore.getWeaponData(sql, j.member);
                         if (!playerWeapon || playerWeapon.currentLevel === 0) {
                             playerWeapon = { name: "سكين صيد صدئة", currentDamage: 15, currentLevel: 1 };
                         }
 
-                        // 🔥 بدء المعركة الحقيقية (نظام الأدوار)
-                        // نمرر j (التفاعل) ليبدأ القتال في نفس الرسالة أو رسالة جديدة
-                        await pvpCore.startPveBattle(j, client, sql, j.member, monster, playerWeapon);
-                        return; // 🛑 نخرج من الدالة، لأن ملفات PvP ستتولى الباقي
+                        // بدء القتال (بأمان)
+                        if (pvpCore.startPveBattle) {
+                            await pvpCore.startPveBattle(j, client, sql, j.member, monster, playerWeapon);
+                            return; 
+                        } else {
+                            console.error("pvpCore.startPveBattle is missing!");
+                        }
                     }
 
-                    // --- الصيد الطبيعي (إذا لم يظهر وحش) ---
+                    // --- الصيد الطبيعي ---
                     const fishCount = Math.floor(Math.random() * currentRod.max_fish) + 1;
                     let caughtFish = [];
                     let totalValue = 0;
@@ -260,13 +258,7 @@ module.exports = {
                         
                         if (possibleFish.length > 0) {
                             const fish = possibleFish[Math.floor(Math.random() * possibleFish.length)];
-                            sql.prepare(`
-                                INSERT INTO user_portfolio (guildID, userID, itemID, quantity) 
-                                VALUES (?, ?, ?, 1) 
-                                ON CONFLICT(guildID, userID, itemID) 
-                                DO UPDATE SET quantity = quantity + 1
-                            `).run(guild.id, user.id, fish.id);
-
+                            sql.prepare(`INSERT INTO user_portfolio (guildID, userID, itemID, quantity) VALUES (?, ?, ?, 1) ON CONFLICT(guildID, userID, itemID) DO UPDATE SET quantity = quantity + 1`).run(guild.id, user.id, fish.id);
                             caughtFish.push(fish);
                             totalValue += fish.price;
                         }
@@ -293,7 +285,7 @@ module.exports = {
                     const successEmbed = new EmbedBuilder()
                         .setTitle(`✥ رحـلـة صيـد فـي المحيـط !`) 
                         .setDescription(description)
-                        .setColor(randomEmbedColor) // لون عشوائي
+                        .setColor(randomEmbedColor)
                         .setThumbnail('https://i.postimg.cc/Wz0g0Zg0/fishing.png')
                         .setFooter({ text: `السنارة: ${currentRod.name} (Lvl ${currentRod.level})` });
 
@@ -302,14 +294,9 @@ module.exports = {
 
                 pullCollector.on('end', async (collected, reason) => {
                     if (reason === 'time' || (reason !== 'success' && reason !== 'wrong_color' && collected.size === 0)) {
-                        const failEmbed = new EmbedBuilder()
-                            .setTitle("💨 هربت السمكة!")
-                            .setDescription("تأخرت في الاستجابة! السمكة سريعة جدًا.")
-                            .setColor(Colors.Red);
-                        
+                        const failEmbed = new EmbedBuilder().setTitle("💨 هربت السمكة!").setDescription("تأخرت في الاستجابة! السمكة سريعة جدًا.").setColor(Colors.Red);
                         userData.lastFish = Date.now();
                         client.setLevel.run(userData);
-
                         await i.editReply({ embeds: [failEmbed], components: [] }).catch(() => {});
                     }
                 });
