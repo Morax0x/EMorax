@@ -3,6 +3,8 @@ const path = require('path');
 
 // --- ( 🌟 الحل الجذري للمسارات: استخدام المسار الرئيسي للبوت 🌟 ) ---
 const rootDir = process.cwd(); // هذا يجيب المسار الرئيسي للمشروع
+
+// بما أن الملف في commands/top.js، نحتاج للمسارات التالية:
 const weaponsConfigPath = path.join(rootDir, 'json', 'weapons-config.json');
 const pvpCorePath = path.join(rootDir, 'handlers', 'pvp-core.js');
 
@@ -12,7 +14,7 @@ const { getUserRace, getWeaponData, BASE_HP, HP_PER_LEVEL } = require(pvpCorePat
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const EMOJI_MEDIA_STREAK = '<a:Streak:1438932297519730808>';
-const ROWS_PER_PAGE = 5; // 5 أعضاء في الصفحة
+const ROWS_PER_PAGE = 5; 
 
 const IMAGES = {
     level: 'https://i.postimg.cc/9FWddtV8/123.png',
@@ -22,6 +24,7 @@ const IMAGES = {
     strongest: 'https://i.postimg.cc/pL7PLmf0/power.webp',
     weekly_xp: 'https://i.postimg.cc/9FWddtV8/123.png',
     daily_xp: 'https://i.postimg.cc/9FWddtV8/123.png',
+    monthly_xp: 'https://i.postimg.cc/9FWddtV8/123.png', // (صورة الشهر)
     achievements: 'https://i.postimg.cc/bwxwsnvs/qaʿt-alanjazat.png'
 };
 
@@ -44,6 +47,12 @@ function getTodayDateString() {
     return new Date().toISOString().split('T')[0];
 }
 
+function getMonthStartDateString() {
+    const now = new Date();
+    const firstDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    return firstDay.toISOString().split('T')[0];
+}
+
 function getTimeRemaining(type) {
     const now = new Date();
     const ksaOffset = 3 * 60 * 60 * 1000;
@@ -53,12 +62,14 @@ function getTimeRemaining(type) {
     if (type === 'daily') {
         end = new Date(nowKSA);
         end.setHours(24, 0, 0, 0);
-    } else { 
+    } else if (type === 'weekly') { 
         end = new Date(nowKSA);
         const day = nowKSA.getDay();
         const diff = (5 - day + 7) % 7; 
         end.setDate(nowKSA.getDate() + diff + (diff === 0 && nowKSA.getHours() >= 0 ? 7 : 0));
         end.setHours(0, 0, 0, 0);
+    } else if (type === 'monthly') {
+        end = new Date(Date.UTC(nowKSA.getUTCFullYear(), nowKSA.getUTCMonth() + 1, 1));
     }
     
     const ms = end - nowKSA;
@@ -85,20 +96,27 @@ async function generateLeaderboard(sql, guild, type, page, targetUserId = null) 
         } else if (type === 'weekly_xp') {
             embed.setTitle(`✥ اعـلـى الـمصـنـفـيـن في الاسبـوع`);
             const weekStart = getWeekStartDateString();
-            allUsers = sql.prepare(`
-                SELECT *, (messages * 15 + vc_minutes * 10) as score 
-                FROM user_weekly_stats WHERE guildID = ? AND weekStartDate = ? AND score > 0 ORDER BY score DESC
-            `).all(guild.id, weekStart);
+            allUsers = sql.prepare(`SELECT *, (messages * 15 + vc_minutes * 10) as score FROM user_weekly_stats WHERE guildID = ? AND weekStartDate = ? AND score > 0 ORDER BY score DESC`).all(guild.id, weekStart);
             embed.setFooter({ text: `باقي: ${getTimeRemaining('weekly')} لتـحديـث الترتيـب` });
 
         } else if (type === 'daily_xp') {
             embed.setTitle(`✥ اعـلـى الـمصـنـفـيـن اليـوم`);
             const today = getTodayDateString();
-            allUsers = sql.prepare(`
-                SELECT *, (messages * 15 + vc_minutes * 10) as score 
-                FROM user_daily_stats WHERE guildID = ? AND date = ? AND score > 0 ORDER BY score DESC
-            `).all(guild.id, today);
+            allUsers = sql.prepare(`SELECT *, (messages * 15 + vc_minutes * 10) as score FROM user_daily_stats WHERE guildID = ? AND date = ? AND score > 0 ORDER BY score DESC`).all(guild.id, today);
             embed.setFooter({ text: `باقي: ${getTimeRemaining('daily')} لتـحديـث الترتيـب` });
+
+        } else if (type === 'monthly_xp') {
+            embed.setTitle(`✥ اعـلـى الـمصـنـفـيـن لـهذا الـشـهـر`);
+            const monthStart = getMonthStartDateString();
+            allUsers = sql.prepare(`
+                SELECT userID, SUM(messages * 15 + vc_minutes * 10) as score 
+                FROM user_daily_stats 
+                WHERE guildID = ? AND date >= ? 
+                GROUP BY userID 
+                HAVING score > 0 
+                ORDER BY score DESC
+            `).all(guild.id, monthStart);
+            embed.setFooter({ text: `باقي: ${getTimeRemaining('monthly')} لتـحديـث الترتيـب` });
 
         } else if (type === 'mora') {
             embed.setTitle(`<:mora:1435647151349698621> اثـريـاء الـسيرفـر`);
@@ -169,7 +187,7 @@ async function generateLeaderboard(sql, guild, type, page, targetUserId = null) 
                 let line = `${rankEmoji} ${pin}<@${uID}>\n`;
 
                 if (type === 'level') line += `> ${styleStart}XP: \`${user.totalXP.toLocaleString()}\` (Lvl: ${user.level})${styleEnd}`;
-                else if (type === 'weekly_xp' || type === 'daily_xp') line += `> ${styleStart}Txt: \`${(user.messages||0).toLocaleString()}\` | VC: \`${(user.vc_minutes||0).toLocaleString()}\`${styleEnd}`;
+                else if (type === 'weekly_xp' || type === 'daily_xp' || type === 'monthly_xp') line += `> ${styleStart}Score: \`${(user.score||0).toLocaleString()}\`${styleEnd}`;
                 else if (type === 'mora') line += `> ${styleStart}Mora: \`${((user.mora||0) + (user.bank||0)).toLocaleString()}\` ${EMOJI_MORA}${styleEnd}`;
                 else if (type === 'streak' || type === 'media_streak') line += `> ${styleStart}Streak: \`${user.streakCount}\` ${type === 'media_streak' ? EMOJI_MEDIA_STREAK : '🔥'}${styleEnd}`;
                 else if (type === 'achievements') line += `> ${styleStart}Count: \`${user.count}\` 🏆${styleEnd}`;
@@ -214,7 +232,7 @@ module.exports = {
             { name: 'Level', value: 'level' }, { name: 'Mora', value: 'mora' },
             { name: 'Streak', value: 'streak' }, { name: 'Strongest', value: 'strongest' },
             { name: 'Achievements', value: 'achievements' }, { name: 'Weekly', value: 'weekly_xp' },
-            { name: 'Daily', value: 'daily_xp' }
+            { name: 'Daily', value: 'daily_xp' }, { name: 'Monthly', value: 'monthly_xp' }
         ))
         .addIntegerOption(opt => opt.setName('صفحة').setDescription('رقم الصفحة')),
 
@@ -226,7 +244,7 @@ module.exports = {
 
     async execute(interactionOrMessage, args) {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
-        let interaction, message, guild, client, user;
+        let interaction, message, guild, client, user, channelId;
         let currentPage = 1;
         let argType = 'level'; 
 
@@ -235,6 +253,7 @@ module.exports = {
             guild = interaction.guild;
             client = interaction.client;
             user = interaction.user;
+            channelId = interaction.channelId;
             currentPage = interaction.options.getInteger('صفحة') || 1;
             argType = interaction.options.getString('التصنيف') || 'level';
             await interaction.deferReply();
@@ -243,11 +262,19 @@ module.exports = {
             guild = message.guild;
             client = message.client;
             user = message.author;
+            channelId = message.channel.id;
             
+            // ( 🌟 الكشف التلقائي عن الكازينو 🌟 )
+            const settings = client.sql.prepare("SELECT casinoChannelID FROM settings WHERE guild = ?").get(guild.id);
+            if (settings && settings.casinoChannelID === channelId) {
+                argType = 'mora'; 
+            }
+
             const cmd = message.content.split(' ')[0].slice(1).toLowerCase(); 
             if (cmd.includes('mora') || cmd.includes('اغنى')) argType = 'mora';
             else if (cmd.includes('streak')) argType = 'streak';
             else if (cmd.includes('week') || cmd.includes('اسبوع')) argType = 'weekly_xp';
+            else if (cmd.includes('month') || cmd.includes('شهر')) argType = 'monthly_xp';
             else if (cmd.includes('daily') || cmd.includes('يومي')) argType = 'daily_xp';
             else if (cmd.includes('اقوى')) argType = 'strongest';
             else if (cmd.includes('achievements') || cmd.includes('انجازات')) argType = 'achievements';
@@ -255,6 +282,7 @@ module.exports = {
             if (args && args.length > 0) {
                 const firstArg = args[0].toLowerCase();
                 if (['week', 'weekly', 'w', 'اسبوع', 'اسبوعي'].includes(firstArg)) argType = 'weekly_xp';
+                else if (['month', 'monthly', 'm', 'شهر', 'شهري'].includes(firstArg)) argType = 'monthly_xp';
                 else if (['day', 'daily', 'd', 'يومي', 'يوم'].includes(firstArg)) argType = 'daily_xp';
                 else if (['mora', 'money', 'coins', 'مورا', 'فلوس'].includes(firstArg)) argType = 'mora';
                 else if (['streak', 'st', 'ستريك'].includes(firstArg)) argType = 'streak';
@@ -298,7 +326,8 @@ module.exports = {
                 const clicked = i.customId.replace('top_', '');
                 if (clicked === 'level') {
                     if (argType === 'level') argType = 'weekly_xp';
-                    else if (argType === 'weekly_xp') argType = 'daily_xp';
+                    else if (argType === 'weekly_xp') argType = 'monthly_xp'; // (إضافة الشهري للتدوير)
+                    else if (argType === 'monthly_xp') argType = 'daily_xp';
                     else argType = 'level';
                 } else if (clicked === 'streak') {
                     argType = (argType === 'streak') ? 'media_streak' : 'streak';
