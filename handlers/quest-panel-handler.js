@@ -1,10 +1,7 @@
 const { EmbedBuilder, Colors, ButtonBuilder, ButtonStyle, ActionRowBuilder, ComponentType } = require("discord.js");
-
-// ( 🌟 تصحيح المسارات بناءً على ما أرسلته لي 🌟 )
-// بما أن الملفات في commands مباشرة، نحذف "leveling" من المسار
+// تأكد أن المسارات صحيحة لملفات الأوامر
 const { buildAchievementsEmbed, buildDailyEmbed, buildWeeklyEmbed } = require('../commands/achievements.js');
 const { generateLeaderboard } = require('../commands/top.js'); 
-
 const questsConfig = require('../json/quests-config.json');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
@@ -13,11 +10,8 @@ const EMOJI_STAR = '⭐';
 // --- الدوال المساعدة ---
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
-    const now = new Date();
-    const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7;
-    const friday = new Date(now.setUTCDate(diff));
-    friday.setUTCHours(0, 0, 0, 0);
-    return friday.toISOString().split('T')[0];
+    const now = new Date(); const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7;
+    const friday = new Date(now.setUTCDate(diff)); friday.setUTCHours(0, 0, 0, 0); return friday.toISOString().split('T')[0];
 }
 
 function createNotifButton(label, customId, currentStatus) {
@@ -28,6 +22,7 @@ function createNotifButton(label, customId, currentStatus) {
         .setStyle(isEnabled ? ButtonStyle.Success : ButtonStyle.Danger);
 }
 
+// --- دالة إنجازاتي ---
 async function buildMyAchievementsEmbed(interaction, sql, page = 1) {
     try {
         const completed = sql.prepare("SELECT * FROM user_achievements WHERE userID = ? AND guildID = ?").all(interaction.user.id, interaction.guild.id);
@@ -59,38 +54,49 @@ async function handleQuestPanel(i, client, sql) {
     let currentPage = 1;
     let section = "";
 
-    // 1. تحديد القسم والصفحة
+    // 1. تحليل التفاعل وتحديد القسم (Section Parsing)
     if (i.isStringSelectMenu()) {
-        section = i.values[0];
+        section = i.values[0]; // القيم: daily, weekly, achievements...
         await i.deferUpdate(); 
     } 
     else if (i.isButton()) {
-        let rawId = i.customId.replace('panel_', '');
+        // ID يأتي بصيغة: panel_SECTION_prev_PAGE أو panel_SECTION
+        const customId = i.customId;
         
-        if (rawId.includes('_prev_') || rawId.includes('_next_')) {
-            const parts = rawId.split('_');
-            const pageNum = parseInt(parts.pop()); 
-            const action = parts.pop(); 
-            section = parts.join('_'); 
+        // هل هو زر تقليب صفحات؟ (يحتوي على _prev_ أو _next_)
+        const paginationMatch = customId.match(/_(prev|next)_(\d+)$/);
+        
+        if (paginationMatch) {
+            // استخراج المعلومات من الـ ID
+            const action = paginationMatch[1]; // prev أو next
+            const pageNum = parseInt(paginationMatch[2]); // رقم الصفحة
+            
+            // استخراج اسم القسم (نحذف البادئة panel_ ونحذف لاحقة _prev_1)
+            // مثال: panel_daily_next_1 -> daily
+            section = customId.replace('panel_', '').replace(/_(prev|next)_\d+$/, '');
+            
             currentPage = pageNum;
             if (action === 'prev') currentPage--;
             if (action === 'next') currentPage++;
         } 
         else {
-            section = rawId;
+            // زر عادي (مثل الإشعارات أو قسم مباشر)
+            section = customId.replace('panel_', '');
         }
+        
         await i.deferUpdate();
     } else {
         await i.deferReply({ ephemeral: true });
-        section = i.customId.replace('panel_', '');
+        section = "unknown";
     }
 
+    // ( معالجة خاصة لقسم الإمبراطورية )
     if (section === 'empire') {
          return i.followUp({ content: "🚧 **قسم مهام الإمبراطورية قيد التطوير حالياً!**", ephemeral: true });
     }
 
     // 2. منطق الإشعارات
-    if (section.startsWith('toggle_notif') || section === 'notifications') {
+    if (section === 'notifications' || section.includes('toggle_notif')) {
         let notifData = client.getQuestNotif.get(id);
         if (!notifData) {
             notifData = { id: id, userID: userId, guildID: guildId, dailyNotif: 1, weeklyNotif: 1, achievementsNotif: 1, levelNotif: 1 };
@@ -98,11 +104,11 @@ async function handleQuestPanel(i, client, sql) {
         }
         if (typeof notifData.levelNotif === 'undefined') notifData.levelNotif = 1;
 
-        if (section.startsWith('toggle_notif')) {
-            if (section.endsWith('daily')) notifData.dailyNotif = notifData.dailyNotif === 1 ? 0 : 1;
-            else if (section.endsWith('weekly')) notifData.weeklyNotif = notifData.weeklyNotif === 1 ? 0 : 1;
-            else if (section.endsWith('ach')) notifData.achievementsNotif = notifData.achievementsNotif === 1 ? 0 : 1;
-            else if (section.endsWith('level')) notifData.levelNotif = notifData.levelNotif === 1 ? 0 : 1;
+        if (section.includes('toggle_notif')) {
+            if (section.includes('daily')) notifData.dailyNotif = notifData.dailyNotif === 1 ? 0 : 1;
+            else if (section.includes('weekly')) notifData.weeklyNotif = notifData.weeklyNotif === 1 ? 0 : 1;
+            else if (section.includes('ach')) notifData.achievementsNotif = notifData.achievementsNotif === 1 ? 0 : 1;
+            else if (section.includes('level')) notifData.levelNotif = notifData.levelNotif === 1 ? 0 : 1;
             client.setQuestNotif.run(notifData);
         }
 
@@ -132,6 +138,7 @@ async function handleQuestPanel(i, client, sql) {
     let totalPages = 1;
     let data;
 
+    // ( 🌟 التوجيه الدقيق للأقسام 🌟 )
     if (section === 'daily') {
         data = await buildDailyEmbed(sql, i.member, dailyStats, currentPage);
     } else if (section === 'weekly') {
@@ -143,7 +150,7 @@ async function handleQuestPanel(i, client, sql) {
     } else if (section === 'achievements') { 
         data = await buildAchievementsEmbed(sql, i.member, levelData, totalStats, completedAchievements, currentPage);
     } else {
-        return i.followUp({ content: "❌ هذا القسم غير متوفر حالياً.", ephemeral: true });
+        return i.followUp({ content: `❌ خطأ: القسم غير معروف (${section})`, ephemeral: true });
     }
 
     if (data) {
@@ -157,7 +164,7 @@ async function handleQuestPanel(i, client, sql) {
     if (totalPages > 1) {
         const pageRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
-                .setCustomId(`panel_${section}_prev_${currentPage}`)
+                .setCustomId(`panel_${section}_prev_${currentPage}`) // ID نظيف وموحد
                 .setStyle(ButtonStyle.Secondary)
                 .setEmoji('<:left:1439164494759723029>')
                 .setDisabled(currentPage === 1),
