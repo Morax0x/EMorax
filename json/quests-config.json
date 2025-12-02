@@ -113,7 +113,7 @@
       "name": "ارسل 3 ستيكر",
       "description": "ارسل 3 ملصق (Sticker)",
       "stat": "stickers",
-      "goal": 20,
+      "goal": 3,
       "reward": { "mora": 300, "xp": 150 },
       "emoji": "🎟️"
     }
