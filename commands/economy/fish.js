@@ -18,7 +18,7 @@ const EMOJI_MORA = '<:mora:1435647151349698621>';
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('صيد')
-        .setDescription('ابدأ رحلة الصيد (ميني جيم).'),
+        .setDescription('ابـدأ رحـلـة صيد'),
 
     name: 'fish',
     aliases: ['صيد', 'ص', 'fishing'],
@@ -70,12 +70,15 @@ module.exports = {
         const lastFish = userData.lastFish || 0;
         const now = Date.now();
 
-        // ( ⚠️ ملاحظة: الكولداون لا يعمل عليك لأنك المالك، جرب بحساب ثاني للتأكد )
+        // ( ⚠️ ملاحظة: الكولداون لا يعمل عليك لأنك المالك )
         if (user.id !== OWNER_ID && (now - lastFish < cooldown)) {
             const remaining = lastFish + cooldown - now;
             const minutes = Math.floor((remaining % 3600000) / 60000);
-            const seconds = Math.floor((remaining % 60000) / 1000);
-            return reply({ content: `⏳ | أنت متعب! ارتح قليلاً.\nالوقت المتبقي: **${minutes}د ${seconds}ث**` });
+            // إضافة padStart لضمان ظهور الثواني برقمين دائماً (مثلاً 05 بدلاً من 5)
+            const seconds = Math.floor((remaining % 60000) / 1000).toString().padStart(2, '0');
+            
+            // 🌟 التعديل الأول: تغيير رسالة الانتظار للتنسيق المطلوب
+            return reply({ content: `قمـت بالصيـد مؤخـرا انتـظـر **${minutes}:${seconds}** لتـذهب للصيـد مجددا` });
         }
 
         if (isSlash) await interactionOrMessage.deferReply();
@@ -131,7 +134,9 @@ module.exports = {
 
                 // مستقبل للزر الثاني (السحب)
                 const pullFilter = j => j.user.id === user.id && j.customId === 'pull_rod_now';
-                const pullCollector = msg.createMessageComponentCollector({ filter: pullFilter, time: 3000, max: 1 }); // معه 3 ثواني بس
+                
+                // 🌟 التعديل الثاني: تقليل وقت السحب إلى 2000 ملي ثانية (ثانيتين)
+                const pullCollector = msg.createMessageComponentCollector({ filter: pullFilter, time: 2000, max: 1 }); 
 
                 pullCollector.on('collect', async j => {
                     await j.deferUpdate();
@@ -144,12 +149,12 @@ module.exports = {
                     for (let k = 0; k < fishCount; k++) {
                         const roll = Math.random() * 100 + (currentRod.luck_bonus || 0);
                         let rarity = 1;
-                        if (roll > 95) rarity = 6;       
-                        else if (roll > 85) rarity = 5;  
-                        else if (roll > 70) rarity = 4;  
-                        else if (roll > 50) rarity = 3;  
-                        else if (roll > 30) rarity = 2;  
-                        else rarity = 1;                 
+                        if (roll > 95) rarity = 6;        
+                        else if (roll > 85) rarity = 5;   
+                        else if (roll > 70) rarity = 4;   
+                        else if (roll > 50) rarity = 3;   
+                        else if (roll > 30) rarity = 2;   
+                        else rarity = 1;                  
 
                         // الفلترة حسب المنطقة (Location Logic)
                         let possibleFish = [];
@@ -189,7 +194,6 @@ module.exports = {
                         let rarityStar = "";
                         if (info.rarity >= 5) rarityStar = "🌟"; else if (info.rarity === 4) rarityStar = "✨";
                         
-                        // ( 🌟 التعديل هنا: نقل العدد للنهاية 🌟 )
                         description += `✶ ${info.emoji} ${name} ${rarityStar} **x${info.count}**\n`;
                     }
                     description += `\n✶ قيـمـة الصيد: \`${totalValue.toLocaleString()}\` ${EMOJI_MORA}`;
@@ -209,7 +213,7 @@ module.exports = {
                         // انتهى الوقت ولم يضغط
                         const failEmbed = new EmbedBuilder()
                             .setTitle("💨 هربت السمكة!")
-                            .setDescription("تأخرت في السحب! حاول مرة أخرى لاحقاً.")
+                            .setDescription("يـا فـاشـل هـربـت السمـكـة منـك <:mirkk:1435648219488190525>")
                             .setColor(Colors.Red);
                         
                         // نحدث الوقت حتى لو فشل (عشان الكولداون)
