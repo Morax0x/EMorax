@@ -48,7 +48,7 @@ module.exports = {
         if (!sql || !sql.open) return;
         if (!message.guild) return;
 
-        // 1. كشف البومب
+        // 1. Bump Detection
         if (message.author.id === DISBOARD_BOT_ID) {
             let bumperID = null;
             if (message.interaction && message.interaction.commandName === 'bump') {
@@ -69,12 +69,13 @@ module.exports = {
 
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
 
-        // 2. تتبع سقاية الشجرة
+        // 2. Tree Watering Tracker
         if (settings && settings.treeChannelID && message.channel.id === settings.treeChannelID) {
             if (message.author.bot) {
                 const fullContent = (message.content || "") + " " + (message.embeds[0]?.description || "") + " " + (message.embeds[0]?.title || "");
                 const lowerContent = fullContent.toLowerCase();
                 const validPhrases = ["watered the tree", "سقى الشجرة", "has watered", "قام بسقاية"];
+                
                 if (validPhrases.some(p => lowerContent.includes(p))) {
                     const match = fullContent.match(/<@!?(\d+)>/);
                     if (match && match[1]) {
@@ -97,48 +98,58 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
 
         // ============================================================
-        // 🌟 3. معالج الاختصارات (مع تشخيص الأخطاء) 🌟
+        // 3. Shortcut Handler
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
-            // البحث في الداتابيس (خاص بالقناة)
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
             if (shortcut) {
                 const targetName = shortcut.commandName.toLowerCase();
-
-                // البحث عن الملف في الأوامر المحملة
-                const cmd = client.commands.find(c => 
-                    (c.name && c.name.toLowerCase() === targetName) || 
-                    (c.aliases && c.aliases.includes(targetName))
-                );
+                const cmd = client.commands.get(targetName) || 
+                            client.commands.find(c => c.aliases && c.aliases.includes(targetName));
 
                 if (cmd) {
-                    if (checkPermissions(message, cmd)) {
-                        const cooldownMsg = checkCooldown(message, cmd);
-                        if (cooldownMsg) {
-                             if (typeof cooldownMsg === 'string') message.reply(cooldownMsg);
-                             return;
-                        }
+                    // ( 🌟 التحقق من الصلاحيات - تم إعادتها 🌟 )
+                    let isAllowed = false;
+                    if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
+                    else {
                         try {
-                            const finalArgs = argsRaw.slice(1);
-                            finalArgs.prefix = ""; // ضروري للأوامر التي تعتمد على البريفكس
-                            await cmd.execute(message, finalArgs); 
-                        } catch (e) { console.error(`[Shortcut Exec Error] ${shortcutWord}:`, e); }
+                            const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, cmd.name, message.channel.id);
+                            const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, cmd.name, message.channel.parentId);
+                            if (channelPerm || categoryPerm) isAllowed = true;
+                            else { 
+                                // إذا لم يكن هناك إذن صريح، نتحقق هل الأمر مسموح افتراضياً أم ممنوع
+                                const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ?").get(message.guild.id, cmd.name); 
+                                if (!hasRestrictions) isAllowed = true; // إذا لم يقيد في أي مكان، فهو مسموح للكل
+                            }
+                        } catch (err) { isAllowed = true; }
+                    }
+
+                    if (isAllowed) {
+                        if (checkPermissions(message, cmd)) {
+                            const cooldownMsg = checkCooldown(message, cmd);
+                            if (cooldownMsg) {
+                                if (typeof cooldownMsg === 'string') message.reply(cooldownMsg);
+                                return;
+                            }
+                            try {
+                                const finalArgs = argsRaw.slice(1);
+                                finalArgs.prefix = ""; 
+                                await cmd.execute(message, finalArgs); 
+                            } catch (e) { console.error(`[Shortcut Error]`, e); }
+                        }
                     }
                     return; 
-                } else {
-                    // ⚠️ هذا السطر سيخبرك في الكونسول إذا كان الاختصار موجوداً لكن الأمر غير موجود
-                    console.warn(`⚠️ [Shortcut Warning] الاختصار '${shortcutWord}' يشير إلى '${targetName}' ولكن لم يتم العثور على ملف أمر بهذا الاسم أو الالياس.`);
                 }
             }
         } catch (err) { console.error("[Shortcut Handler Error]", err); }
         // ============================================================
 
-        // 4. معالج البريفكس
+        // 4. Prefix Handler
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
@@ -149,6 +160,8 @@ module.exports = {
             
             if (command) {
                 args.prefix = Prefix;
+                
+                // ( 🌟 التحقق الصارم من الصلاحيات للأوامر العادية 🌟 )
                 let isAllowed = false;
                 if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
                 else {
@@ -156,9 +169,13 @@ module.exports = {
                         const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.id);
                         const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.parentId);
                         if (channelPerm || categoryPerm) isAllowed = true;
-                        else { const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ?").get(message.guild.id, command.name); if (!hasRestrictions) isAllowed = true; }
+                        else { 
+                            const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ?").get(message.guild.id, command.name); 
+                            if (!hasRestrictions) isAllowed = true; 
+                        }
                     } catch (err) { isAllowed = true; }
                 }
+
                 if (isAllowed) {
                     if (checkPermissions(message, command)) {
                         const cooldownMsg = checkCooldown(message, command);
@@ -170,7 +187,7 @@ module.exports = {
             }
         }
 
-        // 5. القنوات الخاصة
+        // 5. Special Channels
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             if (message.content.trim().startsWith("بلاغ")) {
                 const args = message.content.trim().split(/ +/); args.shift(); await message.delete().catch(() => {});
@@ -201,7 +218,7 @@ module.exports = {
             if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
         } catch (e) {}
 
-        // 6. الردود التلقائية
+        // 6. Auto Responder
         try {
             const autoResponses = sql.prepare("SELECT * FROM auto_responses WHERE guildID = ?").all(message.guild.id);
             const content = message.content.trim().toLowerCase();
@@ -246,7 +263,7 @@ module.exports = {
             }
         } catch (err) { console.error("[Auto Responder Error]", err); }
 
-        // 7. تتبع الإحصائيات
+        // 7. Stats Tracker
         try {
             const userID = message.author.id;
             const guildID = message.guild.id;
@@ -255,7 +272,6 @@ module.exports = {
                 await client.incrementQuestStats(userID, guildID, 'messages', 1);
                 if (message.attachments.size > 0) await client.incrementQuestStats(userID, guildID, 'images', 1);
                 if (message.stickers.size > 0) await client.incrementQuestStats(userID, guildID, 'stickers', message.stickers.size);
-                
                 const emojiRegex = /<a?:\w+:\d+>|[\u{1F300}-\u{1F9FF}]/gu;
                 const emojis = message.content.match(emojiRegex);
                 if (emojis) {
@@ -301,7 +317,7 @@ module.exports = {
             }
         } catch (err) {}
 
-        // 8. نظام XP والستريك
+        // 8. XP & Streak
         await handleStreakMessage(message);
         
         let level = client.getLevel.get(message.author.id, message.guild.id);
