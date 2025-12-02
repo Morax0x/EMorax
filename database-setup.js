@@ -62,7 +62,7 @@ function setupDatabase(sql) {
             response TEXT NOT NULL,
             images TEXT, 
             matchType TEXT DEFAULT 'exact', 
-            cooldown INTEGER DEFAULT 0,
+            cooldown INTEGER DEFAULT 0, 
             allowedChannels TEXT, 
             ignoredChannels TEXT, 
             UNIQUE(guildID, trigger)
