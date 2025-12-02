@@ -13,7 +13,7 @@ const SKILL_COOLDOWN_TURNS = 3;
 // القوائم
 const activePvpChallenges = new Set();
 const activePvpBattles = new Map();
-const activePveBattles = new Map(); // قائمة معارك الوحوش
+const activePveBattles = new Map();
 
 // --- الدوال المساعدة ---
 
@@ -98,7 +98,7 @@ function buildHpBar(currentHp, maxHp) {
 
 function buildSkillButtons(battleState, attackerId, page = 0) {
     const attacker = battleState.players.get(attackerId);
-    if (attacker.isMonster) return []; // الوحش ما عنده أزرار
+    if (attacker.isMonster) return []; 
 
     const cooldowns = battleState.skillCooldowns[attackerId];
     const availableSkills = Object.values(attacker.skills).filter(s => s.currentLevel > 0 || s.id.startsWith('race_'));
@@ -204,14 +204,14 @@ function buildBattleEmbed(battleState, skillSelectionMode = false, skillPage = 0
 async function startPvpBattle(i, client, sql, challengerMember, opponentMember, bet) {
     const getLevel = i.client.getLevel;
     const setLevel = i.client.setLevel;
-    let challengerData = getLevel.get(challengerMember.id, i.guild.id);
-    let opponentData = getLevel.get(opponentMember.id, i.guild.id);
-    if (!challengerData) challengerData = { ...client.defaultData, user: challengerMember.id, guild: i.guild.id };
-    if (!opponentData) opponentData = { ...client.defaultData, user: opponentMember.id, guild: i.guild.id };
+    let challengerData = getLevel.get(challengerMember.id, i.guild.id) || { ...client.defaultData, user: challengerMember.id, guild: i.guild.id };
+    let opponentData = getLevel.get(opponentMember.id, i.guild.id) || { ...client.defaultData, user: opponentMember.id, guild: i.guild.id };
     challengerData.mora -= bet; opponentData.mora -= bet;
     setLevel.run(challengerData); setLevel.run(opponentData);
+    
     const challengerMaxHp = BASE_HP + (challengerData.level * HP_PER_LEVEL);
     const opponentMaxHp = BASE_HP + (opponentData.level * HP_PER_LEVEL);
+    
     const battleState = {
         isPvE: false, message: null, bet: bet, totalPot: bet * 2, turn: [opponentMember.id, challengerMember.id],
         log: [`🔥 بدأ القتال!`], skillPage: 0, processingTurn: false,
@@ -226,15 +226,15 @@ async function startPvpBattle(i, client, sql, challengerMember, opponentMember, 
     battleState.message = await i.channel.send({ content: `${challengerMember} 🆚 ${opponentMember}`, embeds, components });
 }
 
-// 🔥🔥 دالة قتال الوحوش المصححة 🔥🔥
+// 🔥 دالة PvE المعدلة (إرسال رسالة منفصلة + رفع دم الوحش) 🔥
 async function startPveBattle(interaction, client, sql, playerMember, monsterData, playerWeaponOverride) {
     const getLevel = client.getLevel;
-    let playerData = getLevel.get(playerMember.id, interaction.guild.id);
-    if (!playerData) playerData = { ...client.defaultData, user: playerMember.id, guild: interaction.guild.id };
+    let playerData = getLevel.get(playerMember.id, interaction.guild.id) || { ...client.defaultData, user: playerMember.id, guild: interaction.guild.id };
 
     const playerMaxHp = BASE_HP + (playerData.level * HP_PER_LEVEL);
-    // الوحش لديه HP يساوي قوته × 10
-    const monsterMaxHp = monsterData.base_power * 8;
+    
+    // 🌟 رفع دم الوحش ليكون التحدي أطول (قوته × 30)
+    const monsterMaxHp = monsterData.base_power * 30;
 
     const allSkillIds = skillsConfig.map(s => s.id);
     const initialCooldowns = allSkillIds.reduce((acc, id) => { acc[id] = 0; return acc; }, {});
@@ -244,57 +244,54 @@ async function startPveBattle(interaction, client, sql, playerMember, monsterDat
         finalPlayerWeapon = playerWeaponOverride || { name: "سكين صيد", currentDamage: 15 };
     }
 
+    // 1. تحديث رسالة الصيد الأصلية لتقول أن الوحش ظهر (وإزالة الأزرار)
+    try {
+        await interaction.editReply({ 
+            content: `🦑 **ظهر ${monsterData.name}!**\nانظر للأسفل لبدء القتال! 👇`,
+            embeds: [], 
+            components: [] 
+        });
+    } catch (e) {}
+
+    // 2. إنشاء حالة المعركة
     const battleState = {
         isPvE: true,
         monsterData: monsterData,
         message: null,
-        turn: [playerMember.id, "monster"], // اللاعب يبدأ
+        turn: [playerMember.id, "monster"],
         log: [`🦑 **${monsterData.name}** ظهر من الأعماق!`],
         skillPage: 0,
         processingTurn: false,
-        skillCooldowns: {
-            [playerMember.id]: { ...initialCooldowns },
-            "monster": {} 
-        },
+        skillCooldowns: { [playerMember.id]: { ...initialCooldowns }, "monster": {} },
         players: new Map([
-            [playerMember.id, { 
-                isMonster: false, member: playerMember, hp: playerMaxHp, maxHp: playerMaxHp, weapon: finalPlayerWeapon, 
-                skills: getAllSkillData(sql, playerMember), effects: { shield: 0, buff: 0, weaken: 0, poison: 0 } 
-            }],
-            ["monster", { 
-                isMonster: true, name: monsterData.name, hp: monsterMaxHp, maxHp: monsterMaxHp, 
-                weapon: { currentDamage: monsterData.base_power }, skills: {}, effects: { shield: 0, buff: 0, weaken: 0, poison: 0 } 
-            }]
+            [playerMember.id, { isMonster: false, member: playerMember, hp: playerMaxHp, maxHp: playerMaxHp, weapon: finalPlayerWeapon, skills: getAllSkillData(sql, playerMember), effects: { shield: 0, buff: 0, weaken: 0, poison: 0 } }],
+            ["monster", { isMonster: true, name: monsterData.name, hp: monsterMaxHp, maxHp: monsterMaxHp, weapon: { currentDamage: monsterData.base_power }, skills: {}, effects: { shield: 0, buff: 0, weaken: 0, poison: 0 } }]
         ])
     };
 
+    // تسجيل المعركة في القائمة
     activePveBattles.set(interaction.channel.id, battleState);
 
+    // 3. إرسال رسالة القتال الجديدة (منفصلة)
     const { embeds, components } = buildBattleEmbed(battleState);
-    
-    // 🛠️ التعديل الجذري: استخدام editReply لاستبدال رسالة الصيد
-    let battleMessage;
-    // نتأكد أننا نرسل المكونات (components) بشكل صحيح
-    // إذا كان التفاعل قد تم الرد عليه، نستخدم editReply
-    if (interaction.replied || interaction.deferred) {
-        battleMessage = await interaction.editReply({ content: `⚔️ **قتال ضد وحش!**`, embeds, components });
-    } else {
-        // إذا لسبب ما لم يتم الرد بعد (نادر الحدوث في الصيد)، نستخدم reply
-        battleMessage = await interaction.reply({ content: `⚔️ **قتال ضد وحش!**`, embeds, components, fetchReply: true });
-    }
+    const battleMessage = await interaction.channel.send({ 
+        content: `⚔️ **قتال ضد وحش!** ${playerMember}`, 
+        embeds, 
+        components 
+    });
     
     battleState.message = battleMessage;
 }
 
 async function endBattle(battleState, winnerId, sql, reason = "win") {
+    // التأكد من وجود الرسالة قبل التعديل
+    if (!battleState.message) return;
+
     const channelId = battleState.message.channel.id;
-    if (activePvpBattles.has(channelId)) activePvpBattles.delete(channelId);
-    if (activePveBattles.has(channelId)) activePveBattles.delete(channelId);
+    activePvpBattles.delete(channelId);
+    activePveBattles.delete(channelId);
 
     const winner = battleState.players.get(winnerId);
-    const loserId = Array.from(battleState.players.keys()).find(id => id !== winnerId);
-    const loser = battleState.players.get(loserId);
-
     const embed = new EmbedBuilder().setColor(Colors.Gold);
 
     if (battleState.isPvE) {
@@ -302,20 +299,17 @@ async function endBattle(battleState, winnerId, sql, reason = "win") {
             const monster = battleState.monsterData;
             const rewardMora = Math.floor(Math.random() * (monster.max_reward - monster.min_reward + 1)) + monster.min_reward;
             const rewardXP = Math.floor(Math.random() * (300 - 50 + 1)) + 50;
-
             const client = battleState.message.client;
             let userData = client.getLevel.get(winner.member.id, battleState.message.guild.id);
             userData.mora += rewardMora;
             userData.xp += rewardXP;
             client.setLevel.run(userData);
-
-            embed.setTitle(`🏆 قهرت ${monster.name}!`)
-                 .setDescription(`💰 **الغنيمة:** ${rewardMora.toLocaleString()} ${EMOJI_MORA}\n✨ **خبرة:** ${rewardXP} XP`)
-                 .setThumbnail('https://i.postimg.cc/Wz0g0Zg0/fishing.png');
+            embed.setTitle(`🏆 قهرت ${monster.name}!`).setDescription(`💰 **+${rewardMora}** مورا | ✨ **+${rewardXP}** XP`).setThumbnail('https://i.postimg.cc/Wz0g0Zg0/fishing.png');
         } else {
+            const loser = battleState.players.get(battleState.turn.find(id => id !== "monster"));
             const expireTime = Date.now() + (15 * 60 * 1000);
             sql.prepare(`INSERT INTO user_buffs (userID, guildID, buffType, expiresAt) VALUES (?, ?, 'pvp_wounded', ?)`).run(loser.member.id, battleState.message.guild.id, expireTime);
-            embed.setTitle(`💀 هزمك ${battleState.monsterData.name}...`).setDescription(`🚑 **أنت جريح!**\nلن تتمكن من الصيد أو القتال لمدة 15 دقيقة.`).setColor(Colors.DarkRed);
+            embed.setTitle(`💀 خسرت ضد ${battleState.monsterData.name}`).setDescription(`🚑 **أنت جريح!** (15 دقيقة)`).setColor(Colors.DarkRed);
         }
     } else {
         const getScore = battleState.message.client.getLevel;
@@ -327,7 +321,9 @@ async function endBattle(battleState, winnerId, sql, reason = "win") {
         embed.setTitle(`🏆 الفائز هو ${cleanDisplayName(winner.member.user.displayName)}!`).setDescription(`💰 **المكسب:** ${finalWinnings.toLocaleString()} ${EMOJI_MORA}`);
     }
 
+    // إرسال رسالة النتيجة في نفس القناة (Embed جديد)
     await battleState.message.channel.send({ embeds: [embed] });
+    // إزالة الأزرار من رسالة القتال القديمة
     await battleState.message.edit({ components: [] }).catch(() => {});
 }
 
@@ -337,7 +333,7 @@ function applyPersistentEffects(battleState, attackerId) {
     if (attacker.effects.poison > 0) {
         const poisonDamage = 20;
         attacker.hp -= poisonDamage;
-        logEntries.push(`☠️ ${attacker.isMonster ? attacker.name : cleanDisplayName(attacker.member.user.displayName)} يتألم من السم (-${poisonDamage})!`);
+        logEntries.push(`☠️ ${attacker.isMonster ? attacker.name : cleanDisplayName(attacker.member.user.displayName)} تسمم (-${poisonDamage})!`);
     }
     return logEntries;
 }
