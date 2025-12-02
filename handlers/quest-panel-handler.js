@@ -1,11 +1,6 @@
 const { EmbedBuilder, Colors, ButtonBuilder, ButtonStyle, ActionRowBuilder, ComponentType } = require("discord.js");
-// (تأكد أن ملف achievements.js موجود في commands)
 const { buildAchievementsEmbed, buildDailyEmbed, buildWeeklyEmbed } = require('../commands/achievements.js');
-
-// ( 🌟 تم تصحيح مسار التوب: من commands مباشرة 🌟 )
 const { generateLeaderboard } = require('../commands/top.js'); 
-
-// ( 🌟 استيراد ملف المهام الشامل 🌟 )
 const questsConfig = require('../json/quests-config.json');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
@@ -26,47 +21,26 @@ function createNotifButton(label, customId, currentStatus) {
         .setStyle(isEnabled ? ButtonStyle.Success : ButtonStyle.Danger);
 }
 
-// --- دالة إنجازاتي (تعتمد على questsConfig.achievements) ---
 async function buildMyAchievementsEmbed(interaction, sql, page = 1) {
     try {
         const completed = sql.prepare("SELECT * FROM user_achievements WHERE userID = ? AND guildID = ?").all(interaction.user.id, interaction.guild.id);
-
-        if (completed.length === 0) {
-            return { embeds: [new EmbedBuilder().setTitle('🎖️ إنجازاتي').setColor(Colors.DarkRed).setDescription('لم تقم بإكمال أي إنجازات بعد.').setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png')], components: [], totalPages: 1 };
-        }
+        if (completed.length === 0) return { embeds: [new EmbedBuilder().setTitle('🎖️ إنجازاتي').setColor(Colors.DarkRed).setDescription('لم تقم بإكمال أي إنجازات بعد.').setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png')], components: [], totalPages: 1 };
 
         const completedIDs = new Set(completed.map(c => c.achievementID));
-        // ( 🌟 قراءة الإنجازات من الملف الشامل 🌟 )
         const completedDetails = questsConfig.achievements.filter(ach => completedIDs.has(ach.id)); 
-
         const perPage = 10;
         const totalPages = Math.ceil(completedDetails.length / perPage) || 1;
         page = Math.max(1, Math.min(page, totalPages));
-
         const start = (page - 1) * perPage;
         const end = start + perPage;
         const achievementsToShow = completedDetails.slice(start, end); 
 
-        const embed = new EmbedBuilder()
-            .setTitle('🎖️ إنجازاتي') 
-            .setColor(Colors.DarkRed)
-            .setAuthor({ name: interaction.member.displayName, iconURL: interaction.user.displayAvatarURL() })
-            .setFooter({ text: `صفحة ${page} / ${totalPages} (الإجمالي: ${completedDetails.length})` }) 
-            .setTimestamp()
-            .setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png');
-
+        const embed = new EmbedBuilder().setTitle('🎖️ إنجازاتي').setColor(Colors.DarkRed).setAuthor({ name: interaction.member.displayName, iconURL: interaction.user.displayAvatarURL() }).setFooter({ text: `صفحة ${page} / ${totalPages} (الإجمالي: ${completedDetails.length})` }).setTimestamp().setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png');
         let description = '';
-        for (const ach of achievementsToShow) {
-            description += `${ach.emoji || '🏆'} **${ach.name}**\n> ${ach.description}\n> *المكافأة: ${EMOJI_MORA} \`${ach.reward.mora}\` | ${EMOJI_STAR}XP: \`${ach.reward.xp}\`*\n\n`;
-        }
+        for (const ach of achievementsToShow) { description += `${ach.emoji || '🏆'} **${ach.name}**\n> ${ach.description}\n> *المكافأة: ${EMOJI_MORA} \`${ach.reward.mora}\` | ${EMOJI_STAR}XP: \`${ach.reward.xp}\`*\n\n`; }
         embed.setDescription(description);
-
         return { embeds: [embed], totalPages };
-
-    } catch (err) {
-        console.error("Error building my achievements embed:", err);
-        return { embeds: [new EmbedBuilder().setTitle(' خطأ').setDescription('حدث خطأ أثناء جلب إنجازاتك.').setColor(Colors.Red)], totalPages: 1 };
-    }
+    } catch (err) { console.error("Error building my achievements embed:", err); return { embeds: [new EmbedBuilder().setTitle(' خطأ').setDescription('حدث خطأ.').setColor(Colors.Red)], totalPages: 1 }; }
 }
 
 // --- الدالة الرئيسية ---
@@ -76,53 +50,52 @@ async function handleQuestPanel(i, client, sql) {
     const id = `${userId}-${guildId}`;
     
     let currentPage = 1;
-    let section = "";
+    let rawId = ""; // لتخزين نص التفاعل الخام
 
-    // 1. تحليل التفاعل (قائمة أو زر)
+    // 1. الحصول على المعرف (ID)
     if (i.isStringSelectMenu()) {
-        section = i.values[0];
+        rawId = i.values[0]; 
         await i.deferUpdate(); 
-    } 
-    else if (i.isButton()) {
-        // إزالة البادئة panel_
-        let rawId = i.customId.replace('panel_', '');
-        
-        // هل هو زر تقليب صفحات؟ (يحتوي على _prev_ أو _next_)
-        const paginationMatch = rawId.match(/_(prev|next)_(\d+)$/);
-        
-        if (paginationMatch) {
-            const action = paginationMatch[1]; // prev أو next
-            const pageNum = parseInt(paginationMatch[2]); // رقم الصفحة
-            
-            // استخراج اسم القسم
-            section = rawId.replace(/_(prev|next)_\d+$/, '');
-            
-            currentPage = pageNum;
-            if (action === 'prev') currentPage--;
-            if (action === 'next') currentPage++;
-        } 
-        else {
-            // زر عادي
-            section = rawId;
-        }
+    } else if (i.isButton()) {
+        rawId = i.customId;
         await i.deferUpdate();
     } else {
         await i.deferReply({ ephemeral: true });
-        section = i.customId.replace('panel_', '');
+        rawId = i.customId || "";
     }
 
-    // ( 🌟 تنظيف اسم القسم لضمان التطابق مع daily/weekly 🌟 )
-    section = section.replace('_quests', ''); 
-    // يحول daily_quests -> daily
-    // يحول weekly_quests -> weekly
+    // 2. تحليل الصفحة (إذا كان زر تنقل)
+    // نبحث عن رقم في نهاية النص (مثل _next_2)
+    const pageMatch = rawId.match(/_(prev|next)_(\d+)$/);
+    if (pageMatch) {
+        const action = pageMatch[1];
+        const pageNum = parseInt(pageMatch[2]);
+        currentPage = pageNum;
+        if (action === 'prev') currentPage--;
+        if (action === 'next') currentPage++;
+    }
 
-    // معالجة خاصة لقسم الإمبراطورية
+    // 3. تحديد القسم (Section Detection) - الطريقة الذكية
+    // بدلاً من قص النص، نبحث عن الكلمة المفتاحية
+    let section = "unknown";
+
+    if (rawId.includes('daily')) section = 'daily';
+    else if (rawId.includes('weekly')) section = 'weekly';
+    else if (rawId.includes('my_achievements')) section = 'my_achievements'; // يجب أن تكون قبل achievements العامة
+    else if (rawId.includes('top_achievements')) section = 'top_achievements';
+    else if (rawId.includes('achievements')) section = 'achievements';
+    else if (rawId.includes('empire')) section = 'empire';
+    else if (rawId.includes('toggle_notif') || rawId.includes('notifications')) section = 'notifications';
+
+    // --- معالجة الأقسام ---
+
+    // أ) قسم الإمبراطورية
     if (section === 'empire') {
          return i.followUp({ content: "🚧 **قسم مهام الإمبراطورية قيد التطوير حالياً!**", ephemeral: true });
     }
 
-    // 2. منطق الإشعارات
-    if (section.includes('toggle_notif') || section === 'notifications') {
+    // ب) قسم الإشعارات
+    if (section === 'notifications') {
         let notifData = client.getQuestNotif.get(id);
         if (!notifData) {
             notifData = { id: id, userID: userId, guildID: guildId, dailyNotif: 1, weeklyNotif: 1, achievementsNotif: 1, levelNotif: 1 };
@@ -130,11 +103,11 @@ async function handleQuestPanel(i, client, sql) {
         }
         if (typeof notifData.levelNotif === 'undefined') notifData.levelNotif = 1;
 
-        if (section.includes('toggle_notif')) {
-            if (section.includes('daily')) notifData.dailyNotif = notifData.dailyNotif === 1 ? 0 : 1;
-            else if (section.includes('weekly')) notifData.weeklyNotif = notifData.weeklyNotif === 1 ? 0 : 1;
-            else if (section.includes('ach')) notifData.achievementsNotif = notifData.achievementsNotif === 1 ? 0 : 1;
-            else if (section.includes('level')) notifData.levelNotif = notifData.levelNotif === 1 ? 0 : 1;
+        if (rawId.includes('toggle_notif')) {
+            if (rawId.includes('daily')) notifData.dailyNotif = notifData.dailyNotif === 1 ? 0 : 1;
+            else if (rawId.includes('weekly')) notifData.weeklyNotif = notifData.weeklyNotif === 1 ? 0 : 1;
+            else if (rawId.includes('ach')) notifData.achievementsNotif = notifData.achievementsNotif === 1 ? 0 : 1;
+            else if (rawId.includes('level')) notifData.levelNotif = notifData.levelNotif === 1 ? 0 : 1;
             client.setQuestNotif.run(notifData);
         }
 
@@ -148,7 +121,7 @@ async function handleQuestPanel(i, client, sql) {
         return await i.editReply({ embeds: [notifEmbed], components: [notifButtons], files: [] });
     }
 
-    // 3. جلب البيانات للأقسام الأخرى
+    // ج) جلب البيانات وعرض الأقسام الرئيسية
     const dateStr = getTodayDateString();
     const weekStartDateStr = getWeekStartDateString();
     const totalStatsId = `${userId}-${guildId}`;
@@ -164,7 +137,6 @@ async function handleQuestPanel(i, client, sql) {
     let totalPages = 1;
     let data;
 
-    // ( 🌟 التوجيه للأقسام 🌟 )
     if (section === 'daily') {
         data = await buildDailyEmbed(sql, i.member, dailyStats, currentPage);
     } else if (section === 'weekly') {
@@ -176,7 +148,8 @@ async function handleQuestPanel(i, client, sql) {
     } else if (section === 'achievements') { 
         data = await buildAchievementsEmbed(sql, i.member, levelData, totalStats, completedAchievements, currentPage);
     } else {
-        return i.followUp({ content: `❌ هذا القسم غير متوفر (${section}).`, ephemeral: true });
+        // إذا لم يتم التعرف على القسم حتى الآن
+        return i.followUp({ content: `❌ حدث خطأ: القسم غير معروف (${rawId}).`, ephemeral: true });
     }
 
     if (data) {
@@ -186,6 +159,7 @@ async function handleQuestPanel(i, client, sql) {
         currentPage = Math.max(1, Math.min(currentPage, totalPages));
     }
 
+    // بناء أزرار التنقل
     let components = [];
     if (totalPages > 1) {
         const pageRow = new ActionRowBuilder().addComponents(
