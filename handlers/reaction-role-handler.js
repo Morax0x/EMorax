@@ -3,8 +3,11 @@ const { EmbedBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, Ac
 // (متغير لتخزين رول الروح الهائمة مؤقتاً)
 let GHOST_ROLE_ID = null; 
 
+// كاش داخلي في حالة عدم تمريره من الخارج
+const internalCache = new Map();
+
 // (دالة لجلب إعدادات الرتب من قاعدة البيانات إلى الكاش)
-async function loadRoleSettings(sql, antiRolesCache) {
+async function loadRoleSettings(sql, antiRolesCache = internalCache) {
     antiRolesCache.clear();
     // ( 🌟 فحص أمان: إذا القاعدة مغلقة لا تكمل 🌟 )
     if (!sql || !sql.open) return;
@@ -32,6 +35,15 @@ function setGhostRole(roleId) {
 // (المنطق الرئيسي لمعالجة التفاعل)
 async function handleReactionRole(interaction, client, sql, antiRolesCache) {
     try {
+        // 🛠️ إصلاح المشكلة هنا: إذا لم يتم تمرير الكاش، نستخدم الكاش الداخلي
+        if (!antiRolesCache) {
+            antiRolesCache = internalCache;
+            // إذا كان الكاش فارغاً، نحاول تعبئته الآن
+            if (antiRolesCache.size === 0) {
+                await loadRoleSettings(sql, antiRolesCache);
+            }
+        }
+
         // ( 🌟 فحص أمان حاسم: هل قاعدة البيانات مفتوحة؟ 🌟 )
         if (!sql || !sql.open) {
              return interaction.reply({ content: "⚠️ قاعدة البيانات مشغولة حالياً (تحديث)، يرجى المحاولة بعد ثوانٍ.", ephemeral: true });
@@ -91,6 +103,7 @@ async function handleReactionRole(interaction, client, sql, antiRolesCache) {
                 if (!menuData) continue;
                 
                 const targetRoleId = menuData.role_id;
+                // استخدام الكاش بأمان الآن
                 const roleSettings = antiRolesCache.get(targetRoleId) || {};
                 const antiRoleIds = roleSettings.anti_roles || [];
                 
@@ -145,7 +158,8 @@ async function handleReactionRole(interaction, client, sql, antiRolesCache) {
         if (!isLocked) {
             for (const roleData of allMenuRoleData) {
                 const roleId = roleData.role_id;
-                const isRemovable = roleData.is_removable !== 0; // الافتراضي قابل للإزالة
+                // التأكد من أن القيمة ليست NULL قبل المقارنة
+                const isRemovable = roleData.is_removable !== 0; 
 
                 if (isRemovable && memberRoleIds.has(roleId) && !rolesToKeep.has(roleId)) {
                     const roleToRemove = guild.roles.cache.get(roleId);
