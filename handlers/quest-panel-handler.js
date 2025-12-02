@@ -50,52 +50,50 @@ async function handleQuestPanel(i, client, sql) {
     const id = `${userId}-${guildId}`;
     
     let currentPage = 1;
-    let rawId = ""; // لتخزين نص التفاعل الخام
+    let section = "";
 
-    // 1. الحصول على المعرف (ID)
+    // 1. تحليل التفاعل (القائمة أو الزر)
     if (i.isStringSelectMenu()) {
-        rawId = i.values[0]; 
-        await i.deferUpdate(); 
+        section = i.values[0]; 
+        
+        // ( 🌟 التعديل هنا: إنشاء رد جديد مخفي بدلاً من تحديث الرسالة الأصلية 🌟 )
+        await i.deferReply({ ephemeral: true }); 
+
     } else if (i.isButton()) {
-        rawId = i.customId;
+        // الأزرار موجودة داخل الرسالة المخفية، لذا نحدثها هي فقط (update)
+        let rawId = i.customId.replace('panel_', '');
+        const paginationMatch = rawId.match(/_(prev|next)_(\d+)$/);
+        
+        if (paginationMatch) {
+            const action = paginationMatch[1]; 
+            const pageNum = parseInt(paginationMatch[2]); 
+            section = rawId.replace(/_(prev|next)_\d+$/, '');
+            currentPage = pageNum;
+            if (action === 'prev') currentPage--;
+            if (action === 'next') currentPage++;
+        } else {
+            section = rawId;
+        }
+        
+        // هنا نستخدم deferUpdate لأننا داخل الرسالة المخفية ونريد تقليب صفحاتها
         await i.deferUpdate();
+
     } else {
-        await i.deferReply({ ephemeral: true });
-        rawId = i.customId || "";
+        // أي حالة أخرى
+        if (!i.replied && !i.deferred) await i.deferReply({ ephemeral: true });
+        section = i.customId.replace('panel_', '');
     }
 
-    // 2. تحليل الصفحة (إذا كان زر تنقل)
-    // نبحث عن رقم في نهاية النص (مثل _next_2)
-    const pageMatch = rawId.match(/_(prev|next)_(\d+)$/);
-    if (pageMatch) {
-        const action = pageMatch[1];
-        const pageNum = parseInt(pageMatch[2]);
-        currentPage = pageNum;
-        if (action === 'prev') currentPage--;
-        if (action === 'next') currentPage++;
-    }
+    // تنظيف الاسم
+    section = section.replace('_quests', ''); 
 
-    // 3. تحديد القسم (Section Detection) - الطريقة الذكية
-    // بدلاً من قص النص، نبحث عن الكلمة المفتاحية
-    let section = "unknown";
-
-    if (rawId.includes('daily')) section = 'daily';
-    else if (rawId.includes('weekly')) section = 'weekly';
-    else if (rawId.includes('my_achievements')) section = 'my_achievements'; // يجب أن تكون قبل achievements العامة
-    else if (rawId.includes('top_achievements')) section = 'top_achievements';
-    else if (rawId.includes('achievements')) section = 'achievements';
-    else if (rawId.includes('empire')) section = 'empire';
-    else if (rawId.includes('toggle_notif') || rawId.includes('notifications')) section = 'notifications';
-
-    // --- معالجة الأقسام ---
-
-    // أ) قسم الإمبراطورية
     if (section === 'empire') {
-         return i.followUp({ content: "🚧 **قسم مهام الإمبراطورية قيد التطوير حالياً!**", ephemeral: true });
+         const msg = { content: "🚧 **قسم مهام الإمبراطورية قيد التطوير حالياً!**", ephemeral: true };
+         return i.replied || i.deferred ? i.editReply(msg) : i.reply(msg);
     }
 
-    // ب) قسم الإشعارات
-    if (section === 'notifications') {
+    // 2. منطق الإشعارات
+    if (section.startsWith('toggle_notif') || section === 'notifications') {
         let notifData = client.getQuestNotif.get(id);
         if (!notifData) {
             notifData = { id: id, userID: userId, guildID: guildId, dailyNotif: 1, weeklyNotif: 1, achievementsNotif: 1, levelNotif: 1 };
@@ -103,11 +101,11 @@ async function handleQuestPanel(i, client, sql) {
         }
         if (typeof notifData.levelNotif === 'undefined') notifData.levelNotif = 1;
 
-        if (rawId.includes('toggle_notif')) {
-            if (rawId.includes('daily')) notifData.dailyNotif = notifData.dailyNotif === 1 ? 0 : 1;
-            else if (rawId.includes('weekly')) notifData.weeklyNotif = notifData.weeklyNotif === 1 ? 0 : 1;
-            else if (rawId.includes('ach')) notifData.achievementsNotif = notifData.achievementsNotif === 1 ? 0 : 1;
-            else if (rawId.includes('level')) notifData.levelNotif = notifData.levelNotif === 1 ? 0 : 1;
+        if (section.startsWith('toggle_notif')) {
+            if (section.includes('daily')) notifData.dailyNotif = notifData.dailyNotif === 1 ? 0 : 1;
+            else if (section.includes('weekly')) notifData.weeklyNotif = notifData.weeklyNotif === 1 ? 0 : 1;
+            else if (section.includes('ach')) notifData.achievementsNotif = notifData.achievementsNotif === 1 ? 0 : 1;
+            else if (section.includes('level')) notifData.levelNotif = notifData.levelNotif === 1 ? 0 : 1;
             client.setQuestNotif.run(notifData);
         }
 
@@ -121,7 +119,7 @@ async function handleQuestPanel(i, client, sql) {
         return await i.editReply({ embeds: [notifEmbed], components: [notifButtons], files: [] });
     }
 
-    // ج) جلب البيانات وعرض الأقسام الرئيسية
+    // 3. جلب البيانات
     const dateStr = getTodayDateString();
     const weekStartDateStr = getWeekStartDateString();
     const totalStatsId = `${userId}-${guildId}`;
@@ -148,8 +146,8 @@ async function handleQuestPanel(i, client, sql) {
     } else if (section === 'achievements') { 
         data = await buildAchievementsEmbed(sql, i.member, levelData, totalStats, completedAchievements, currentPage);
     } else {
-        // إذا لم يتم التعرف على القسم حتى الآن
-        return i.followUp({ content: `❌ حدث خطأ: القسم غير معروف (${rawId}).`, ephemeral: true });
+        const msg = { content: `❌ هذا القسم غير متوفر (${section}).`, ephemeral: true };
+        return i.replied || i.deferred ? i.editReply(msg) : i.reply(msg);
     }
 
     if (data) {
@@ -159,7 +157,6 @@ async function handleQuestPanel(i, client, sql) {
         currentPage = Math.max(1, Math.min(currentPage, totalPages));
     }
 
-    // بناء أزرار التنقل
     let components = [];
     if (totalPages > 1) {
         const pageRow = new ActionRowBuilder().addComponents(
