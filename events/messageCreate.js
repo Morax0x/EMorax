@@ -5,7 +5,6 @@ const { processReportLogic, sendReportError } = require("../handlers/report-hand
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
-// كولداون الردود التلقائية + سقاية الشجرة
 const autoResponderCooldowns = new Collection();
 const treeCooldowns = new Set();
 
@@ -59,37 +58,12 @@ async function recordBump(client, guildID, userID) {
     } catch (e) { console.error(e); }
 }
 
-// دالة التحقق من الصلاحيات (مركزية)
-function isCommandAllowedInChannel(sql, guildId, channelId, parentId, commandName, member) {
-    // 1. الإدارة العليا دائماً مسموح
-    if (member.permissions.has(PermissionsBitField.Flags.ManageGuild)) return true;
-
-    // 2. التحقق من جدول الصلاحيات
-    try {
-        const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(guildId, commandName, channelId);
-        const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(guildId, commandName, parentId);
-        
-        if (channelPerm || categoryPerm) return true;
-
-        // 3. التحقق العكسي (هل هو مقيد في مكان آخر؟)
-        const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? LIMIT 1").get(guildId, commandName);
-        
-        // إذا لم يكن مقيداً في أي مكان، فهو مسموح للجميع (Default Allow)
-        // إذا كان مقيداً في مكان ما، فهو ممنوع هنا (Default Deny)
-        if (!hasRestrictions) return true;
-        
-    } catch (err) { return true; } // في حال الخطأ، السماح (Fail-safe)
-    
-    return false;
-}
-
 module.exports = {
     name: Events.MessageCreate,
     async execute(message) {
         const client = message.client;
         const sql = client.sql;
 
-        // فحص أمان القاعدة
         if (!sql || !sql.open) return;
         if (!message.guild) return;
 
@@ -143,41 +117,46 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
 
         // ============================================================
-        // 🌟 3. معالج الاختصارات (المصحح: داتابيس -> قاموس) 🌟
+        // 🌟 3. معالج الاختصارات (المصحح: داتابيس + قاموس + محصور بالقناة) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
             let targetName = null;
 
-            // أ) هل هي اختصار مسجل في الداتابيس لهذه القناة؟
+            // أ) البحث في الداتابيس (خاص بالقناة)
             let dbShortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
             if (dbShortcut) {
                 targetName = dbShortcut.commandName.toLowerCase();
             } 
-            // ب) هل هي اختصار عام في القاموس؟ (هذا اللي كان ناقص)
+            // ب) هل هي كلمة عامة في القاموس؟ (لإصلاح عدم عمل "رصيد" و "توب")
             else if (COMMAND_ALIASES_MAP[shortcutWord]) {
                 targetName = COMMAND_ALIASES_MAP[shortcutWord];
             }
 
+
             if (targetName) {
-                // إذا وجدنا اسم الأمر، نبحث عنه
+                // البحث عن الأمر
                 const cmd = client.commands.get(targetName) || 
                             client.commands.find(c => c.aliases && c.aliases.includes(targetName));
 
                 if (cmd) {
-                    // ( 🌟 فحص الصلاحيات الصارم 🌟 )
+                    // التحقق من الصلاحيات
                     let isAllowed = false;
                     
-                    // 1. هل المستخدم إداري؟
+                    // 1. الإدارة العليا
                     if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
-                    // 2. هل القناة هي كازينو والأمر اقتصادي؟
+                    // 2. الكازينو والأمر اقتصادي
                     else if (settings && settings.casinoChannelID === message.channel.id && cmd.category === 'Economy') isAllowed = true;
-                    // 3. هل تم السماح بالأمر يدوياً؟
-                    else if (isCommandAllowedInChannel(sql, message.guild.id, message.channel.id, message.channel.parentId, cmd.name, message.member)) isAllowed = true;
-
+                    // 3. السماح يدوياً بالقناة
+                    else {
+                        const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, cmd.name, message.channel.id);
+                        const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, cmd.name, message.channel.parentId);
+                        if (channelPerm || categoryPerm) isAllowed = true;
+                    }
+                    
                     if (isAllowed) {
                         if (checkPermissions(message, cmd)) {
                             const cooldownMsg = checkCooldown(message, cmd);
@@ -192,13 +171,13 @@ module.exports = {
                             } catch (e) { console.error(`[Shortcut Exec Error]`, e); }
                         }
                     }
-                    return; // ✅ تم التعامل مع الرسالة (سواء نفذت أو منعت)
+                    return; 
                 }
             }
         } catch (err) { console.error("[Shortcut Handler Error]", err); }
         // ============================================================
 
-        // 4. معالج البريفكس (الصارم)
+        // 4. معالج البريفكس (الصارم - Whitelist)
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
@@ -215,12 +194,26 @@ module.exports = {
             if (command) {
                 args.prefix = Prefix;
                 
-                // فحص الصلاحيات الصارم
                 let isAllowed = false;
                 
+                // أ) الإدارة العليا
                 if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
+                // ب) روم الكازينو
                 else if (settings && settings.casinoChannelID === message.channel.id && command.category === 'Economy') isAllowed = true;
-                else if (isCommandAllowedInChannel(sql, message.guild.id, message.channel.id, message.channel.parentId, command.name, message.member)) isAllowed = true;
+                // ج) السماح اليدوي (command_permissions)
+                else {
+                    try {
+                        const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.id);
+                        const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.parentId);
+                        
+                        if (channelPerm || categoryPerm) isAllowed = true;
+                        else { 
+                            // 🛑 المنع الصارم: إذا لم يكن هناك سماح في الداتابيس، نمنعه افتراضياً
+                            const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? LIMIT 1").get(message.guild.id, command.name);
+                            if (!hasRestrictions) isAllowed = true; 
+                        }
+                    } catch (err) { isAllowed = true; }
+                }
 
                 if (isAllowed) {
                     if (checkPermissions(message, command)) {
@@ -233,7 +226,7 @@ module.exports = {
             }
         }
 
-        // 5. القنوات الخاصة
+        // 5. القنوات الخاصة (بلاغ / كازينو بدون بريفكس)
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             if (message.content.trim().startsWith("بلاغ")) {
                 const args = message.content.trim().split(/ +/); args.shift(); await message.delete().catch(() => {});
@@ -247,6 +240,26 @@ module.exports = {
             }
             return; 
         }
+
+        if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
+            const args = message.content.trim().split(/ +/);
+            const commandName = args.shift().toLowerCase();
+            
+            let targetName = commandName;
+            if (COMMAND_ALIASES_MAP[commandName]) targetName = COMMAND_ALIASES_MAP[commandName];
+
+            const command = client.commands.get(targetName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(targetName));
+            if (command && command.category === "Economy") {
+                if (!checkPermissions(message, command)) return;
+                try { await command.execute(message, args); } catch (error) {}
+            }
+            return;
+        }
+
+        try {
+            let blacklist = sql.prepare(`SELECT id FROM blacklistTable WHERE id = ?`);
+            if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
+        } catch (e) {}
 
         // 6. الردود التلقائية
         try {
