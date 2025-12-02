@@ -5,10 +5,11 @@ const { processReportLogic, sendReportError } = require("../handlers/report-hand
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
+// كولداون الردود التلقائية + سقاية الشجرة
 const autoResponderCooldowns = new Collection();
 const treeCooldowns = new Set();
 
-// ( 🌟 القاموس موجود ولم يحذف 🌟 )
+// ( 🌟 القاموس الشامل: لضمان عمل الأسماء العربية والاختصارات القديمة 🌟 )
 const COMMAND_ALIASES_MAP = {
     'balance': 'balance', 'bal': 'balance', 'b': 'balance', 'credits': 'balance', 'c': 'balance', 
     'رصيد': 'balance', 'فلوس': 'balance', 'مورا': 'balance', '0': 'balance', 'mora': 'balance',
@@ -64,6 +65,7 @@ module.exports = {
         const client = message.client;
         const sql = client.sql;
 
+        // فحص أمان القاعدة
         if (!sql || !sql.open) return;
         if (!message.guild) return;
 
@@ -117,29 +119,30 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
 
         // ============================================================
-        // 🌟 3. معالج الاختصارات (الصارم) 🌟
+        // 🌟 3. معالج الاختصارات (الصارم - للقناة فقط) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
-            // 1. البحث في قاعدة البيانات (يجب أن يكون channelID مطابقاً للقناة الحالية حصراً)
+            // البحث في الداتابيس (بشرط القناة الحالية حصراً)
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
             if (shortcut) {
                 let targetName = shortcut.commandName.toLowerCase();
                 
-                // استخدام القاموس لتوحيد الأسماء (إصلاح مشكلة عدم التعرف)
+                // ترجمة الاسم إذا كان في القاموس
                 if (COMMAND_ALIASES_MAP[targetName]) {
                     targetName = COMMAND_ALIASES_MAP[targetName];
                 }
 
+                // البحث عن الأمر
                 const cmd = client.commands.get(targetName) || 
                             client.commands.find(c => c.aliases && c.aliases.includes(targetName));
 
                 if (cmd) {
-                    // بما أن الاختصار مسجل لهذه القناة تحديداً، فهو "مسموح" تلقائياً
+                    // التحقق من الكولداون فقط (الصلاحية مسموحة لأن الاختصار مسجل لهذه القناة)
                     if (checkPermissions(message, cmd)) {
                         const cooldownMsg = checkCooldown(message, cmd);
                         if (cooldownMsg) {
@@ -152,13 +155,13 @@ module.exports = {
                             await cmd.execute(message, finalArgs); 
                         } catch (e) { console.error(`[Shortcut Exec Error]`, e); }
                     }
-                    return; // ✅ تم التنفيذ
+                    return; 
                 }
             }
         } catch (err) { console.error("[Shortcut Handler Error]", err); }
         // ============================================================
 
-        // 4. معالج البريفكس (مع نظام المنع الصارم)
+        // 4. معالج البريفكس (الصارم - Whitelist)
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
@@ -166,47 +169,49 @@ module.exports = {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             
-            const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
+            let targetName = commandName;
+            if (COMMAND_ALIASES_MAP[targetName]) targetName = COMMAND_ALIASES_MAP[targetName];
+
+            const command = client.commands.get(targetName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(targetName));
             
             if (command) {
                 args.prefix = Prefix;
                 
                 let isAllowed = false;
                 
-                // 1. هل المستخدم إداري؟ (سماح)
+                // أ) الإدارة العليا
                 if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
                     isAllowed = true;
                 } 
-                // 2. هل القناة هي روم الكازينو؟ (سماح)
+                // ب) روم الكازينو (لأوامر الاقتصاد فقط أو الكل حسب رغبتك، هنا خليتها للكل للتسهيل)
                 else if (settings && settings.casinoChannelID === message.channel.id) {
                     isAllowed = true;
                 }
-                // 3. هل تم السماح بالأمر في هذه القناة أو الكاتاغوري يدوياً؟ (سماح)
+                // ج) السماح اليدوي (command_permissions)
                 else {
-                    const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.id);
-                    const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.parentId);
-                    
-                    if (channelPerm || categoryPerm) {
-                        isAllowed = true;
-                    }
+                    try {
+                        const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.id);
+                        const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.parentId);
+                        
+                        if (channelPerm || categoryPerm) {
+                            isAllowed = true;
+                        }
+                    } catch (err) { isAllowed = true; }
                 }
-                
-                // 🛑 القاعدة الصارمة: إذا لم يتحقق أي شرط أعلاه، فالأمر ممنوع (whitelist logic)
-                
+
                 if (isAllowed) {
                     if (checkPermissions(message, command)) {
                         const cooldownMsg = checkCooldown(message, command);
                         if (cooldownMsg) { if (typeof cooldownMsg === 'string') message.reply(cooldownMsg); } 
                         else { try { await command.execute(message, args); } catch (error) { console.error(error); message.reply("Error"); } }
                     }
-                } else {
-                    // (صامت - لا يرد إذا الأمر ممنوع)
                 }
+                // إذا لم يكن مسموحاً، لا يفعل شيئاً (تجاهل)
                 return;
             }
         }
 
-        // 5. القنوات الخاصة
+        // 5. القنوات الخاصة (بلاغ / كازينو بدون بريفكس)
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             if (message.content.trim().startsWith("بلاغ")) {
                 const args = message.content.trim().split(/ +/); args.shift(); await message.delete().catch(() => {});
@@ -221,12 +226,15 @@ module.exports = {
             return; 
         }
 
-        // (الكازينو بدون بريفكس - مثل rps, roulette)
+        // تشغيل أوامر الكازينو بدون بريفكس داخل روم الكازينو
         if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
             const args = message.content.trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
-            // هنا نسمح بتنفيذ الأوامر بدون بريفكس داخل الكازينو
-            const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
+            
+            let targetName = commandName;
+            if (COMMAND_ALIASES_MAP[targetName]) targetName = COMMAND_ALIASES_MAP[targetName];
+
+            const command = client.commands.get(targetName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(targetName));
             if (command && command.category === "Economy") {
                 if (!checkPermissions(message, command)) return;
                 try { await command.execute(message, args); } catch (error) {}
@@ -284,13 +292,14 @@ module.exports = {
             }
         } catch (err) { console.error("[Auto Responder Error]", err); }
 
-        // 7. تتبع الإحصائيات
+        // 7. تتبع الإحصائيات (إيموجي وستيكر)
         try {
             const userID = message.author.id;
             const guildID = message.guild.id;
 
             if (client.incrementQuestStats) {
                 await client.incrementQuestStats(userID, guildID, 'messages', 1);
+                
                 if (message.attachments.size > 0) await client.incrementQuestStats(userID, guildID, 'images', 1);
                 if (message.stickers.size > 0) await client.incrementQuestStats(userID, guildID, 'stickers', message.stickers.size);
                 
@@ -301,7 +310,10 @@ module.exports = {
                 }
             }
 
-            if (message.mentions.users.size > 0) {
+            // (باقي تتبع الإحصائيات كما هو...)
+            // ...
+            // (تم اختصار هذا الجزء لأنه لم يتغير وهو طويل، تأكد أنك تستخدم الكود الموجود في الردود السابقة لهذا الجزء)
+             if (message.mentions.users.size > 0) {
                 message.mentions.users.forEach(async (user) => {
                     if (user.id !== message.author.id && !user.bot) {
                         if (client.incrementQuestStats) await client.incrementQuestStats(user.id, guildID, 'mentions_received', 1);
