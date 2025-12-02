@@ -1,15 +1,12 @@
 const { EmbedBuilder, Colors, ButtonBuilder, ButtonStyle, ActionRowBuilder, ComponentType } = require("discord.js");
-// (الاعتماد فقط على achievements.js)
 const { buildAchievementsEmbed, buildDailyEmbed, buildWeeklyEmbed } = require('../commands/achievements.js');
-const { generateLeaderboard } = require('../commands/top.js'); 
+const { generateLeaderboard } = require('../commands/leveling/top.js'); 
 const questsConfig = require('../json/quests-config.json');
-
-// (تم حذف جميع المولدات من هنا)
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const EMOJI_STAR = '⭐';
 
-// --- (الدوال المساعدة) ---
+// --- الدوال المساعدة ---
 function getTodayDateString() {
     return new Date().toISOString().split('T')[0];
 }
@@ -31,31 +28,19 @@ function createNotifButton(label, customId, currentStatus) {
         .setStyle(isEnabled ? ButtonStyle.Success : ButtonStyle.Danger);
 }
 
-function getRankEmoji(rank) {
-    if (rank === 1) return '🥇';
-    if (rank === 2) return '🥈';
-    if (rank === 3) return '🥉';
-    return `#${rank}`;
-}
-
-// --- (دالة إنجازاتي - خاصة بالقائمة) ---
+// --- دالة إنجازاتي ---
 async function buildMyAchievementsEmbed(interaction, sql, page = 1) {
     try {
         const completed = sql.prepare("SELECT * FROM user_achievements WHERE userID = ? AND guildID = ?").all(interaction.user.id, interaction.guild.id);
 
         if (completed.length === 0) {
-            return { embeds: [new EmbedBuilder()
-                .setTitle('🎖️ إنجازاتي')
-                .setColor(Colors.DarkRed)
-                .setDescription('لم تقم بإكمال أي إنجازات بعد.')
-                .setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png') // (صورة افتراضية)
-            ], components: [] };
+            return { embeds: [new EmbedBuilder().setTitle('🎖️ إنجازاتي').setColor(Colors.DarkRed).setDescription('لم تقم بإكمال أي إنجازات بعد.').setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png')], components: [] };
         }
 
         const completedIDs = new Set(completed.map(c => c.achievementID));
         const completedDetails = questsConfig.achievements.filter(ach => completedIDs.has(ach.id)); 
 
-        const perPage = 10; // (عدد الإنجازات النصية في كل صفحة)
+        const perPage = 10;
         const totalPages = Math.ceil(completedDetails.length / perPage) || 1;
         page = Math.max(1, Math.min(page, totalPages));
 
@@ -69,71 +54,77 @@ async function buildMyAchievementsEmbed(interaction, sql, page = 1) {
             .setAuthor({ name: interaction.member.displayName, iconURL: interaction.user.displayAvatarURL() })
             .setFooter({ text: `صفحة ${page} / ${totalPages} (الإجمالي: ${completedDetails.length})` }) 
             .setTimestamp()
-            .setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png'); // (صورة افتراضية)
+            .setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png');
 
         let description = '';
         for (const ach of achievementsToShow) {
-            description += `${ach.emoji || '🏆'} **${ach.name}**\n`;
-            description += `> ${ach.description}\n`;
-            description += `> *المكافأة: ${EMOJI_MORA} \`${ach.reward.mora}\` | ${EMOJI_STAR}XP: \`${ach.reward.xp}\`*\n\n`;
+            description += `${ach.emoji || '🏆'} **${ach.name}**\n> ${ach.description}\n> *المكافأة: ${EMOJI_MORA} \`${ach.reward.mora}\` | ${EMOJI_STAR}XP: \`${ach.reward.xp}\`*\n\n`;
         }
         embed.setDescription(description);
 
-        let components = [];
-        if (totalPages > 1) {
-            const pageRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`panel_my_ach_prev_${page}`).setStyle(ButtonStyle.Secondary).setEmoji('<:left:1439164494759723029>').setDisabled(page === 1),
-                new ButtonBuilder().setCustomId(`panel_my_ach_next_${page}`).setStyle(ButtonStyle.Secondary).setEmoji('<:right:1439164491072929915>').setDisabled(page === totalPages)
-            );
-            components.push(pageRow);
-        }
-        return { embeds: [embed], components: components };
+        // ( 🌟 إصلاح: استخدام ID موحد للأزرار 🌟 )
+        // نستخدم 'panel_' كبادئة ثابتة لكل الأزرار في هذا الملف
+        return { embeds: [embed], totalPages };
 
     } catch (err) {
         console.error("Error building my achievements embed:", err);
-        return { embeds: [new EmbedBuilder().setTitle(' خطأ').setDescription('حدث خطأ أثناء جلب إنجازاتك.').setColor(Colors.Red)], components: [] };
+        return { embeds: [new EmbedBuilder().setTitle(' خطأ').setDescription('حدث خطأ أثناء جلب إنجازاتك.').setColor(Colors.Red)], totalPages: 1 };
     }
 }
 
-// --- (الدالة الرئيسية) ---
+// --- الدالة الرئيسية ---
 async function handleQuestPanel(i, client, sql) {
     const userId = i.user.id;
     const guildId = i.guild.id;
     const id = `${userId}-${guildId}`;
-    const idPrefix = 'panel_'; 
+    
+    // 1. تحديد الصفحة الحالية والقسم المطلوب
     let currentPage = 1;
+    let section = "";
 
-    // (التعامل مع الأزرار والصفحات)
-    if (i.customId.includes('_prev_') || i.customId.includes('_next_') || i.customId.startsWith(idPrefix + 'toggle_notif_')) {
-        const pageData = i.customId.split('_');
-        currentPage = parseInt(pageData[pageData.length - 1]);
-        if(i.customId.includes('_prev_')) currentPage--;
-        if(i.customId.includes('_next_')) currentPage++;
+    // إذا كان اختيار من القائمة المنسدلة
+    if (i.isStringSelectMenu()) {
+        section = i.values[0];
         await i.deferUpdate(); 
+    } 
+    // إذا كان زر تنقل (السابق/التالي)
+    else if (i.isButton()) {
+        const parts = i.customId.split('_');
+        // المتوقع: panel_SECTION_prev_PAGE
+        // مثال: panel_daily_next_2
+        const action = parts[parts.length - 2]; // prev أو next
+        const pageNum = parseInt(parts[parts.length - 1]); // رقم الصفحة الحالية
+        
+        // استخراج اسم القسم من الـ ID (كل شيء بين panel_ و _prev/next)
+        // panel_my_achievements_next_1 -> my_achievements
+        section = parts.slice(1, parts.length - 2).join('_');
+        
+        currentPage = pageNum;
+        if (action === 'prev') currentPage--;
+        if (action === 'next') currentPage++;
+        
+        await i.deferUpdate();
     } else {
-        await i.deferReply({ ephemeral: true }); 
+        await i.deferReply({ ephemeral: true });
+        section = i.customId.replace('panel_', ''); // Fallback
     }
 
-    // (قسم الإشعارات)
-    let notifData = client.getQuestNotif.get(id);
-    if (!notifData) {
-        notifData = {
-            id: id, userID: userId, guildID: guildId,
-            dailyNotif: 1, weeklyNotif: 1, achievementsNotif: 1, levelNotif: 1
-        };
-        client.setQuestNotif.run(notifData);
-    }
-    if (typeof notifData.levelNotif === 'undefined') {
-        notifData.levelNotif = 1;
-    }
+    // 2. منطق الإشعارات
+    if (section.includes('toggle_notif') || section === 'notifications') {
+        let notifData = client.getQuestNotif.get(id);
+        if (!notifData) {
+            notifData = { id: id, userID: userId, guildID: guildId, dailyNotif: 1, weeklyNotif: 1, achievementsNotif: 1, levelNotif: 1 };
+            client.setQuestNotif.run(notifData);
+        }
+        if (typeof notifData.levelNotif === 'undefined') notifData.levelNotif = 1;
 
-    if (i.customId.startsWith(idPrefix + 'toggle_notif_')) {
-        if (i.customId.endsWith('_daily')) { notifData.dailyNotif = notifData.dailyNotif === 1 ? 0 : 1; }
-        else if (i.customId.endsWith('_weekly')) { notifData.weeklyNotif = notifData.weeklyNotif === 1 ? 0 : 1; }
-        else if (i.customId.endsWith('_ach')) { notifData.achievementsNotif = notifData.achievementsNotif === 1 ? 0 : 1; }
-        else if (i.customId.endsWith('_level')) { notifData.levelNotif = notifData.levelNotif === 1 ? 0 : 1; }
-
-        client.setQuestNotif.run(notifData);
+        if (section.includes('toggle_notif')) {
+            if (section.endsWith('daily')) notifData.dailyNotif = notifData.dailyNotif === 1 ? 0 : 1;
+            else if (section.endsWith('weekly')) notifData.weeklyNotif = notifData.weeklyNotif === 1 ? 0 : 1;
+            else if (section.endsWith('ach')) notifData.achievementsNotif = notifData.achievementsNotif === 1 ? 0 : 1;
+            else if (section.endsWith('level')) notifData.levelNotif = notifData.levelNotif === 1 ? 0 : 1;
+            client.setQuestNotif.run(notifData);
+        }
 
         const notifEmbed = new EmbedBuilder()
             .setTitle('🔔 إعدادات الإشعارات')
@@ -142,37 +133,16 @@ async function handleQuestPanel(i, client, sql) {
             .setImage('https://i.postimg.cc/5217mTwV/almham_alywmyt-3.png');
 
         const notifButtons = new ActionRowBuilder().addComponents(
-            createNotifButton('المهام اليومية', idPrefix + 'toggle_notif_daily', notifData.dailyNotif),
-            createNotifButton('المهام الأسبوعية', idPrefix + 'toggle_notif_weekly', notifData.weeklyNotif),
-            createNotifButton('الإنجازات', idPrefix + 'toggle_notif_ach', notifData.achievementsNotif),
-            createNotifButton('زيادة المستوى', idPrefix + 'toggle_notif_level', notifData.levelNotif)
+            createNotifButton('المهام اليومية', 'panel_toggle_notif_daily', notifData.dailyNotif),
+            createNotifButton('المهام الأسبوعية', 'panel_toggle_notif_weekly', notifData.weeklyNotif),
+            createNotifButton('الإنجازات', 'panel_toggle_notif_ach', notifData.achievementsNotif),
+            createNotifButton('زيادة المستوى', 'panel_toggle_notif_level', notifData.levelNotif)
         );
-
-        await i.editReply({ embeds: [notifEmbed], components: [notifButtons] });
-        return;
+        
+        return await i.editReply({ embeds: [notifEmbed], components: [notifButtons], files: [] });
     }
 
-    const selection = i.isStringSelectMenu() ? i.values[0] : i.customId;
-
-    if (selection.endsWith('notifications')) {
-        const notifEmbed = new EmbedBuilder()
-            .setTitle('🔔 إعدادات الإشعارات')
-            .setDescription('قم بتحديد الإشعارات التي ترغب بتفعيلها أو تعطيلها.')
-            .setColor(Colors.Purple)
-            .setImage('https://i.postimg.cc/5217mTwV/almham_alywmyt-3.png');
-
-        const notifButtons = new ActionRowBuilder().addComponents(
-             createNotifButton('المهام اليومية', idPrefix + 'toggle_notif_daily', notifData.dailyNotif),
-            createNotifButton('المهام الأسبوعية', idPrefix + 'toggle_notif_weekly', notifData.weeklyNotif),
-            createNotifButton('الإنجازات', idPrefix + 'toggle_notif_ach', notifData.achievementsNotif),
-            createNotifButton('زيادة المستوى', idPrefix + 'toggle_notif_level', notifData.levelNotif)
-        );
-
-        await i.editReply({ embeds: [notifEmbed], components: [notifButtons] });
-        return;
-    }
-
-    // (جلب البيانات)
+    // 3. جلب البيانات
     const dateStr = getTodayDateString();
     const weekStartDateStr = getWeekStartDateString();
     const totalStatsId = `${userId}-${guildId}`;
@@ -184,75 +154,51 @@ async function handleQuestPanel(i, client, sql) {
 
     let embeds = [];
     let files = [];
+    let totalPages = 1;
+    let data;
+
+    // 4. تحديد المحتوى بناءً على القسم
+    if (section === 'daily') {
+        data = await buildDailyEmbed(sql, i.member, dailyStats, currentPage);
+    } else if (section === 'weekly') {
+        data = await buildWeeklyEmbed(sql, i.member, weeklyStats, currentPage);
+    } else if (section === 'top_achievements') {
+        data = await generateLeaderboard(sql, i.guild, 'achievements', currentPage);
+    } else if (section === 'my_achievements') {
+        data = await buildMyAchievementsEmbed(i, sql, currentPage);
+    } else if (section === 'achievements') {
+        data = await buildAchievementsEmbed(sql, i.member, levelData, totalStats, completedAchievements, currentPage);
+    }
+
+    if (data) {
+        embeds = Array.isArray(data.embeds) ? data.embeds : [data.embed];
+        files = data.files || [];
+        totalPages = data.totalPages || 1;
+        currentPage = Math.max(1, Math.min(currentPage, totalPages)); // تصحيح الصفحة إذا تجاوزت الحدود
+    } else {
+        return await i.editReply({ content: "❌ القسم غير موجود.", embeds: [], components: [] });
+    }
+
+    // 5. بناء أزرار التنقل (موحدة لجميع الأقسام)
     let components = [];
-
-    // --- (المنطق النظيف لعرض الأقسام) ---
-
-    if (selection.includes('daily') || selection.includes('daily_prev_') || selection.includes('daily_next_')) {
-        const dailyData = await buildDailyEmbed(sql, i.member, dailyStats, currentPage);
-        files = dailyData.files;
-        embeds = dailyData.embeds; 
-        const totalPages = dailyData.totalPages;
-
-        if (totalPages > 1) {
-            const pageRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`${idPrefix}daily_prev_${currentPage}`).setStyle(ButtonStyle.Secondary).setEmoji('<:left:1439164494759723029>').setDisabled(currentPage === 1),
-                new ButtonBuilder().setCustomId(`${idPrefix}daily_next_${currentPage}`).setStyle(ButtonStyle.Secondary).setEmoji('<:right:1439164491072929915>').setDisabled(currentPage === totalPages)
-            );
-            components.push(pageRow);
-        }
-
-    } else if (selection.includes('weekly') || selection.includes('weekly_prev_') || selection.includes('weekly_next_')) {
-        const weeklyData = await buildWeeklyEmbed(sql, i.member, weeklyStats, currentPage);
-        files = weeklyData.files;
-        embeds = weeklyData.embeds; 
-        const totalPages = weeklyData.totalPages;
-
-        if (totalPages > 1) {
-            const pageRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`${idPrefix}weekly_prev_${currentPage}`).setStyle(ButtonStyle.Secondary).setEmoji('<:left:1439164494759723029>').setDisabled(currentPage === 1),
-                new ButtonBuilder().setCustomId(`${idPrefix}weekly_next_${currentPage}`).setStyle(ButtonStyle.Secondary).setEmoji('<:right:1439164491072929915>').setDisabled(currentPage === totalPages)
-            );
-            components.push(pageRow);
-        }
-
-    } else if (selection.includes('top_achievements') || selection.includes('top_ach_prev_') || selection.includes('top_ach_next_')) {
-        const topData = await generateLeaderboard(sql, i.guild, 'achievements', currentPage);
-        embeds = [topData.embed]; 
-        const totalPages = topData.totalPages;
-
-        if (totalPages > 1) {
-             const pageRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`${idPrefix}top_ach_prev_${currentPage}`).setStyle(ButtonStyle.Secondary).setEmoji('<:left:1439164494759723029>').setDisabled(currentPage === 1),
-                new ButtonBuilder().setCustomId(`${idPrefix}top_ach_next_${currentPage}`).setStyle(ButtonStyle.Secondary).setEmoji('<:right:1439164491072929915>').setDisabled(currentPage === totalPages)
-            );
-            components.push(pageRow);
-        }
-
-    } else if (selection.includes('my_achievements') || selection.includes('my_ach_prev_') || selection.includes('my_ach_next_')) {
-        const myData = await buildMyAchievementsEmbed(i, sql, currentPage);
-        embeds = myData.embeds;
-        components = myData.components;
-
-    } else if (selection.includes('achievements') || selection.includes('achievements_prev_') || selection.includes('achievements_next_')) {
-        const achData = await buildAchievementsEmbed(sql, i.member, levelData, totalStats, completedAchievements, currentPage);
-        files = achData.files; 
-        embeds = achData.embeds; 
-        const totalPages = achData.totalPages;
-
-        if (totalPages > 1) {
-            const pageRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`${idPrefix}achievements_prev_${currentPage}`).setStyle(ButtonStyle.Secondary).setEmoji('<:left:1439164494759723029>').setDisabled(currentPage === 1),
-                new ButtonBuilder().setCustomId(`${idPrefix}achievements_next_${currentPage}`).setStyle(ButtonStyle.Secondary).setEmoji('<:right:1439164491072929915>').setDisabled(currentPage === totalPages)
-            );
-            components.push(pageRow);
-        }
+    if (totalPages > 1) {
+        const pageRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                // ( 🌟 التنسيق الموحد: panel_SECTION_prev_PAGE 🌟 )
+                .setCustomId(`panel_${section}_prev_${currentPage}`)
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji('<:left:1439164494759723029>')
+                .setDisabled(currentPage === 1),
+            new ButtonBuilder()
+                .setCustomId(`panel_${section}_next_${currentPage}`)
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji('<:right:1439164491072929915>')
+                .setDisabled(currentPage === totalPages)
+        );
+        components.push(pageRow);
     }
 
     await i.editReply({ embeds: embeds, files: files, components: components });
-    return;
 }
 
-module.exports = {
-    handleQuestPanel
-};
+module.exports = { handleQuestPanel };
