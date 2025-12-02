@@ -5,6 +5,7 @@ const { processReportLogic, sendReportError } = require("../handlers/report-hand
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
+// كولداون الردود التلقائية + سقاية الشجرة
 const autoResponderCooldowns = new Collection();
 const treeCooldowns = new Set();
 
@@ -45,6 +46,7 @@ module.exports = {
         const client = message.client;
         const sql = client.sql;
 
+        // فحص أمان القاعدة
         if (!sql || !sql.open) return;
         if (!message.guild) return;
 
@@ -98,26 +100,23 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
 
         // ============================================================
-        // 🌟 3. معالج الاختصارات (ديناميكي 100% بدون قاموس) 🌟
+        // 🌟 3. معالج الاختصارات (المحصور بالقناة والدقيق) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
-            // أ) البحث في القناة الحالية
-            let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
+            // 1. البحث الصارم: يجب أن يتطابق channelID مع القناة الحالية
+            const shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
-            // ب) البحث العام (Fallback)
-            if (!shortcut) {
-                shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND shortcutWord = ? LIMIT 1")
-                    .get(message.guild.id, shortcutWord);
-            }
-            
+            // ( 🛑 تم حذف البحث العام Fallback نهائياً 🛑 )
+
             if (shortcut) {
+                // الاسم المسجل في الداتابيس (مثلاً "mora" أو "profile")
                 const targetName = shortcut.commandName.toLowerCase();
-                
-                // 🔍 البحث الديناميكي: الاسم أو الـ Aliases
+
+                // البحث عن الأمر في الكولكشن (بالاسم أو الـ Alias)
                 const cmd = client.commands.get(targetName) || 
                             client.commands.find(c => c.aliases && c.aliases.includes(targetName));
 
@@ -129,18 +128,22 @@ module.exports = {
                              return;
                         }
                         try {
+                            // تمرير البريفكس الفارغ للأوامر التي تحتاجه
                             const finalArgs = argsRaw.slice(1);
                             finalArgs.prefix = ""; 
                             await cmd.execute(message, finalArgs); 
-                        } catch (e) { console.error(e); }
+                        } catch (e) { console.error(`[Shortcut Error]`, e); }
                     }
-                    return; 
+                    return; // ✅ تم التنفيذ وتوقف هنا (لن يكمل للبريفكس)
+                } else {
+                    // إذا كان الاختصار موجود في الداتابيس بس الأمر مو محمل
+                    // console.log(`[Shortcut] Command '${targetName}' not found in loaded commands.`);
                 }
             }
-        } catch (err) { console.error("[Shortcut Error]", err); }
+        } catch (err) { console.error("[Shortcut Handler Error]", err); }
         // ============================================================
 
-        // 4. معالج البريفكس
+        // 4. معالج البريفكس (التقليدي)
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
@@ -255,7 +258,6 @@ module.exports = {
 
             if (client.incrementQuestStats) {
                 await client.incrementQuestStats(userID, guildID, 'messages', 1);
-                
                 if (message.attachments.size > 0) await client.incrementQuestStats(userID, guildID, 'images', 1);
                 if (message.stickers.size > 0) await client.incrementQuestStats(userID, guildID, 'stickers', message.stickers.size);
                 
