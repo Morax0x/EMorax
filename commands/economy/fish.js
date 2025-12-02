@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require("discord.js");
+const { SlashCommandBuilder, EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags } = require("discord.js");
 const path = require('path');
 
 // استدعاء ملفات الإعدادات
@@ -6,12 +6,10 @@ const rootDir = process.cwd();
 const fishingConfig = require(path.join(rootDir, 'json', 'fishing-config.json'));
 
 // استدعاء دوال الـ PvP (لجلب قوة اللاعب ومهاراته)
-// تأكد أن المسار صحيح لملف pvp-core.js
 let pvpCore = {};
 try {
     pvpCore = require('../../handlers/pvp-core.js'); 
 } catch (e) {
-    // في حال عدم وجود الملف، نستخدم دوال وهمية لمنع التوقف
     console.warn("⚠️ Warning: pvp-core.js not found. Using default values for fishing combat.");
     pvpCore.getWeaponData = () => null;
     pvpCore.getUserActiveSkill = () => null;
@@ -22,9 +20,9 @@ const fishItems = fishingConfig.fishItems;
 const rodsConfig = fishingConfig.rods;
 const boatsConfig = fishingConfig.boats;
 const locationsConfig = fishingConfig.locations;
-const monstersConfig = fishingConfig.monsters || []; // قائمة الوحوش الجديدة
+const monstersConfig = fishingConfig.monsters || [];
 
-// 🔒 آيدي المالك (الوحيد الذي يتجاهل الكولداون)
+// 🔒 آيدي المالك
 const OWNER_ID = "1145327691772481577";
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 
@@ -45,8 +43,14 @@ module.exports = {
         const client = interactionOrMessage.client;
         const sql = client.sql;
 
-        // دالة الرد الموحدة
+        // دالة الرد الموحدة (محدثة لدعم Flags)
         const reply = async (payload) => {
+            // تحويل ephemeral: true القديمة إلى Flags الحديثة
+            if (payload.ephemeral) {
+                delete payload.ephemeral;
+                payload.flags = [MessageFlags.Ephemeral];
+            }
+
             if (isSlash) {
                 if (interactionOrMessage.deferred || interactionOrMessage.replied) return interactionOrMessage.editReply(payload);
                 return interactionOrMessage.reply({ ...payload, fetchReply: true }); 
@@ -70,12 +74,15 @@ module.exports = {
         }
 
         // 🛡️ التحقق من الجرح (PvP Wounded)
-        // إذا كان اللاعب مصاباً، لا يمكنه الصيد
         const now = Date.now();
         const woundedDebuff = sql.prepare("SELECT * FROM user_buffs WHERE userID = ? AND guildID = ? AND buffType = 'pvp_wounded' AND expiresAt > ?").get(user.id, guild.id, now);
         if (woundedDebuff) {
             const minutesLeft = Math.ceil((woundedDebuff.expiresAt - now) / 60000);
-            return reply({ content: `🩹 | أنت **جريح** حالياً ولا يمكنك الصيد!\nعليك الراحة لمدة **${minutesLeft}** دقيقة حتى تشفى.` });
+            return reply({ 
+                content: `🩹 | أنت **جريح** حالياً ولا يمكنك الصيد!\nعليك الراحة لمدة **${minutesLeft}** دقيقة حتى تشفى.`,
+                // استخدام الـ Flags بدلاً من ephemeral
+                flags: [MessageFlags.Ephemeral]
+            });
         }
 
         // تجهيز بيانات العدة
@@ -94,7 +101,9 @@ module.exports = {
             const remaining = lastFish + cooldown - now;
             const minutes = Math.floor((remaining % 3600000) / 60000);
             const seconds = Math.floor((remaining % 60000) / 1000).toString().padStart(2, '0');
-            return reply({ content: `قمـت بالصيـد مؤخـرا انتـظـر **${minutes}:${seconds}** لتـذهب للصيـد مجددا` });
+            return reply({ 
+                content: `قمـت بالصيـد مؤخـرا انتـظـر **${minutes}:${seconds}** لتـذهب للصيـد مجددا`
+            });
         }
 
         if (isSlash) await interactionOrMessage.deferReply();
@@ -154,13 +163,11 @@ module.exports = {
                     // 🦑 منطق الوحوش (Monster Encounter Logic)
                     // ========================================================
                     const monsterChance = Math.random();
-                    // نسبة ظهور 10%، ويجب أن يكون هناك وحوش معرفة في المنطقة الحالية
                     const possibleMonsters = monstersConfig.filter(m => m.locations.includes(locationId));
                     
                     if (possibleMonsters.length > 0 && monsterChance < 0.10) {
                         const monster = possibleMonsters[Math.floor(Math.random() * possibleMonsters.length)];
                         
-                        // 1. حساب قوة اللاعب (سلاح + مهارة)
                         let playerWeapon = pvpCore.getWeaponData(sql, user);
                         if (!playerWeapon || playerWeapon.currentLevel === 0) {
                             playerWeapon = { name: "سكين صيد صدئة", currentStats: { damage: 15 } };
@@ -176,24 +183,18 @@ module.exports = {
                         let skillMessage = "";
 
                         if (playerSkill) {
-                            // تفعيل المهارة تلقائياً (محاكاة)
                             skillBonus = playerSkill.damage || (playerSkill.level * 20) || 50; 
                             skillMessage = `\n🔥 **مهارة تلقائية:** استخدمت **${playerSkill.name}** (+${skillBonus} DMG)!`;
                         }
 
                         const totalPlayerPower = basePower + skillBonus;
-
-                        // 2. موازنة قوة الوحش (Scaling)
-                        // الوحش يكون بقوة قريبة من اللاعب لجعل المعركة عادلة
-                        const variance = (Math.random() * 0.4) + 0.8; // 80% to 120%
+                        const variance = (Math.random() * 0.4) + 0.8;
                         const monsterPower = Math.floor(Math.max(monster.base_power, totalPlayerPower * variance));
 
-                        // 3. النزال (RNG)
                         const playerRoll = totalPlayerPower + (Math.random() * 50);
                         const monsterRoll = monsterPower + (Math.random() * 50);
 
                         if (monsterRoll > playerRoll) {
-                            // 💀 الخسارة
                             const expireTime = Date.now() + (15 * 60 * 1000);
                             sql.prepare(`INSERT INTO user_buffs (userID, guildID, buffType, expiresAt) VALUES (?, ?, 'pvp_wounded', ?)`).run(user.id, guild.id, expireTime);
 
@@ -203,21 +204,18 @@ module.exports = {
                                 .setColor(Colors.DarkRed)
                                 .setThumbnail(monster.image || "https://i.postimg.cc/0QNJzXv1/Anime-Anger-GIF-Anime-Anger-ANGRY-Descobrir-e-Compartilhar-GIFs.gif");
 
-                            // تحديث وقت الصيد لمنع السبام
                             userData.lastFish = Date.now();
                             client.setLevel.run(userData);
 
                             return j.editReply({ embeds: [loseEmbed], components: [] });
                         } else {
-                            // ⚔️ الفوز
                             var monsterReward = Math.floor(Math.random() * (monster.max_reward - monster.min_reward + 1)) + monster.min_reward;
                             
-                            // رسالة الفوز (مؤقتة)
                             let winMsg = `⚔️ **قهرت ${monster.name}!**\nاستخدمت **${playerWeapon.name}** بقوة **${basePower}**${skillMessage}\n💰 غنيمة الوحش: **${monsterReward}** ${EMOJI_MORA}`;
-                            await j.followUp({ content: winMsg, ephemeral: true });
+                            // استخدام Flags هنا
+                            await j.followUp({ content: winMsg, flags: [MessageFlags.Ephemeral] });
                         }
                     }
-                    // ========================================================
 
                     // --- الصيد الطبيعي ---
                     const fishCount = Math.floor(Math.random() * currentRod.max_fish) + 1;
@@ -254,12 +252,10 @@ module.exports = {
                         }
                     }
 
-                    // تحديث البيانات
                     userData.lastFish = Date.now();
                     userData.mora = (userData.mora || 0) + totalValue;
                     client.setLevel.run(userData);
 
-                    // عرض النتيجة
                     const summary = {};
                     caughtFish.forEach(f => {
                         summary[f.name] = summary[f.name] ? { count: summary[f.name].count + 1, emoji: f.emoji, rarity: f.rarity } : { count: 1, emoji: f.emoji, rarity: f.rarity };
