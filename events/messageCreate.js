@@ -107,8 +107,6 @@ module.exports = {
             `).all(message.guild.id, shortcutWord);
 
             if (potentialShortcuts.length > 0) {
-                console.log(`[DEBUG] Found ${potentialShortcuts.length} matches for '${shortcutWord}'`);
-                
                 const exactChannel = potentialShortcuts.find(s => s.channelID === message.channel.id);
                 
                 let categoryChannel = null;
@@ -120,29 +118,22 @@ module.exports = {
 
                 if (exactChannel) {
                     targetName = exactChannel.commandName;
-                    console.log(`[DEBUG] Used Channel Shortcut: ${targetName}`);
                 } else if (categoryChannel) {
                     targetName = categoryChannel.commandName;
-                    console.log(`[DEBUG] Used Category Shortcut: ${targetName}`);
                 } else if (globalShortcut) {
                     targetName = globalShortcut.commandName;
-                    console.log(`[DEBUG] Used Global Shortcut: ${targetName}`);
                 }
-            } else {
-                if (['balance', 'rank', 'top', 'profile'].includes(shortcutWord)) {
-                    console.log(`[DEBUG] No DB match for '${shortcutWord}', check if DB has data.`);
+
+                if (targetName) {
+                    targetName = targetName.replace(/^-/, '').toLowerCase().trim();
                 }
             }
 
             if (targetName) {
-                targetName = targetName.replace(/^-/, '').toLowerCase().trim();
-                console.log(`[DEBUG] Final Command Target: ${targetName}`);
-
                 const cmd = client.commands.get(targetName) || 
                             client.commands.find(c => c.aliases && c.aliases.includes(targetName));
 
                 if (cmd) {
-                    console.log(`[DEBUG] Command Found: ${cmd.name}`);
                     let isAllowed = false;
                     
                     if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
@@ -154,7 +145,6 @@ module.exports = {
                         else {
                              const isRestricted = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? LIMIT 1").get(message.guild.id, cmd.name);
                              if (!isRestricted) isAllowed = true;
-                             else console.log(`[DEBUG] Command blocked by permissions.`);
                         }
                     }
                     
@@ -171,12 +161,10 @@ module.exports = {
                                 await cmd.execute(message, finalArgs); 
                             } catch (e) { console.error(`[Shortcut Exec Error]`, e); }
                         }
-                    } else {
-                        console.log(`[DEBUG] User not allowed to use this shortcut.`);
                     }
                     return; 
                 } else {
-                    console.log(`[DEBUG] Command file NOT found for: ${targetName}`);
+                    console.log(`[Warning] Shortcut '${shortcutWord}' points to '${targetName}', but no such command found in folders.`);
                 }
             }
         } catch (err) { console.error("[Shortcut Handler Error]", err); }
