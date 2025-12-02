@@ -10,6 +10,24 @@ const BASE_HP = 100;
 const HP_PER_LEVEL = 4;
 const SKILL_COOLDOWN_TURNS = 3;
 
+// --- صور النتائج (نفس PvP) ---
+const WIN_IMAGES = [
+    'https://i.postimg.cc/JhMrnyLd/download-1.gif',
+    'https://i.postimg.cc/FHgv29L0/download.gif',
+    'https://i.postimg.cc/9MzjRZNy/haru-midoriya.gif',
+    'https://i.postimg.cc/4ygk8q3G/tumblr-nmao11Zm-Bx1r3rdh2o2-500-gif-500-281.gif',
+    'https://i.postimg.cc/pL6NNpdC/Epic7-Epic-Seven-GIF-Epic7-Epic-Seven-Tensura-Discover-Share-GIFs.gif',
+    'https://i.postimg.cc/05dLktNF/download-5.gif',
+    'https://i.postimg.cc/sXRVMwhZ/download-2.gif'
+];
+
+const LOSE_IMAGES = [
+    'https://i.postimg.cc/xd8msjxk/escapar-a-toda-velocidad.gif',
+    'https://i.postimg.cc/1zb8JGVC/download.gif',
+    'https://i.postimg.cc/rmSwjvkV/download-1.gif',
+    'https://i.postimg.cc/8PyPZRqt/download.jpg'
+];
+
 // القوائم
 const activePvpChallenges = new Set();
 const activePvpBattles = new Map();
@@ -30,8 +48,7 @@ function getUserRace(member, sql) {
     const allRaceRoles = sql.prepare("SELECT roleID, raceName FROM race_roles WHERE guildID = ?").all(member.guild.id);
     if (!member.roles || !member.roles.cache) return null;
     const userRoleIDs = member.roles.cache.map(r => r.id);
-    const userRace = allRaceRoles.find(r => userRoleIDs.includes(r.roleID));
-    return userRace || null;
+    return allRaceRoles.find(r => userRoleIDs.includes(r.roleID)) || null;
 }
 
 function getWeaponData(sql, member) {
@@ -63,9 +80,7 @@ function getAllSkillData(sql, member) {
         const raceSkillId = `race_${userRace.raceName.toLowerCase().replace(' ', '_')}_skill`;
         if (!skillsOutput[raceSkillId]) {
             const skillConfig = skillsConfig.find(s => s.id === raceSkillId);
-            if (skillConfig) {
-                skillsOutput[raceSkillId] = { ...skillConfig, currentLevel: 0, effectValue: 0 };
-            }
+            if (skillConfig) skillsOutput[raceSkillId] = { ...skillConfig, currentLevel: 0, effectValue: 0 };
         }
     }
     return skillsOutput;
@@ -92,8 +107,7 @@ function buildHpBar(currentHp, maxHp) {
     const percentage = (currentHp / maxHp) * 10;
     const filled = '█';
     const empty = '░';
-    const bar = filled.repeat(Math.max(0, Math.floor(percentage))) + empty.repeat(Math.max(0, 10 - Math.floor(percentage)));
-    return `[${bar}] ${currentHp}/${maxHp}`;
+    return `[${filled.repeat(Math.max(0, Math.floor(percentage))) + empty.repeat(Math.max(0, 10 - Math.floor(percentage)))}] ${currentHp}/${maxHp}`;
 }
 
 function buildSkillButtons(battleState, attackerId, page = 0) {
@@ -108,70 +122,44 @@ function buildSkillButtons(battleState, attackerId, page = 0) {
     page = Math.max(0, Math.min(page, totalPages - 1));
     battleState.skillPage = page;
 
-    const startIndex = page * skillsPerPage;
-    const endIndex = startIndex + skillsPerPage;
-    const skillsToShow = availableSkills.slice(startIndex, endIndex);
-
+    const skillsToShow = availableSkills.slice(page * skillsPerPage, (page * skillsPerPage) + skillsPerPage);
     const skillButtons = new ActionRowBuilder();
+    
     skillsToShow.forEach(skill => {
-        const cooldown = cooldowns[skill.id] || 0;
-        skillButtons.addComponents(
-            new ButtonBuilder()
-                .setCustomId(`pvp_skill_use_${skill.id}`)
-                .setLabel(`${skill.name} ${skill.currentLevel > 0 ? `(Lv.${skill.currentLevel})` : ''}`)
-                .setEmoji(skill.emoji)
-                .setStyle(ButtonStyle.Primary)
-                .setDisabled(cooldown > 0)
-        );
+        skillButtons.addComponents(new ButtonBuilder().setCustomId(`pvp_skill_use_${skill.id}`).setLabel(`${skill.name}`).setEmoji(skill.emoji).setStyle(ButtonStyle.Primary).setDisabled((cooldowns[skill.id] || 0) > 0));
     });
 
-    const navigationButtons = new ActionRowBuilder();
-    navigationButtons.addComponents(
-        new ButtonBuilder().setCustomId('pvp_skill_back').setLabel('العودة').setStyle(ButtonStyle.Secondary)
-    );
-
+    const navigationButtons = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('pvp_skill_back').setLabel('العودة').setStyle(ButtonStyle.Secondary));
     if (totalPages > 1) {
         navigationButtons.addComponents(
             new ButtonBuilder().setCustomId(`pvp_skill_page_${page - 1}`).setLabel('◀️').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
             new ButtonBuilder().setCustomId(`pvp_skill_page_${page + 1}`).setLabel('▶️').setStyle(ButtonStyle.Secondary).setDisabled(page === totalPages - 1)
         );
     }
-
     return [skillButtons, navigationButtons].filter(row => row.components.length > 0);
 }
 
 function buildEffectsString(effects) {
-    let effectsArray = [];
-    if (effects.shield > 0) effectsArray.push(`🛡️ درع (${effects.shield})`);
-    if (effects.buff > 0) effectsArray.push(`💪 معزز (${effects.buff})`);
-    if (effects.weaken > 0) effectsArray.push(`📉 إضعاف (${effects.weaken})`);
-    if (effects.poison > 0) effectsArray.push(`☠️ تسمم (${effects.poison})`);
-    return effectsArray.length > 0 ? effectsArray.join(' | ') : 'لا يوجد';
+    let arr = [];
+    if (effects.shield > 0) arr.push(`🛡️ (${effects.shield})`);
+    if (effects.buff > 0) arr.push(`💪 (${effects.buff})`);
+    if (effects.weaken > 0) arr.push(`📉 (${effects.weaken})`);
+    if (effects.poison > 0) arr.push(`☠️ (${effects.poison})`);
+    return arr.length > 0 ? arr.join(' ') : 'لا يوجد';
 }
 
 function buildBattleEmbed(battleState, skillSelectionMode = false, skillPage = 0) {
     const [attackerId, defenderId] = battleState.turn;
     const attacker = battleState.players.get(attackerId);
     const defender = battleState.players.get(defenderId);
-
     const attackerName = attacker.isMonster ? attacker.name : cleanDisplayName(attacker.member.user.displayName);
     const defenderName = defender.isMonster ? defender.name : cleanDisplayName(defender.member.user.displayName);
 
-    const embed = new EmbedBuilder()
-        .setTitle(`⚔️ ${attackerName} 🆚 ${defenderName} ⚔️`)
-        .setColor(Colors.Red)
-        .addFields(
-            {
-                name: `${attackerName} (مهاجم)`,
-                value: `**HP:** ${buildHpBar(attacker.hp, attacker.maxHp)}\n**الضرر:** \`${attacker.weapon ? attacker.weapon.currentDamage : 0} DMG\`\n**التأثيرات:** ${buildEffectsString(attacker.effects)}`,
-                inline: true
-            },
-            {
-                name: `${defenderName} (مدافع)`,
-                value: `**HP:** ${buildHpBar(defender.hp, defender.maxHp)}\n**الضرر:** \`${defender.weapon ? defender.weapon.currentDamage : 0} DMG\`\n**التأثيرات:** ${buildEffectsString(defender.effects)}`,
-                inline: true
-            }
-        );
+    const embed = new EmbedBuilder().setTitle(`⚔️ ${attackerName} 🆚 ${defenderName} ⚔️`).setColor(Colors.Red);
+    embed.addFields(
+        { name: `${attackerName}`, value: `HP: ${buildHpBar(attacker.hp, attacker.maxHp)}\nتأثيرات: ${buildEffectsString(attacker.effects)}`, inline: true },
+        { name: `${defenderName}`, value: `HP: ${buildHpBar(defender.hp, defender.maxHp)}\nتأثيرات: ${buildEffectsString(defender.effects)}`, inline: true }
+    );
 
     if (battleState.isPvE) {
         embed.setDescription(`🦑 **معركة ضد وحش!**\nالدور الآن لـ: **${attackerName}**`);
@@ -179,23 +167,19 @@ function buildBattleEmbed(battleState, skillSelectionMode = false, skillPage = 0
         embed.setDescription(`الرهان: **${(battleState.bet * 2).toLocaleString()}** ${EMOJI_MORA}\n\n**الدور الآن لـ:** ${attacker.member}`);
     }
 
-    if (battleState.log.length > 0) {
-        embed.addFields({ name: "📝 سجل القتال:", value: battleState.log.slice(-3).join('\n'), inline: false });
-    }
+    if (battleState.log.length > 0) embed.addFields({ name: "📝 السجل:", value: battleState.log.slice(-3).join('\n'), inline: false });
 
     if (attacker.isMonster) return { embeds: [embed], components: [] };
 
     if (skillSelectionMode) {
-        const skillComponents = buildSkillButtons(battleState, attackerId, skillPage);
-        return { embeds: [embed], components: skillComponents };
+        return { embeds: [embed], components: buildSkillButtons(battleState, attackerId, skillPage) };
     }
 
     const mainButtons = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('pvp_action_attack').setLabel('هـجـوم').setStyle(ButtonStyle.Danger).setEmoji('⚔️'),
-        new ButtonBuilder().setCustomId('pvp_action_skill').setLabel('مـهــارات').setStyle(ButtonStyle.Primary).setEmoji('✨'),
-        new ButtonBuilder().setCustomId('pvp_action_forfeit').setLabel('انسحاب').setStyle(ButtonStyle.Secondary).setEmoji('🏳️')
+        new ButtonBuilder().setCustomId('pvp_action_attack').setLabel('هجوم').setStyle(ButtonStyle.Danger).setEmoji('⚔️'),
+        new ButtonBuilder().setCustomId('pvp_action_skill').setLabel('مهارات').setStyle(ButtonStyle.Primary).setEmoji('✨'),
+        new ButtonBuilder().setCustomId('pvp_action_forfeit').setLabel('هروب').setStyle(ButtonStyle.Secondary).setEmoji('🏳️')
     );
-
     return { embeds: [embed], components: [mainButtons] };
 }
 
@@ -226,34 +210,26 @@ async function startPvpBattle(i, client, sql, challengerMember, opponentMember, 
     battleState.message = await i.channel.send({ content: `${challengerMember} 🆚 ${opponentMember}`, embeds, components });
 }
 
-// 🔥 دالة PvE المعدلة (إرسال رسالة منفصلة + رفع دم الوحش) 🔥
+// 🦑 دالة PvE مع موازنة القوة
 async function startPveBattle(interaction, client, sql, playerMember, monsterData, playerWeaponOverride) {
     const getLevel = client.getLevel;
     let playerData = getLevel.get(playerMember.id, interaction.guild.id) || { ...client.defaultData, user: playerMember.id, guild: interaction.guild.id };
 
     const playerMaxHp = BASE_HP + (playerData.level * HP_PER_LEVEL);
-    
-    // 🌟 رفع دم الوحش ليكون التحدي أطول (قوته × 30)
-    const monsterMaxHp = monsterData.base_power * 30;
-
-    const allSkillIds = skillsConfig.map(s => s.id);
-    const initialCooldowns = allSkillIds.reduce((acc, id) => { acc[id] = 0; return acc; }, {});
-
     let finalPlayerWeapon = getWeaponData(sql, playerMember);
     if (!finalPlayerWeapon || finalPlayerWeapon.currentLevel === 0) {
         finalPlayerWeapon = playerWeaponOverride || { name: "سكين صيد", currentDamage: 15 };
     }
 
-    // 1. تحديث رسالة الصيد الأصلية لتقول أن الوحش ظهر (وإزالة الأزرار)
-    try {
-        await interaction.editReply({ 
-            content: `🦑 **ظهر ${monsterData.name}!**\nانظر للأسفل لبدء القتال! 👇`,
-            embeds: [], 
-            components: [] 
-        });
-    } catch (e) {}
+    // ⚖️ موازنة القوة (Balancing)
+    // دم الوحش = 80% من دم اللاعب (عشان يكون أضعف بشوي)
+    const monsterMaxHp = Math.floor(playerMaxHp * 0.8);
+    // هجوم الوحش = 90% من هجوم اللاعب (عشان ما يقتلك بضربة وحدة)
+    const monsterDamage = Math.floor(finalPlayerWeapon.currentDamage * 0.9);
 
-    // 2. إنشاء حالة المعركة
+    const allSkillIds = skillsConfig.map(s => s.id);
+    const initialCooldowns = allSkillIds.reduce((acc, id) => { acc[id] = 0; return acc; }, {});
+
     const battleState = {
         isPvE: true,
         monsterData: monsterData,
@@ -264,16 +240,31 @@ async function startPveBattle(interaction, client, sql, playerMember, monsterDat
         processingTurn: false,
         skillCooldowns: { [playerMember.id]: { ...initialCooldowns }, "monster": {} },
         players: new Map([
-            [playerMember.id, { isMonster: false, member: playerMember, hp: playerMaxHp, maxHp: playerMaxHp, weapon: finalPlayerWeapon, skills: getAllSkillData(sql, playerMember), effects: { shield: 0, buff: 0, weaken: 0, poison: 0 } }],
-            ["monster", { isMonster: true, name: monsterData.name, hp: monsterMaxHp, maxHp: monsterMaxHp, weapon: { currentDamage: monsterData.base_power }, skills: {}, effects: { shield: 0, buff: 0, weaken: 0, poison: 0 } }]
+            [playerMember.id, { 
+                isMonster: false, member: playerMember, hp: playerMaxHp, maxHp: playerMaxHp, weapon: finalPlayerWeapon, 
+                skills: getAllSkillData(sql, playerMember), effects: { shield: 0, buff: 0, weaken: 0, poison: 0 } 
+            }],
+            ["monster", { 
+                isMonster: true, name: monsterData.name, hp: monsterMaxHp, maxHp: monsterMaxHp, 
+                weapon: { currentDamage: monsterDamage }, // استخدام القوة الموزونة
+                skills: {}, effects: { shield: 0, buff: 0, weaken: 0, poison: 0 } 
+            }]
         ])
     };
 
-    // تسجيل المعركة في القائمة
     activePveBattles.set(interaction.channel.id, battleState);
 
-    // 3. إرسال رسالة القتال الجديدة (منفصلة)
     const { embeds, components } = buildBattleEmbed(battleState);
+    
+    // استبدال رسالة الصيد برسالة القتال
+    try {
+        await interaction.editReply({ 
+            content: `🦑 **ظهر ${monsterData.name}!**\nانظر للأسفل لبدء القتال! 👇`,
+            embeds: [], 
+            components: [] 
+        });
+    } catch (e) {}
+
     const battleMessage = await interaction.channel.send({ 
         content: `⚔️ **قتال ضد وحش!** ${playerMember}`, 
         embeds, 
@@ -284,7 +275,6 @@ async function startPveBattle(interaction, client, sql, playerMember, monsterDat
 }
 
 async function endBattle(battleState, winnerId, sql, reason = "win") {
-    // التأكد من وجود الرسالة قبل التعديل
     if (!battleState.message) return;
 
     const channelId = battleState.message.channel.id;
@@ -296,34 +286,57 @@ async function endBattle(battleState, winnerId, sql, reason = "win") {
 
     if (battleState.isPvE) {
         if (winnerId !== "monster") {
+            // اللاعب فاز
             const monster = battleState.monsterData;
             const rewardMora = Math.floor(Math.random() * (monster.max_reward - monster.min_reward + 1)) + monster.min_reward;
             const rewardXP = Math.floor(Math.random() * (300 - 50 + 1)) + 50;
+
             const client = battleState.message.client;
             let userData = client.getLevel.get(winner.member.id, battleState.message.guild.id);
             userData.mora += rewardMora;
             userData.xp += rewardXP;
             client.setLevel.run(userData);
-            embed.setTitle(`🏆 قهرت ${monster.name}!`).setDescription(`💰 **+${rewardMora}** مورا | ✨ **+${rewardXP}** XP`).setThumbnail('https://i.postimg.cc/Wz0g0Zg0/fishing.png');
+
+            // صورة فوز عشوائية
+            const randomWinImage = WIN_IMAGES[Math.floor(Math.random() * WIN_IMAGES.length)];
+
+            embed.setTitle(`🏆 قهرت ${monster.name}!`)
+                 .setDescription(`💰 **الغنيمة:** ${rewardMora.toLocaleString()} ${EMOJI_MORA}\n✨ **خبرة:** ${rewardXP} XP`)
+                 .setImage(randomWinImage); // استخدام صور الفوز
         } else {
+            // اللاعب خسر
             const loser = battleState.players.get(battleState.turn.find(id => id !== "monster"));
             const expireTime = Date.now() + (15 * 60 * 1000);
-            sql.prepare(`INSERT INTO user_buffs (userID, guildID, buffType, expiresAt) VALUES (?, ?, 'pvp_wounded', ?)`).run(loser.member.id, battleState.message.guild.id, expireTime);
-            embed.setTitle(`💀 خسرت ضد ${battleState.monsterData.name}`).setDescription(`🚑 **أنت جريح!** (15 دقيقة)`).setColor(Colors.DarkRed);
+            
+            // تطبيق نفس عقوبة الـ PvP (جرح + خصم 15%)
+            sql.prepare(`INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)`).run(battleState.message.guild.id, loser.member.id, -15, expireTime, 'mora', -0.15);
+            sql.prepare(`INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)`).run(battleState.message.guild.id, loser.member.id, 0, expireTime, 'pvp_wounded', 0);
+
+            // صورة خسارة عشوائية
+            const randomLoseImage = LOSE_IMAGES[Math.floor(Math.random() * LOSE_IMAGES.length)];
+
+            embed.setTitle(`💀 هزمك ${battleState.monsterData.name}...`)
+                 .setDescription(`🚑 **أنت جريح!**\nلن تتمكن من الصيد أو القتال لمدة 15 دقيقة.\n📉 خصم -15% من القوة والمورا.`)
+                 .setColor(Colors.DarkRed)
+                 .setImage(randomLoseImage); // استخدام صور الخسارة
         }
     } else {
+        // PvP Logic
         const getScore = battleState.message.client.getLevel;
         const setScore = battleState.message.client.setLevel;
         const finalWinnings = battleState.totalPot;
         let winnerData = getScore.get(winnerId, battleState.message.guild.id);
         winnerData.mora += finalWinnings;
         setScore.run(winnerData);
-        embed.setTitle(`🏆 الفائز هو ${cleanDisplayName(winner.member.user.displayName)}!`).setDescription(`💰 **المكسب:** ${finalWinnings.toLocaleString()} ${EMOJI_MORA}`);
+        
+        const randomWinImage = WIN_IMAGES[Math.floor(Math.random() * WIN_IMAGES.length)];
+        
+        embed.setTitle(`🏆 الفائز هو ${cleanDisplayName(winner.member.user.displayName)}!`)
+             .setDescription(`💰 **المكسب:** ${finalWinnings.toLocaleString()} ${EMOJI_MORA}`)
+             .setImage(randomWinImage);
     }
 
-    // إرسال رسالة النتيجة في نفس القناة (Embed جديد)
     await battleState.message.channel.send({ embeds: [embed] });
-    // إزالة الأزرار من رسالة القتال القديمة
     await battleState.message.edit({ components: [] }).catch(() => {});
 }
 
