@@ -8,6 +8,25 @@ const DISBOARD_BOT_ID = '302050872383242240';
 const autoResponderCooldowns = new Collection();
 const treeCooldowns = new Set();
 
+// ( 🌟 القاموس موجود ولم يحذف 🌟 )
+const COMMAND_ALIASES_MAP = {
+    'balance': 'balance', 'bal': 'balance', 'b': 'balance', 'credits': 'balance', 'c': 'balance', 
+    'رصيد': 'balance', 'فلوس': 'balance', 'مورا': 'balance', '0': 'balance', 'mora': 'balance',
+    'rank': 'rank', 'r': 'rank', 'level': 'rank', 'lvl': 'rank', 'l': 'rank',
+    'رانك': 'rank', 'لفل': 'rank', 'مستوى': 'rank', 'خبرة': 'rank',
+    'top': 'top', 't': 'top', 'leaderboard': 'top', 'lb': 'top',
+    'توب': 'top', 'الاوائل': 'top', 'المتصدرين': 'top', 'ترتيب': 'top',
+    'daily': 'daily', 'd': 'daily', 'day': 'daily',
+    'يومي': 'daily', 'راتب': 'daily', 'يومية': 'daily', 'هدية': 'daily',
+    'profile': 'profile', 'p': 'profile', 'user': 'profile',
+    'بروفايل': 'profile', 'شخصية': 'profile', 'حسابي': 'profile', 'هويتي': 'profile',
+    'transfer': 'transfer', 'trans': 'transfer', 'pay': 'transfer', 'give': 'transfer',
+    'تحويل': 'transfer', 'حول': 'transfer',
+    'bank': 'bank', 'bnk': 'bank', 'dep': 'deposit', 'wd': 'withdraw',
+    'بنك': 'bank', 'ايداع': 'deposit', 'سحب': 'withdraw',
+    'fish': 'fish', 'صيد': 'fish', 'ص': 'fish', 'fishing': 'fish'
+};
+
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
     const now = new Date(); const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7; 
@@ -75,6 +94,7 @@ module.exports = {
                 const fullContent = (message.content || "") + " " + (message.embeds[0]?.description || "") + " " + (message.embeds[0]?.title || "");
                 const lowerContent = fullContent.toLowerCase();
                 const validPhrases = ["watered the tree", "سقى الشجرة", "has watered", "قام بسقاية"];
+                
                 if (validPhrases.some(p => lowerContent.includes(p))) {
                     const match = fullContent.match(/<@!?(\d+)>/);
                     if (match && match[1]) {
@@ -97,29 +117,29 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
 
         // ============================================================
-        // 🌟 3. معالج الاختصارات (البحث الذكي والدقيق) 🌟
+        // 🌟 3. معالج الاختصارات (الصارم) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
-            // 1. البحث في قاعدة البيانات (حصرياً للقناة الحالية)
+            // 1. البحث في قاعدة البيانات (يجب أن يكون channelID مطابقاً للقناة الحالية حصراً)
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
             if (shortcut) {
-                // الاسم الموجود في الداتابيس (مثلاً: "mora" أو "رصيد")
-                const targetName = shortcut.commandName.toLowerCase();
+                let targetName = shortcut.commandName.toLowerCase();
+                
+                // استخدام القاموس لتوحيد الأسماء (إصلاح مشكلة عدم التعرف)
+                if (COMMAND_ALIASES_MAP[targetName]) {
+                    targetName = COMMAND_ALIASES_MAP[targetName];
+                }
 
-                // 2. البحث عن الملف المطابق (بحث شامل: الاسم أو الـ Aliases)
-                // هذا الجزء هو الذي يحل مشكلة "بعض الاختصارات ما تشتغل"
-                const cmd = client.commands.find(c => 
-                    (c.name && c.name.toLowerCase() === targetName) || 
-                    (c.aliases && c.aliases.includes(targetName))
-                );
+                const cmd = client.commands.get(targetName) || 
+                            client.commands.find(c => c.aliases && c.aliases.includes(targetName));
 
                 if (cmd) {
-                    // التحقق من الصلاحيات والكولداون
+                    // بما أن الاختصار مسجل لهذه القناة تحديداً، فهو "مسموح" تلقائياً
                     if (checkPermissions(message, cmd)) {
                         const cooldownMsg = checkCooldown(message, cmd);
                         if (cooldownMsg) {
@@ -127,22 +147,18 @@ module.exports = {
                              return;
                         }
                         try {
-                            // تشغيل الأمر (بدون بريفكس)
                             const finalArgs = argsRaw.slice(1);
                             finalArgs.prefix = ""; 
                             await cmd.execute(message, finalArgs); 
                         } catch (e) { console.error(`[Shortcut Exec Error]`, e); }
                     }
-                    return; // ✅ تم التنفيذ، توقف هنا ولا تكمل للبريفكس
-                } else {
-                    // للتصحيح: إذا وجد الاختصار في الداتابيس لكن لم يجد الملف
-                    console.log(`⚠️ [Shortcut] وجدنا الاختصار '${shortcutWord}' يشير لـ '${targetName}' لكن لم نجد ملف أمر مطابق.`);
+                    return; // ✅ تم التنفيذ
                 }
             }
         } catch (err) { console.error("[Shortcut Handler Error]", err); }
         // ============================================================
 
-        // 4. معالج البريفكس العادي
+        // 4. معالج البريفكس (مع نظام المنع الصارم)
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
@@ -155,38 +171,42 @@ module.exports = {
             if (command) {
                 args.prefix = Prefix;
                 
-                // التحقق من الصلاحيات (Command Permissions)
                 let isAllowed = false;
-                if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
-                else {
-                    try {
-                        // هل مسموح في هذه القناة؟
-                        const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.id);
-                        // هل مسموح في هذا الكاتاغوري؟
-                        const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.parentId);
-                        
-                        if (channelPerm || categoryPerm) isAllowed = true;
-                        else { 
-                            // هل الأمر مقيد في أي مكان؟ (المنطق الصارم)
-                            const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? LIMIT 1").get(message.guild.id, command.name);
-                            // إذا لم يكن مقيداً أبداً، فهو مسموح للكل. إذا مقيد، فهو ممنوع هنا.
-                            if (!hasRestrictions) isAllowed = true; 
-                        }
-                    } catch (err) { isAllowed = true; }
+                
+                // 1. هل المستخدم إداري؟ (سماح)
+                if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+                    isAllowed = true;
+                } 
+                // 2. هل القناة هي روم الكازينو؟ (سماح)
+                else if (settings && settings.casinoChannelID === message.channel.id) {
+                    isAllowed = true;
                 }
-
+                // 3. هل تم السماح بالأمر في هذه القناة أو الكاتاغوري يدوياً؟ (سماح)
+                else {
+                    const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.id);
+                    const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.parentId);
+                    
+                    if (channelPerm || categoryPerm) {
+                        isAllowed = true;
+                    }
+                }
+                
+                // 🛑 القاعدة الصارمة: إذا لم يتحقق أي شرط أعلاه، فالأمر ممنوع (whitelist logic)
+                
                 if (isAllowed) {
                     if (checkPermissions(message, command)) {
                         const cooldownMsg = checkCooldown(message, command);
                         if (cooldownMsg) { if (typeof cooldownMsg === 'string') message.reply(cooldownMsg); } 
                         else { try { await command.execute(message, args); } catch (error) { console.error(error); message.reply("Error"); } }
                     }
+                } else {
+                    // (صامت - لا يرد إذا الأمر ممنوع)
                 }
                 return;
             }
         }
 
-        // 5. القنوات الخاصة (بلاغ / كازينو)
+        // 5. القنوات الخاصة
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             if (message.content.trim().startsWith("بلاغ")) {
                 const args = message.content.trim().split(/ +/); args.shift(); await message.delete().catch(() => {});
@@ -201,9 +221,11 @@ module.exports = {
             return; 
         }
 
+        // (الكازينو بدون بريفكس - مثل rps, roulette)
         if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
             const args = message.content.trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
+            // هنا نسمح بتنفيذ الأوامر بدون بريفكس داخل الكازينو
             const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
             if (command && command.category === "Economy") {
                 if (!checkPermissions(message, command)) return;
@@ -262,7 +284,7 @@ module.exports = {
             }
         } catch (err) { console.error("[Auto Responder Error]", err); }
 
-        // 7. تتبع الإحصائيات (كاملة)
+        // 7. تتبع الإحصائيات
         try {
             const userID = message.author.id;
             const guildID = message.guild.id;
