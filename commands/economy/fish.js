@@ -170,7 +170,6 @@ module.exports = {
                     );
                 });
 
-                // لون عشوائي للايمبد
                 const randomEmbedColor = Math.floor(Math.random() * 0xFFFFFF);
 
                 const biteEmbed = new EmbedBuilder()
@@ -181,7 +180,6 @@ module.exports = {
                 await i.editReply({ embeds: [biteEmbed], components: [gameRow] });
 
                 const pullFilter = j => j.user.id === user.id && j.customId.startsWith('fish_click_');
-                // الوقت ثانيتين
                 const pullCollector = msg.createMessageComponentCollector({ filter: pullFilter, time: 2000, max: 1 }); 
 
                 pullCollector.on('collect', async j => {
@@ -189,10 +187,8 @@ module.exports = {
                     
                     const clickedColorId = j.customId.replace('fish_click_', '');
 
-                    // ❌ إذا ضغط اللون الخطأ
                     if (clickedColorId !== targetColor.id) {
                         pullCollector.stop('wrong_color');
-                        
                         const clickedButtonObj = COLOR_GAME_OPTIONS.find(c => c.id === clickedColorId);
                         const wrongEmoji = clickedButtonObj ? clickedButtonObj.emoji : '❓';
 
@@ -210,24 +206,26 @@ module.exports = {
                     pullCollector.stop('success');
 
                     // ========================================================
-                    // 🦑 منطق الوحوش (المحدث)
+                    // 🦑 منطق الوحوش (المصحح)
                     // ========================================================
                     const monsterChanceBase = Math.random();
                     const isOwner = user.id === OWNER_ID;
                     
-                    // 🌟 تعديل النسبة: 50% للمالك، 10% للبقية
+                    // 50% للمالك، 10% للبقية
                     const monsterTriggered = isOwner ? (monsterChanceBase < 0.50) : (monsterChanceBase < 0.10);
 
-                    // 🌟 تعديل الفلترة: الوحش يجب أن يكون من نفس المنطقة الحالية
-                    const possibleMonsters = monstersConfig.filter(m => m.locations.includes(locationId));
+                    // فلترة الوحوش (حسب المنطقة)
+                    let possibleMonsters = monstersConfig.filter(m => m.locations.includes(locationId));
+                    // للمالك: إذا المنطقة فارغة، اجلب أي وحش
+                    if (isOwner && possibleMonsters.length === 0) possibleMonsters = monstersConfig; 
                     
-                    // يظهر الوحش فقط إذا تم تفعيله، ووجد وحش في هذه المنطقة
                     if (possibleMonsters.length > 0 && monsterTriggered) {
                         const monster = possibleMonsters[Math.floor(Math.random() * possibleMonsters.length)];
                         
                         let playerWeapon = pvpCore.getWeaponData(sql, j.member);
+                        // 🛠️ التصحيح هنا: توحيد هيكل السلاح الافتراضي
                         if (!playerWeapon || playerWeapon.currentLevel === 0) {
-                            playerWeapon = { name: "سكين صيد صدئة", currentStats: { damage: 15 } };
+                            playerWeapon = { name: "سكين صيد صدئة", currentDamage: 15 }; // استخدمنا currentDamage مباشرة
                         }
 
                         let playerSkill = null;
@@ -235,7 +233,8 @@ module.exports = {
                             if (pvpCore.getUserActiveSkill) playerSkill = await pvpCore.getUserActiveSkill(sql, user.id, guild.id);
                         } catch (e) {}
 
-                        let basePower = playerWeapon.currentStats.damage;
+                        // 🛠️ التصحيح هنا: استخدام currentDamage بدلاً من currentStats.damage
+                        let basePower = playerWeapon.currentDamage;
                         let skillBonus = 0;
                         let skillMessage = "";
 
@@ -252,7 +251,6 @@ module.exports = {
                         const monsterRoll = monsterPower + (Math.random() * 50);
 
                         if (monsterRoll > playerRoll) {
-                            // الخسارة
                             const expireTime = Date.now() + (15 * 60 * 1000);
                             sql.prepare(`INSERT INTO user_buffs (userID, guildID, buffType, expiresAt) VALUES (?, ?, 'pvp_wounded', ?)`).run(user.id, guild.id, expireTime);
 
@@ -267,12 +265,9 @@ module.exports = {
 
                             return j.editReply({ embeds: [loseEmbed], components: [] });
                         } else {
-                            // الفوز
                             var monsterReward = Math.floor(Math.random() * (monster.max_reward - monster.min_reward + 1)) + monster.min_reward;
-                            // 🌟 إضافة XP عشوائي (50 - 300)
                             var monsterXP = Math.floor(Math.random() * (300 - 50 + 1)) + 50;
                             
-                            // تحديث XP في الداتابيس
                             userData.xp = (userData.xp || 0) + monsterXP;
 
                             let winMsg = `⚔️ **قهرت ${monster.name}!**\nاستخدمت **${playerWeapon.name}** بقوة **${basePower}**${skillMessage}\n💰 غنيمة الوحش: **${monsterReward}** ${EMOJI_MORA} و **${monsterXP}** XP ✨`;
