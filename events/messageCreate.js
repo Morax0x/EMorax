@@ -5,28 +5,9 @@ const { processReportLogic, sendReportError } = require("../handlers/report-hand
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
-// Auto-Responder & Tree Cooldowns
+// كولداون الردود التلقائية + سقاية الشجرة
 const autoResponderCooldowns = new Collection();
 const treeCooldowns = new Set();
-
-// ( 🌟 Restored Alias Map for compatibility 🌟 )
-const COMMAND_ALIASES_MAP = {
-    'balance': 'mora', 'bal': 'mora', 'b': 'mora', 'credits': 'mora', 'c': 'mora', 
-    'رصيد': 'mora', 'فلوس': 'mora', 'مورا': 'mora', '0': 'mora',
-    'rank': 'rank', 'r': 'rank', 'level': 'rank', 'lvl': 'rank', 'l': 'rank',
-    'رانك': 'rank', 'لفل': 'rank', 'مستوى': 'rank', 'خبرة': 'rank',
-    'top': 'top', 't': 'top', 'leaderboard': 'top', 'lb': 'top',
-    'توب': 'top', 'الاوائل': 'top', 'المتصدرين': 'top', 'ترتيب': 'top',
-    'daily': 'daily', 'd': 'daily', 'day': 'daily',
-    'يومي': 'daily', 'راتب': 'daily', 'يومية': 'daily', 'هدية': 'daily',
-    'profile': 'profile', 'p': 'profile', 'user': 'profile',
-    'بروفايل': 'profile', 'شخصية': 'profile', 'حسابي': 'profile', 'هويتي': 'profile',
-    'transfer': 'trans', 'trans': 'trans', 'pay': 'trans', 'give': 'trans',
-    'تحويل': 'trans', 'حول': 'trans',
-    'bank': 'bank', 'bnk': 'bank', 'dep': 'deposit', 'wd': 'withdraw',
-    'بنك': 'bank', 'ايداع': 'deposit', 'سحب': 'withdraw',
-    'fish': 'fish', 'صيد': 'fish', 'ص': 'fish', 'fishing': 'fish'
-};
 
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
@@ -68,7 +49,7 @@ module.exports = {
         if (!sql || !sql.open) return;
         if (!message.guild) return;
 
-        // 1. Bump Detection
+        // 1. كشف البومب
         if (message.author.id === DISBOARD_BOT_ID) {
             let bumperID = null;
             if (message.interaction && message.interaction.commandName === 'bump') {
@@ -89,7 +70,7 @@ module.exports = {
 
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
 
-        // 2. Tree Watering Tracker
+        // 2. تتبع سقاية الشجرة
         if (settings && settings.treeChannelID && message.channel.id === settings.treeChannelID) {
             if (message.author.bot) {
                 const fullContent = (message.content || "") + " " + (message.embeds[0]?.description || "") + " " + (message.embeds[0]?.title || "");
@@ -118,31 +99,26 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
 
         // ============================================================
-        // 🌟 3. Shortcut Handler (With Global Fallback & Alias Map) 🌟
+        // 🌟 3. معالج الاختصارات (مع البحث العام Fallback) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
-            // A) Check Channel Specific Shortcut
+            // أ) البحث في القناة الحالية
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
-            // B) Global Fallback (If strict mode is NOT required)
-            // ( 🌟 Restored this part as per your request 🌟 )
+            // ب) البحث العام (Fallback) - هذا الذي كنت تريده
             if (!shortcut) {
                 shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND shortcutWord = ? LIMIT 1")
                     .get(message.guild.id, shortcutWord);
             }
             
             if (shortcut) {
-                let targetName = shortcut.commandName.toLowerCase();
+                const targetName = shortcut.commandName.toLowerCase();
                 
-                // Use Alias Map to normalize names
-                if (COMMAND_ALIASES_MAP[targetName]) {
-                    targetName = COMMAND_ALIASES_MAP[targetName];
-                }
-
+                // البحث عن الأمر (بالاسم أو Alias)
                 const cmd = client.commands.get(targetName) || 
                             client.commands.find(c => c.aliases && c.aliases.includes(targetName));
 
@@ -154,18 +130,19 @@ module.exports = {
                              return;
                         }
                         try {
+                            // تمرير البريفكس الفارغ للأوامر
                             const finalArgs = argsRaw.slice(1);
                             finalArgs.prefix = ""; 
                             await cmd.execute(message, finalArgs); 
                         } catch (e) { console.error(e); }
                     }
-                    return; 
+                    return; // تم التنفيذ
                 }
             }
-        } catch (err) { console.error("[Shortcut Handler Error]", err); }
+        } catch (err) { console.error("[Shortcut Error]", err); }
         // ============================================================
 
-        // 4. Prefix Handler
+        // 4. معالج البريفكس
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
@@ -197,7 +174,7 @@ module.exports = {
             }
         }
 
-        // 5. Special Channels
+        // 5. القنوات الخاصة
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             if (message.content.trim().startsWith("بلاغ")) {
                 const args = message.content.trim().split(/ +/); args.shift(); await message.delete().catch(() => {});
@@ -228,7 +205,7 @@ module.exports = {
             if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
         } catch (e) {}
 
-        // 6. Auto Responder
+        // 6. الردود التلقائية
         try {
             const autoResponses = sql.prepare("SELECT * FROM auto_responses WHERE guildID = ?").all(message.guild.id);
             const content = message.content.trim().toLowerCase();
@@ -273,13 +250,14 @@ module.exports = {
             }
         } catch (err) { console.error("[Auto Responder Error]", err); }
 
-        // 7. Stats Tracker
+        // 7. تتبع الإحصائيات (محدث للإيموجي والستيكر)
         try {
             const userID = message.author.id;
             const guildID = message.guild.id;
 
             if (client.incrementQuestStats) {
                 await client.incrementQuestStats(userID, guildID, 'messages', 1);
+                
                 if (message.attachments.size > 0) await client.incrementQuestStats(userID, guildID, 'images', 1);
                 if (message.stickers.size > 0) await client.incrementQuestStats(userID, guildID, 'stickers', message.stickers.size);
                 
