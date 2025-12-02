@@ -70,6 +70,7 @@ module.exports = {
         const lastFish = userData.lastFish || 0;
         const now = Date.now();
 
+        // ( ⚠️ ملاحظة: الكولداون لا يعمل عليك لأنك المالك، جرب بحساب ثاني للتأكد )
         if (user.id !== OWNER_ID && (now - lastFish < cooldown)) {
             const remaining = lastFish + cooldown - now;
             const minutes = Math.floor((remaining % 3600000) / 60000);
@@ -188,17 +189,17 @@ module.exports = {
                         let rarityStar = "";
                         if (info.rarity >= 5) rarityStar = "🌟"; else if (info.rarity === 4) rarityStar = "✨";
                         
-                        // ( 🌟 التعديل هنا: استبدال ✬ بـ ✶ 🌟 )
-                        description += `✶ **${info.count}x** ${info.emoji} ${name} ${rarityStar}\n`;
+                        // ( 🌟 التعديل هنا: نقل العدد للنهاية 🌟 )
+                        description += `✶ ${info.emoji} ${name} ${rarityStar} **x${info.count}**\n`;
                     }
                     description += `\n✶ قيـمـة الصيد: \`${totalValue.toLocaleString()}\` ${EMOJI_MORA}`;
 
                     const resultEmbed = new EmbedBuilder()
-                        .setTitle(`✥ رحـلـة صيـد فـي المحيـط !`) // (العنوان المطلوب)
+                        .setTitle(`✥ رحـلـة صيـد فـي المحيـط !`) 
                         .setDescription(description)
                         .setColor(Colors.Green)
                         .setThumbnail('https://i.postimg.cc/Wz0g0Zg0/fishing.png')
-                        .setFooter({ text: `السنارة: ${currentRod.name} (Lvl ${currentRod.level})` }); // (بدون الجملة الزائدة)
+                        .setFooter({ text: `السنارة: ${currentRod.name} (Lvl ${currentRod.level})` });
 
                     await j.editReply({ embeds: [resultEmbed], components: [] });
                 });
