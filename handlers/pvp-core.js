@@ -303,20 +303,21 @@ async function endBattle(battleState, winnerId, sql, reason = "win") {
             userData.xp += rewardXP;
             client.setLevel.run(userData);
 
-            // تطبيق تعزيز الفوز للوحش (15 دقيقة)
-            sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(battleState.message.guild.id, winner.member.id, 3, winnerExpiresAt, 'xp', 0.03);
-            sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(battleState.message.guild.id, winner.member.id, 3, winnerExpiresAt, 'mora', 0.03);
+            // تطبيق تعزيز الفوز للوحش (15 دقيقة - 15%)
+            sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(battleState.message.guild.id, winner.member.id, 15, winnerExpiresAt, 'xp', 0.15);
+            sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(battleState.message.guild.id, winner.member.id, 15, winnerExpiresAt, 'mora', 0.15);
 
             const randomWinImage = WIN_IMAGES[Math.floor(Math.random() * WIN_IMAGES.length)];
             embed.setColor(Colors.Gold);
-            embed.setThumbnail('https://i.postimg.cc/Wz0g0Zg0/fishing.png');
+            // 🌟 صورة اللاعب المصغرة
+            embed.setThumbnail(winner.member.displayAvatarURL());
             embed.setImage(randomWinImage);
 
             descriptionLines.push(`🏆 **قهرت ${monster.name}!**`);
             descriptionLines.push(``);
             descriptionLines.push(`💰 **الغنيمة:** ${rewardMora.toLocaleString()} ${EMOJI_MORA}`);
             descriptionLines.push(`✨ **خبرة:** ${rewardXP} XP`);
-            descriptionLines.push(`✦ حـصـل على تعزيـز اكس بي ومورا: +3% \` 15 د \` <a:buff:1438796257522094081>`); // ✅ توحيد الصيغة
+            descriptionLines.push(`✦ حـصـلت على تعزيـز اكس بي ومورا: +15% \` 15 د \` <a:buff:1438796257522094081>`);
 
         } else {
             // خسارة اللاعب أمام الوحش
@@ -343,16 +344,14 @@ async function endBattle(battleState, winnerId, sql, reason = "win") {
         
         const finalWinnings = battleState.totalPot;
 
-        // تحديث الفائز
         let winnerData = getScore.get(winnerId, battleState.message.guild.id);
         winnerData.mora += finalWinnings;
         setScore.run(winnerData);
 
-        // تطبيق البف للفائز (15 دقيقة الآن)
-        sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(battleState.message.guild.id, winnerId, 3, winnerExpiresAt, 'xp', 0.03);
-        sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(battleState.message.guild.id, winnerId, 3, winnerExpiresAt, 'mora', 0.03);
+        // تطبيق البف للفائز (15 دقيقة - 15%)
+        sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(battleState.message.guild.id, winnerId, 15, winnerExpiresAt, 'xp', 0.15);
+        sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(battleState.message.guild.id, winnerId, 15, winnerExpiresAt, 'mora', 0.15);
 
-        // تطبيق الديبف للخاسر
         const loserExpiresAt = Date.now() + (15 * 60 * 1000);
         sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(battleState.message.guild.id, loserId, -15, loserExpiresAt, 'mora', -0.15);
         sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(battleState.message.guild.id, loserId, 0, loserExpiresAt, 'pvp_wounded', 0);
@@ -366,7 +365,7 @@ async function endBattle(battleState, winnerId, sql, reason = "win") {
         
         descriptionLines.push(`✶ الـفـائـز: ${winner.member}`);
         descriptionLines.push(`✦ مبـلغ الرهـان: **${finalWinnings.toLocaleString()}** ${EMOJI_MORA}`);
-        descriptionLines.push(`✦ حـصـل على تعزيـز اكس بي ومورا: +3% \` 15 د \` <a:buff:1438796257522094081>`); // ✅ توحيد الصيغة
+        descriptionLines.push(`✦ حـصـل على تعزيـز اكس بي ومورا: +15% \` 15 د \` <a:buff:1438796257522094081>`);
         descriptionLines.push(``);
         descriptionLines.push(`✶ الـخـاسـر: ${loser.member}`);
         descriptionLines.push(`✦ اصبـح جـريـح وبطـور الشفـاء \` 15 د \``);
