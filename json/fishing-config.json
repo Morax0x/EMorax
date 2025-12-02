@@ -58,13 +58,13 @@
     { "level": 10, "name": "سنارة الأساطير", "price": 15000000, "cooldown": 900000, "luck_bonus": 80, "max_fish": 6, "max_rarity": 6 }
   ],
   "boats": [
-    { "level": 1, "name": "قارب خشبي (الشاطئ)", "price": 0, "location_id": "beach", "speed_bonus": 0 },
-    { "level": 2, "name": "قارب بمحرك (المياه الضحلة)", "price": 50000, "location_id": "shallow", "speed_bonus": 3000 },
-    { "level": 3, "name": "يخت الصيد (المحيط العميق)", "price": 250000, "location_id": "deep", "speed_bonus": 6000 },
-    { "level": 4, "name": "سفينة الاستكشاف (مثلث برمودا)", "price": 750000, "location_id": "bermuda", "speed_bonus": 9000 },
-    { "level": 5, "name": "غواصة الأعماق (خندق ماريانا)", "price": 1500000, "location_id": "trench", "speed_bonus": 12000 },
-    { "level": 6, "name": "غواصة أطلانتس (المدينة المفقودة)", "price": 3000000, "location_id": "atlantis", "speed_bonus": 15000 },
-    { "level": 7, "name": "سفينة الأشباح (بحر الظلمات)", "price": 7000000, "location_id": "dark_sea", "speed_bonus": 20000 }
+    { "level": 1, "name": "قـارب خـشيـبـي", "price": 0, "location_id": "beach", "speed_bonus": 0 },
+    { "level": 2, "name": "قـارب بـمحـرك", "price": 50000, "location_id": "shallow", "speed_bonus": 3000 },
+    { "level": 3, "name": "يـخـت الصيـد", "price": 250000, "location_id": "deep", "speed_bonus": 6000 },
+    { "level": 4, "name": "سفيـنة", "price": 750000, "location_id": "bermuda", "speed_bonus": 9000 },
+    { "level": 5, "name": "غـواصــة", "price": 1500000, "location_id": "trench", "speed_bonus": 12000 },
+    { "level": 6, "name": "غـواصــة أطلانتس", "price": 3000000, "location_id": "atlantis", "speed_bonus": 15000 },
+    { "level": 7, "name": "سفـينـة الاشبـاح", "price": 7000000, "location_id": "dark_sea", "speed_bonus": 20000 }
   ],
   "baits": [
     { "id": "bait_worm", "name": "دودة", "price": 50, "luck": 5, "description": "طعم بسيط يزيد الحظ قليلاً." },
