@@ -202,7 +202,6 @@ function buildBattleEmbed(battleState, skillSelectionMode = false, skillPage = 0
 // --- بدء المعارك ---
 
 async function startPvpBattle(i, client, sql, challengerMember, opponentMember, bet) {
-    // (نفس كود PvP العادي - للتأكد من وجوده)
     const getLevel = i.client.getLevel;
     const setLevel = i.client.setLevel;
     let challengerData = getLevel.get(challengerMember.id, i.guild.id);
@@ -227,14 +226,13 @@ async function startPvpBattle(i, client, sql, challengerMember, opponentMember, 
     battleState.message = await i.channel.send({ content: `${challengerMember} 🆚 ${opponentMember}`, embeds, components });
 }
 
-// 🔥🔥 هذه هي الدالة التي كانت ناقصة وتسبب المشكلة 🔥🔥
+// 🔥🔥 دالة قتال الوحوش المصححة 🔥🔥
 async function startPveBattle(interaction, client, sql, playerMember, monsterData, playerWeaponOverride) {
     const getLevel = client.getLevel;
     let playerData = getLevel.get(playerMember.id, interaction.guild.id);
     if (!playerData) playerData = { ...client.defaultData, user: playerMember.id, guild: interaction.guild.id };
 
     const playerMaxHp = BASE_HP + (playerData.level * HP_PER_LEVEL);
-    
     // الوحش لديه HP يساوي قوته × 10
     const monsterMaxHp = monsterData.base_power * 8;
 
@@ -273,12 +271,18 @@ async function startPveBattle(interaction, client, sql, playerMember, monsterDat
     activePveBattles.set(interaction.channel.id, battleState);
 
     const { embeds, components } = buildBattleEmbed(battleState);
+    
+    // 🛠️ التعديل الجذري: استخدام editReply لاستبدال رسالة الصيد
     let battleMessage;
+    // نتأكد أننا نرسل المكونات (components) بشكل صحيح
+    // إذا كان التفاعل قد تم الرد عليه، نستخدم editReply
     if (interaction.replied || interaction.deferred) {
-        battleMessage = await interaction.followUp({ content: `⚔️ **قتال ضد وحش!**`, embeds, components, fetchReply: true });
+        battleMessage = await interaction.editReply({ content: `⚔️ **قتال ضد وحش!**`, embeds, components });
     } else {
+        // إذا لسبب ما لم يتم الرد بعد (نادر الحدوث في الصيد)، نستخدم reply
         battleMessage = await interaction.reply({ content: `⚔️ **قتال ضد وحش!**`, embeds, components, fetchReply: true });
     }
+    
     battleState.message = battleMessage;
 }
 
