@@ -9,25 +9,6 @@ const DISBOARD_BOT_ID = '302050872383242240';
 const autoResponderCooldowns = new Collection();
 const treeCooldowns = new Set();
 
-// ( 🌟 القاموس الشامل: لضمان عمل الأسماء العربية والاختصارات القديمة 🌟 )
-const COMMAND_ALIASES_MAP = {
-    'balance': 'balance', 'bal': 'balance', 'b': 'balance', 'credits': 'balance', 'c': 'balance', 
-    'رصيد': 'balance', 'فلوس': 'balance', 'مورا': 'balance', '0': 'balance', 'mora': 'balance',
-    'rank': 'rank', 'r': 'rank', 'level': 'rank', 'lvl': 'rank', 'l': 'rank',
-    'رانك': 'rank', 'لفل': 'rank', 'مستوى': 'rank', 'خبرة': 'rank',
-    'top': 'top', 't': 'top', 'leaderboard': 'top', 'lb': 'top',
-    'توب': 'top', 'الاوائل': 'top', 'المتصدرين': 'top', 'ترتيب': 'top',
-    'daily': 'daily', 'd': 'daily', 'day': 'daily',
-    'يومي': 'daily', 'راتب': 'daily', 'يومية': 'daily', 'هدية': 'daily',
-    'profile': 'profile', 'p': 'profile', 'user': 'profile',
-    'بروفايل': 'profile', 'شخصية': 'profile', 'حسابي': 'profile', 'هويتي': 'profile',
-    'transfer': 'transfer', 'trans': 'transfer', 'pay': 'transfer', 'give': 'transfer',
-    'تحويل': 'transfer', 'حول': 'transfer',
-    'bank': 'bank', 'bnk': 'bank', 'dep': 'deposit', 'wd': 'withdraw',
-    'بنك': 'bank', 'ايداع': 'deposit', 'سحب': 'withdraw',
-    'fish': 'fish', 'صيد': 'fish', 'ص': 'fish', 'fishing': 'fish'
-};
-
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
     const now = new Date(); const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7; 
@@ -119,7 +100,7 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
 
         // ============================================================
-        // 🌟 3. معالج الاختصارات (الصارم - للقناة فقط) 🌟
+        // 🌟 3. معالج الاختصارات (للقناة فقط + بحث ديناميكي) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
@@ -130,19 +111,15 @@ module.exports = {
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
             if (shortcut) {
-                let targetName = shortcut.commandName.toLowerCase();
-                
-                // ترجمة الاسم إذا كان في القاموس
-                if (COMMAND_ALIASES_MAP[targetName]) {
-                    targetName = COMMAND_ALIASES_MAP[targetName];
-                }
+                const targetName = shortcut.commandName.toLowerCase();
 
-                // البحث عن الأمر
+                // 🔍 البحث الديناميكي في الكولكشن (بدون قاموس)
+                // يبحث عن الاسم الأصلي أو الـ Aliases داخل ملف الأمر
                 const cmd = client.commands.get(targetName) || 
                             client.commands.find(c => c.aliases && c.aliases.includes(targetName));
 
                 if (cmd) {
-                    // التحقق من الكولداون فقط (الصلاحية مسموحة لأن الاختصار مسجل لهذه القناة)
+                    // بما أن الاختصار مسجل لهذه القناة تحديداً، فهو "مسموح"
                     if (checkPermissions(message, cmd)) {
                         const cooldownMsg = checkCooldown(message, cmd);
                         if (cooldownMsg) {
@@ -155,7 +132,9 @@ module.exports = {
                             await cmd.execute(message, finalArgs); 
                         } catch (e) { console.error(`[Shortcut Exec Error]`, e); }
                     }
-                    return; 
+                    return; // ✅ تم التنفيذ
+                } else {
+                    console.warn(`⚠️ [Shortcut] الاختصار '${shortcutWord}' يشير لـ '${targetName}' لكن الملف غير موجود.`);
                 }
             }
         } catch (err) { console.error("[Shortcut Handler Error]", err); }
@@ -169,10 +148,8 @@ module.exports = {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             
-            let targetName = commandName;
-            if (COMMAND_ALIASES_MAP[targetName]) targetName = COMMAND_ALIASES_MAP[targetName];
-
-            const command = client.commands.get(targetName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(targetName));
+            // البحث الديناميكي
+            const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
             
             if (command) {
                 args.prefix = Prefix;
@@ -183,9 +160,11 @@ module.exports = {
                 if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
                     isAllowed = true;
                 } 
-                // ب) روم الكازينو (لأوامر الاقتصاد فقط أو الكل حسب رغبتك، هنا خليتها للكل للتسهيل)
+                // ب) روم الكازينو
                 else if (settings && settings.casinoChannelID === message.channel.id) {
-                    isAllowed = true;
+                    // هنا نسمح بالأوامر، ويمكنك تقييدها بأوامر الاقتصاد فقط إذا أردت
+                    // حالياً مسموح بكل الأوامر داخل الكازينو للتسهيل
+                    isAllowed = true; 
                 }
                 // ج) السماح اليدوي (command_permissions)
                 else {
@@ -206,12 +185,12 @@ module.exports = {
                         else { try { await command.execute(message, args); } catch (error) { console.error(error); message.reply("Error"); } }
                     }
                 }
-                // إذا لم يكن مسموحاً، لا يفعل شيئاً (تجاهل)
+                // إذا غير مسموح، لا يرد (تجاهل تام)
                 return;
             }
         }
 
-        // 5. القنوات الخاصة (بلاغ / كازينو بدون بريفكس)
+        // 5. القنوات الخاصة
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             if (message.content.trim().startsWith("بلاغ")) {
                 const args = message.content.trim().split(/ +/); args.shift(); await message.delete().catch(() => {});
@@ -226,15 +205,11 @@ module.exports = {
             return; 
         }
 
-        // تشغيل أوامر الكازينو بدون بريفكس داخل روم الكازينو
         if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
             const args = message.content.trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
-            
-            let targetName = commandName;
-            if (COMMAND_ALIASES_MAP[targetName]) targetName = COMMAND_ALIASES_MAP[targetName];
-
-            const command = client.commands.get(targetName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(targetName));
+            // بحث ديناميكي للكازينو أيضاً
+            const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
             if (command && command.category === "Economy") {
                 if (!checkPermissions(message, command)) return;
                 try { await command.execute(message, args); } catch (error) {}
@@ -292,14 +267,13 @@ module.exports = {
             }
         } catch (err) { console.error("[Auto Responder Error]", err); }
 
-        // 7. تتبع الإحصائيات (إيموجي وستيكر)
+        // 7. تتبع الإحصائيات
         try {
             const userID = message.author.id;
             const guildID = message.guild.id;
 
             if (client.incrementQuestStats) {
                 await client.incrementQuestStats(userID, guildID, 'messages', 1);
-                
                 if (message.attachments.size > 0) await client.incrementQuestStats(userID, guildID, 'images', 1);
                 if (message.stickers.size > 0) await client.incrementQuestStats(userID, guildID, 'stickers', message.stickers.size);
                 
@@ -310,10 +284,7 @@ module.exports = {
                 }
             }
 
-            // (باقي تتبع الإحصائيات كما هو...)
-            // ...
-            // (تم اختصار هذا الجزء لأنه لم يتغير وهو طويل، تأكد أنك تستخدم الكود الموجود في الردود السابقة لهذا الجزء)
-             if (message.mentions.users.size > 0) {
+            if (message.mentions.users.size > 0) {
                 message.mentions.users.forEach(async (user) => {
                     if (user.id !== message.author.id && !user.bot) {
                         if (client.incrementQuestStats) await client.incrementQuestStats(user.id, guildID, 'mentions_received', 1);
