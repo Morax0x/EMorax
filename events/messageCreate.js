@@ -8,24 +8,6 @@ const DISBOARD_BOT_ID = '302050872383242240';
 const autoResponderCooldowns = new Collection();
 const treeCooldowns = new Set();
 
-const COMMAND_ALIASES_MAP = {
-    'balance': 'balance', 'bal': 'balance', 'b': 'balance', 'credits': 'balance', 'c': 'balance', 
-    'رصيد': 'balance', 'فلوس': 'balance', 'مورا': 'balance', '0': 'balance', 'mora': 'balance',
-    'rank': 'rank', 'r': 'rank', 'level': 'rank', 'lvl': 'rank', 'l': 'rank',
-    'رانك': 'rank', 'لفل': 'rank', 'مستوى': 'rank', 'خبرة': 'rank',
-    'top': 'top', 't': 'top', 'leaderboard': 'top', 'lb': 'top',
-    'توب': 'top', 'الاوائل': 'top', 'المتصدرين': 'top', 'ترتيب': 'top',
-    'daily': 'daily', 'd': 'daily', 'day': 'daily',
-    'يومي': 'daily', 'راتب': 'daily', 'يومية': 'daily', 'هدية': 'daily',
-    'profile': 'profile', 'p': 'profile', 'user': 'profile',
-    'بروفايل': 'profile', 'شخصية': 'profile', 'حسابي': 'profile', 'هويتي': 'profile',
-    'transfer': 'transfer', 'trans': 'transfer', 'pay': 'transfer', 'give': 'transfer',
-    'تحويل': 'transfer', 'حول': 'transfer',
-    'bank': 'bank', 'bnk': 'bank', 'dep': 'deposit', 'wd': 'withdraw',
-    'بنك': 'bank', 'ايداع': 'deposit', 'سحب': 'withdraw',
-    'fish': 'fish', 'صيد': 'fish', 'ص': 'fish', 'fishing': 'fish'
-};
-
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
     const now = new Date(); const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7; 
@@ -118,25 +100,34 @@ module.exports = {
             const shortcutWord = argsRaw[0].toLowerCase().trim();
             let targetName = null;
 
-            const allShortcuts = sql.prepare(`
+            const potentialShortcuts = sql.prepare(`
                 SELECT commandName, channelID 
                 FROM command_shortcuts 
                 WHERE guildID = ? AND shortcutWord = ?
             `).all(message.guild.id, shortcutWord);
 
-            if (allShortcuts.length > 0) {
-                const channelMatch = allShortcuts.find(s => s.channelID === message.channel.id);
-                const globalMatch = allShortcuts.find(s => !s.channelID || s.channelID === '' || s.channelID === 'null');
-
-                if (channelMatch) {
-                    targetName = channelMatch.commandName.toLowerCase();
-                } else if (globalMatch) {
-                    targetName = globalMatch.commandName.toLowerCase();
+            if (potentialShortcuts.length > 0) {
+                
+                const exactChannel = potentialShortcuts.find(s => s.channelID === message.channel.id);
+                
+                let categoryChannel = null;
+                if (message.channel.parentId) {
+                    categoryChannel = potentialShortcuts.find(s => s.channelID === message.channel.parentId);
                 }
-            }
-            
-            if (!targetName && COMMAND_ALIASES_MAP[shortcutWord]) {
-                targetName = COMMAND_ALIASES_MAP[shortcutWord];
+
+                const globalShortcut = potentialShortcuts.find(s => !s.channelID || s.channelID === '' || s.channelID === 'null');
+
+                if (exactChannel) {
+                    targetName = exactChannel.commandName;
+                } else if (categoryChannel) {
+                    targetName = categoryChannel.commandName;
+                } else if (globalShortcut) {
+                    targetName = globalShortcut.commandName;
+                }
+
+                if (targetName) {
+                    targetName = targetName.replace(/^-/, '').toLowerCase().trim();
+                }
             }
 
             if (targetName) {
@@ -184,10 +175,7 @@ module.exports = {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             
-            let targetName = commandName;
-            if (COMMAND_ALIASES_MAP[commandName]) targetName = COMMAND_ALIASES_MAP[commandName];
-
-            const command = client.commands.get(targetName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(targetName));
+            const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
             
             if (command) {
                 args.prefix = Prefix;
@@ -238,10 +226,7 @@ module.exports = {
             const args = message.content.trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             
-            let targetName = commandName;
-            if (COMMAND_ALIASES_MAP[commandName]) targetName = COMMAND_ALIASES_MAP[commandName];
-
-            const command = client.commands.get(targetName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(targetName));
+            const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
             if (command && command.category === "Economy") {
                 if (!checkPermissions(message, command)) return;
                 try { await command.execute(message, args); } catch (error) {}
