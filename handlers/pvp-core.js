@@ -253,7 +253,6 @@ async function startPveBattle(interaction, client, sql, playerMember, monsterDat
 
     const { embeds, components } = buildBattleEmbed(battleState);
     
-    // استبدال رسالة الصيد
     try {
         await interaction.editReply({ 
             content: `🦑 **ظهر ${monsterData.name}!**\nانظر للأسفل لبدء القتال! 👇`,
@@ -271,7 +270,7 @@ async function startPveBattle(interaction, client, sql, playerMember, monsterDat
     battleState.message = battleMessage;
 }
 
-// 🌟🌟 دالة النهاية (المعدلة لتوحيد الصيغة) 🌟🌟
+// 🌟🌟 دالة النهاية (المعدلة) 🌟🌟
 async function endBattle(battleState, winnerId, sql, reason = "win") {
     if (!battleState.message) return;
 
@@ -285,6 +284,10 @@ async function endBattle(battleState, winnerId, sql, reason = "win") {
 
     const embed = new EmbedBuilder();
     let descriptionLines = [];
+
+    // مدة التعزيز الجديدة: 15 دقيقة
+    const BUFF_DURATION_MS = 15 * 60 * 1000; 
+    const winnerExpiresAt = Date.now() + BUFF_DURATION_MS;
 
     // --- حالة PvE (الوحوش) ---
     if (battleState.isPvE) {
@@ -300,7 +303,10 @@ async function endBattle(battleState, winnerId, sql, reason = "win") {
             userData.xp += rewardXP;
             client.setLevel.run(userData);
 
-            // صورة الفوز
+            // تطبيق تعزيز الفوز للوحش (15 دقيقة)
+            sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(battleState.message.guild.id, winner.member.id, 3, winnerExpiresAt, 'xp', 0.03);
+            sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(battleState.message.guild.id, winner.member.id, 3, winnerExpiresAt, 'mora', 0.03);
+
             const randomWinImage = WIN_IMAGES[Math.floor(Math.random() * WIN_IMAGES.length)];
             embed.setColor(Colors.Gold);
             embed.setThumbnail('https://i.postimg.cc/Wz0g0Zg0/fishing.png');
@@ -310,17 +316,16 @@ async function endBattle(battleState, winnerId, sql, reason = "win") {
             descriptionLines.push(``);
             descriptionLines.push(`💰 **الغنيمة:** ${rewardMora.toLocaleString()} ${EMOJI_MORA}`);
             descriptionLines.push(`✨ **خبرة:** ${rewardXP} XP`);
+            descriptionLines.push(`✦ حـصـل على تعزيـز اكس بي ومورا: +3% \` 15 د \` <a:buff:1438796257522094081>`); // ✅ توحيد الصيغة
 
         } else {
-            // خسارة اللاعب أمام الوحش (تطبيق العقوبة الموحدة)
+            // خسارة اللاعب أمام الوحش
             const playerMember = loser.member;
             const expireTime = Date.now() + (15 * 60 * 1000);
             
-            // تطبيق ديبف الجرح والمورا
             sql.prepare(`INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)`).run(battleState.message.guild.id, playerMember.id, -15, expireTime, 'mora', -0.15);
             sql.prepare(`INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)`).run(battleState.message.guild.id, playerMember.id, 0, expireTime, 'pvp_wounded', 0);
 
-            // صورة الخسارة
             const randomLoseImage = LOSE_IMAGES[Math.floor(Math.random() * LOSE_IMAGES.length)];
             embed.setColor(Colors.DarkRed);
             embed.setImage(randomLoseImage);
@@ -336,9 +341,6 @@ async function endBattle(battleState, winnerId, sql, reason = "win") {
         const getScore = battleState.message.client.getLevel;
         const setScore = battleState.message.client.setLevel;
         
-        // حساب البونص للفائز (إذا وجد بف مورا)
-        // (هذا المنطق كان موجوداً في كودك القديم داخل calculateMoraBuffFunc)
-        // سنفترض أن البونص تم حسابه مسبقاً أو نكتفي بالمجموع الأساسي هنا للتبسيط
         const finalWinnings = battleState.totalPot;
 
         // تحديث الفائز
@@ -346,8 +348,7 @@ async function endBattle(battleState, winnerId, sql, reason = "win") {
         winnerData.mora += finalWinnings;
         setScore.run(winnerData);
 
-        // تطبيق البف للفائز
-        const winnerExpiresAt = Date.now() + (5 * 60 * 1000);
+        // تطبيق البف للفائز (15 دقيقة الآن)
         sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(battleState.message.guild.id, winnerId, 3, winnerExpiresAt, 'xp', 0.03);
         sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(battleState.message.guild.id, winnerId, 3, winnerExpiresAt, 'mora', 0.03);
 
@@ -356,18 +357,16 @@ async function endBattle(battleState, winnerId, sql, reason = "win") {
         sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(battleState.message.guild.id, loserId, -15, loserExpiresAt, 'mora', -0.15);
         sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(battleState.message.guild.id, loserId, 0, loserExpiresAt, 'pvp_wounded', 0);
 
-        // الصور
         const randomWinImage = WIN_IMAGES[Math.floor(Math.random() * WIN_IMAGES.length)];
         embed.setColor(Colors.Gold);
         embed.setThumbnail(winner.member.displayAvatarURL());
         embed.setImage(randomWinImage);
 
-        // بناء النصوص (نفس الصيغة الموحدة)
         embed.setTitle(`🏆 الفائز هو ${cleanDisplayName(winner.member.user.displayName)}!`);
         
         descriptionLines.push(`✶ الـفـائـز: ${winner.member}`);
         descriptionLines.push(`✦ مبـلغ الرهـان: **${finalWinnings.toLocaleString()}** ${EMOJI_MORA}`);
-        descriptionLines.push(`✦ حـصـل على تعزيـز اكس بي ومورا: +3% \` 5 د \` <a:buff:1438796257522094081>`);
+        descriptionLines.push(`✦ حـصـل على تعزيـز اكس بي ومورا: +3% \` 15 د \` <a:buff:1438796257522094081>`); // ✅ توحيد الصيغة
         descriptionLines.push(``);
         descriptionLines.push(`✶ الـخـاسـر: ${loser.member}`);
         descriptionLines.push(`✦ اصبـح جـريـح وبطـور الشفـاء \` 15 د \``);
@@ -376,7 +375,6 @@ async function endBattle(battleState, winnerId, sql, reason = "win") {
 
     embed.setDescription(descriptionLines.join('\n'));
 
-    // إرسال النتيجة وحذف الأزرار
     await battleState.message.channel.send({ embeds: [embed] });
     await battleState.message.edit({ components: [] }).catch(() => {});
 }
