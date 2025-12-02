@@ -14,7 +14,7 @@
     { "id": "fish_mackerel", "name": "ماكريل", "price": 40, "rarity": 2, "emoji": "🐟" },
     
     { "id": "fish_salmon", "name": "سلمون", "price": 60, "rarity": 3, "emoji": "🍣" },
-    { "id": "fish_lobster", "name": "كركند (لوبستر)", "price": 70, "rarity": 3, "emoji": "🦞" },
+    { "id": "fish_lobster", "name": "كركند", "price": 70, "rarity": 3, "emoji": "🦞" },
     { "id": "fish_clown", "name": "سمكة المهرج", "price": 80, "rarity": 3, "emoji": "🐠" },
     { "id": "fish_octopus", "name": "أخطبوط", "price": 90, "rarity": 3, "emoji": "🐙" },
     
@@ -67,19 +67,35 @@
       "emoji": "🦀", 
       "locations": ["beach"], 
       "base_power": 20, 
-      "min_reward": 100,
-      "max_reward": 200,
-      "image": "https://i.postimg.cc/SxQJ6y1y/crab.gif"
+      "min_reward": 100, 
+      "max_reward": 200
+    },
+    { 
+      "id": "mon_sand_golem", 
+      "name": "غولم الرمال", 
+      "emoji": "🏜️", 
+      "locations": ["beach"], 
+      "base_power": 30, 
+      "min_reward": 120, 
+      "max_reward": 250
     },
     { 
       "id": "mon_siren", 
-      "name": "السيرين الغاضبة", 
+      "name": "السيرين", 
       "emoji": "🧜‍♀️", 
       "locations": ["shallow"], 
       "base_power": 50, 
-      "min_reward": 200,
-      "max_reward": 350,
-      "image": "https://i.postimg.cc/CLj3v2QJ/siren.gif"
+      "min_reward": 200, 
+      "max_reward": 350
+    },
+    { 
+      "id": "mon_giant_toad", 
+      "name": "ضفدع عملاق", 
+      "emoji": "🐸", 
+      "locations": ["shallow"], 
+      "base_power": 60, 
+      "min_reward": 220, 
+      "max_reward": 380
     },
     { 
       "id": "mon_jaws", 
@@ -87,9 +103,17 @@
       "emoji": "🦈", 
       "locations": ["deep"], 
       "base_power": 100, 
-      "min_reward": 350,
-      "max_reward": 500,
-      "image": "https://i.postimg.cc/HsV5zX1L/shark.gif"
+      "min_reward": 350, 
+      "max_reward": 500
+    },
+    { 
+      "id": "mon_sea_serpent", 
+      "name": "أفعى البحر", 
+      "emoji": "🐍", 
+      "locations": ["deep"], 
+      "base_power": 120, 
+      "min_reward": 380, 
+      "max_reward": 550
     },
     { 
       "id": "mon_ghost_pirate", 
@@ -97,9 +121,17 @@
       "emoji": "💀", 
       "locations": ["bermuda"], 
       "base_power": 200, 
-      "min_reward": 500,
-      "max_reward": 700,
-      "image": "https://i.postimg.cc/tgDq2r8z/ghost.gif"
+      "min_reward": 500, 
+      "max_reward": 700
+    },
+    { 
+      "id": "mon_cursed_ship", 
+      "name": "السفينة الملعونة", 
+      "emoji": "🚢", 
+      "locations": ["bermuda"], 
+      "base_power": 220, 
+      "min_reward": 550, 
+      "max_reward": 750
     },
     { 
       "id": "mon_abyss_worm", 
@@ -107,9 +139,17 @@
       "emoji": "🐛", 
       "locations": ["trench"], 
       "base_power": 350, 
-      "min_reward": 700,
-      "max_reward": 900,
-      "image": "https://i.postimg.cc/MKq1v2QJ/worm.gif"
+      "min_reward": 700, 
+      "max_reward": 900
+    },
+    { 
+      "id": "mon_angler_lord", 
+      "name": "سيد المصابيح", 
+      "emoji": "💡", 
+      "locations": ["trench"], 
+      "base_power": 380, 
+      "min_reward": 750, 
+      "max_reward": 950
     },
     { 
       "id": "mon_guardian", 
@@ -117,19 +157,35 @@
       "emoji": "🔱", 
       "locations": ["atlantis"], 
       "base_power": 500, 
-      "min_reward": 800,
-      "max_reward": 1000,
-      "image": "https://i.postimg.cc/L5v2QJ3v/guardian.gif"
+      "min_reward": 800, 
+      "max_reward": 1000
+    },
+    { 
+      "id": "mon_crystal_golem", 
+      "name": "غولم الكريستال", 
+      "emoji": "💎", 
+      "locations": ["atlantis"], 
+      "base_power": 550, 
+      "min_reward": 850, 
+      "max_reward": 1100
     },
     { 
       "id": "mon_leviathan", 
-      "name": "ليفايثان تنين البحر", 
+      "name": "ليفايثان", 
       "emoji": "🐉", 
       "locations": ["dark_sea"], 
       "base_power": 800, 
-      "min_reward": 1000,
-      "max_reward": 1500,
-      "image": "https://i.postimg.cc/v2QJ3vL5/leviathan.gif"
+      "min_reward": 1000, 
+      "max_reward": 1500
+    },
+    { 
+      "id": "mon_void_kraken", 
+      "name": "كراكن الفراغ", 
+      "emoji": "🦑", 
+      "locations": ["dark_sea"], 
+      "base_power": 900, 
+      "min_reward": 1200, 
+      "max_reward": 1800
     }
   ]
 }
