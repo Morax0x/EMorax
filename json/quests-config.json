@@ -96,11 +96,17 @@
       "description": "قم بعمل بومب للسيرفر في قناة البومب.",
       "stat": "disboard_bumps",
       "goal": 1,
-      "reward": {
-        "mora": 999,
-        "xp": 200
-      },
+      "reward": { "mora": 999, "xp": 200 },
       "emoji": "🚀"
+    },
+    {
+      "id": "d_sticker_1",
+      "name": "ارسل ستيكر",
+      "description": "ارسل ملصق (Sticker) واحد",
+      "stat": "stickers",
+      "goal": 1,
+      "reward": { "mora": 20, "xp": 10 },
+      "emoji": "🎟️"
     }
   ],
   "weekly": [
@@ -184,6 +190,24 @@
       "goal": 10,
       "reward": { "mora": 700, "xp": 300 },
       "emoji": "🌳"
+    },
+    {
+      "id": "w_emoji_100",
+      "name": "استخدم 100 ايموجي",
+      "description": "استخدم 100 ايموجي في رسائلك (تلقائي مع الرسائل)",
+      "stat": "messages",
+      "goal": 100,
+      "reward": { "mora": 300, "xp": 100 },
+      "emoji": "😀"
+    },
+    {
+      "id": "w_sticker_50",
+      "name": "ارسل 50 ستيكر",
+      "description": "ارسل 50 ملصق",
+      "stat": "stickers",
+      "goal": 50,
+      "reward": { "mora": 500, "xp": 200 },
+      "emoji": "🎟️"
     }
   ],
   "achievements": [
