@@ -11,8 +11,6 @@ const rodsConfig = fishingConfig.rods;
 const boatsConfig = fishingConfig.boats;
 const locationsConfig = fishingConfig.locations;
 
-// 🔒 آيدي المالك (الوحيد الذي يتجاهل الكولداون)
-const OWNER_ID = "1145327691772481577";
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 
 module.exports = {
@@ -63,15 +61,14 @@ module.exports = {
         const currentLocation = locationsConfig.find(l => l.id === locationId) || locationsConfig[0];
 
         // 2. التحقق من الكولداون
-        // (نخصم سرعة القارب من الكولداون الأساسي للسنارة)
         let cooldown = currentRod.cooldown - (currentBoat.speed_bonus || 0);
         if (cooldown < 10000) cooldown = 10000; // الحد الأدنى 10 ثواني
 
         const lastFish = userData.lastFish || 0;
         const now = Date.now();
 
-        // ( ⚠️ ملاحظة: الكولداون لا يعمل عليك لأنك المالك، جرب بحساب ثاني للتأكد )
-        if (user.id !== OWNER_ID && (now - lastFish < cooldown)) {
+        // ( 🌟 تم تفعيل الكولداون للجميع بما فيهم المالك 🌟 )
+        if (now - lastFish < cooldown) {
             const remaining = lastFish + cooldown - now;
             const minutes = Math.floor((remaining % 3600000) / 60000);
             const seconds = Math.floor((remaining % 60000) / 1000);
@@ -105,7 +102,7 @@ module.exports = {
                 .setTitle("🌊 السنارة في الماء...")
                 .setDescription("انتظر... لا تسحب السنارة حتى تشعر بالاهتزاز!")
                 .setColor(Colors.Grey)
-                .setImage("https://i.postimg.cc/Wz0g0Zg0/fishing.png"); // صورة صيد ثابتة
+                .setImage("https://i.postimg.cc/Wz0g0Zg0/fishing.png"); 
 
             const disabledRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('pull_rod').setLabel('...').setStyle(ButtonStyle.Secondary).setDisabled(true)
@@ -131,12 +128,12 @@ module.exports = {
 
                 // مستقبل للزر الثاني (السحب)
                 const pullFilter = j => j.user.id === user.id && j.customId === 'pull_rod_now';
-                const pullCollector = msg.createMessageComponentCollector({ filter: pullFilter, time: 3000, max: 1 }); // معه 3 ثواني بس
+                const pullCollector = msg.createMessageComponentCollector({ filter: pullFilter, time: 3000, max: 1 }); 
 
                 pullCollector.on('collect', async j => {
                     await j.deferUpdate();
                     
-                    // --- منطق الصيد (نفس الحسابات السابقة) ---
+                    // --- منطق الصيد ---
                     const fishCount = Math.floor(Math.random() * currentRod.max_fish) + 1;
                     let caughtFish = [];
                     let totalValue = 0;
@@ -151,7 +148,7 @@ module.exports = {
                         else if (roll > 30) rarity = 2;  
                         else rarity = 1;                 
 
-                        // الفلترة حسب المنطقة (Location Logic)
+                        // الفلترة حسب المنطقة
                         let possibleFish = [];
                         while (possibleFish.length === 0 && rarity >= 1) {
                              possibleFish = fishItems.filter(f => f.rarity === rarity); 
@@ -173,7 +170,7 @@ module.exports = {
                         }
                     }
 
-                    // تحديث البيانات
+                    // تحديث البيانات (المورا + الوقت)
                     userData.lastFish = Date.now();
                     userData.mora = (userData.mora || 0) + totalValue;
                     client.setLevel.run(userData);
@@ -189,7 +186,6 @@ module.exports = {
                         let rarityStar = "";
                         if (info.rarity >= 5) rarityStar = "🌟"; else if (info.rarity === 4) rarityStar = "✨";
                         
-                        // ( 🌟 التعديل هنا: نقل العدد للنهاية 🌟 )
                         description += `✶ ${info.emoji} ${name} ${rarityStar} **x${info.count}**\n`;
                     }
                     description += `\n✶ قيـمـة الصيد: \`${totalValue.toLocaleString()}\` ${EMOJI_MORA}`;
