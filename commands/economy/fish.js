@@ -1,15 +1,28 @@
 const { SlashCommandBuilder, EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require("discord.js");
 const path = require('path');
 
-// استخدام المسار الجذري
+// استدعاء ملفات الإعدادات
 const rootDir = process.cwd();
 const fishingConfig = require(path.join(rootDir, 'json', 'fishing-config.json'));
+
+// استدعاء دوال الـ PvP (لجلب قوة اللاعب ومهاراته)
+// تأكد أن المسار صحيح لملف pvp-core.js
+let pvpCore = {};
+try {
+    pvpCore = require('../../handlers/pvp-core.js'); 
+} catch (e) {
+    // في حال عدم وجود الملف، نستخدم دوال وهمية لمنع التوقف
+    console.warn("⚠️ Warning: pvp-core.js not found. Using default values for fishing combat.");
+    pvpCore.getWeaponData = () => null;
+    pvpCore.getUserActiveSkill = () => null;
+}
 
 // استخراج البيانات
 const fishItems = fishingConfig.fishItems;
 const rodsConfig = fishingConfig.rods;
 const boatsConfig = fishingConfig.boats;
 const locationsConfig = fishingConfig.locations;
+const monstersConfig = fishingConfig.monsters || []; // قائمة الوحوش الجديدة
 
 // 🔒 آيدي المالك (الوحيد الذي يتجاهل الكولداون)
 const OWNER_ID = "1145327691772481577";
@@ -23,7 +36,7 @@ module.exports = {
     name: 'fish',
     aliases: ['صيد', 'ص', 'fishing'],
     category: "Economy",
-    description: "صيد الأسماك التفاعلي.",
+    description: "صيد الأسماك التفاعلي مع مواجهات وحوش.",
 
     async execute(interactionOrMessage, args) {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
@@ -56,6 +69,15 @@ module.exports = {
             client.setLevel.run(userData);
         }
 
+        // 🛡️ التحقق من الجرح (PvP Wounded)
+        // إذا كان اللاعب مصاباً، لا يمكنه الصيد
+        const now = Date.now();
+        const woundedDebuff = sql.prepare("SELECT * FROM user_buffs WHERE userID = ? AND guildID = ? AND buffType = 'pvp_wounded' AND expiresAt > ?").get(user.id, guild.id, now);
+        if (woundedDebuff) {
+            const minutesLeft = Math.ceil((woundedDebuff.expiresAt - now) / 60000);
+            return reply({ content: `🩹 | أنت **جريح** حالياً ولا يمكنك الصيد!\nعليك الراحة لمدة **${minutesLeft}** دقيقة حتى تشفى.` });
+        }
+
         // تجهيز بيانات العدة
         const currentRod = rodsConfig.find(r => r.level === (userData.rodLevel || 1)) || rodsConfig[0];
         const currentBoat = boatsConfig.find(b => b.level === (userData.boatLevel || 1)) || boatsConfig[0];
@@ -63,32 +85,26 @@ module.exports = {
         const currentLocation = locationsConfig.find(l => l.id === locationId) || locationsConfig[0];
 
         // 2. التحقق من الكولداون
-        // (نخصم سرعة القارب من الكولداون الأساسي للسنارة)
         let cooldown = currentRod.cooldown - (currentBoat.speed_bonus || 0);
-        if (cooldown < 10000) cooldown = 10000; // الحد الأدنى 10 ثواني
+        if (cooldown < 10000) cooldown = 10000; 
 
         const lastFish = userData.lastFish || 0;
-        const now = Date.now();
 
-        // ( ⚠️ ملاحظة: الكولداون لا يعمل عليك لأنك المالك )
         if (user.id !== OWNER_ID && (now - lastFish < cooldown)) {
             const remaining = lastFish + cooldown - now;
             const minutes = Math.floor((remaining % 3600000) / 60000);
-            // إضافة padStart لضمان ظهور الثواني برقمين دائماً (مثلاً 05 بدلاً من 5)
             const seconds = Math.floor((remaining % 60000) / 1000).toString().padStart(2, '0');
-            
-            // 🌟 التعديل الأول: تغيير رسالة الانتظار للتنسيق المطلوب
             return reply({ content: `قمـت بالصيـد مؤخـرا انتـظـر **${minutes}:${seconds}** لتـذهب للصيـد مجددا` });
         }
 
         if (isSlash) await interactionOrMessage.deferReply();
 
-        // 3. واجهة الانتظار (قبل الرمي)
+        // 3. واجهة الانتظار
         const startEmbed = new EmbedBuilder()
             .setTitle(`🎣 رحلة صيد: ${currentLocation.name}`)
             .setColor(Colors.Blue)
             .setDescription(`**عدتك الحالية:**\n🎣 **السنارة:** ${currentRod.name}\n🚤 **القارب:** ${currentBoat.name}\n🌊 **المنطقة:** ${currentLocation.name}`)
-            .setFooter({ text: "اضغط الزر أدناه لرمي السنارة وانتظر السمكة..." });
+            .setFooter({ text: "اضغط الزر أدناه لرمي السنارة..." });
 
         const startRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('cast_rod').setLabel('رمي السنارة').setStyle(ButtonStyle.Primary).setEmoji('🎣')
@@ -96,19 +112,17 @@ module.exports = {
 
         const msg = await reply({ embeds: [startEmbed], components: [startRow] });
 
-        // إنشاء مستقبل للتفاعل (Collector)
         const filter = i => i.user.id === user.id && i.customId === 'cast_rod';
         const collector = msg.createMessageComponentCollector({ filter, time: 30000, max: 1 });
 
         collector.on('collect', async i => {
             await i.deferUpdate();
 
-            // مرحلة الانتظار (Waiting...)
             const waitingEmbed = new EmbedBuilder()
                 .setTitle("🌊 السنارة في الماء...")
                 .setDescription("انتظر... لا تسحب السنارة حتى تشعر بالاهتزاز!")
                 .setColor(Colors.Grey)
-                .setImage("https://i.postimg.cc/Wz0g0Zg0/fishing.png"); // صورة صيد ثابتة
+                .setImage("https://i.postimg.cc/Wz0g0Zg0/fishing.png");
 
             const disabledRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('pull_rod').setLabel('...').setStyle(ButtonStyle.Secondary).setDisabled(true)
@@ -116,11 +130,9 @@ module.exports = {
 
             await i.editReply({ embeds: [waitingEmbed], components: [disabledRow] });
 
-            // وقت عشوائي بين 2 إلى 5 ثواني
             const waitTime = Math.floor(Math.random() * 3000) + 2000;
 
             setTimeout(async () => {
-                // مرحلة السحب (PULL!)
                 const biteEmbed = new EmbedBuilder()
                     .setTitle("‼️ سمكة! اسحب الآن!")
                     .setDescription("اضغط الزر بسرعة قبل أن تهرب!")
@@ -132,19 +144,85 @@ module.exports = {
 
                 await i.editReply({ embeds: [biteEmbed], components: [pullRow] });
 
-                // مستقبل للزر الثاني (السحب)
                 const pullFilter = j => j.user.id === user.id && j.customId === 'pull_rod_now';
-                
-                // 🌟 التعديل الثاني: تقليل وقت السحب إلى 2000 ملي ثانية (ثانيتين)
                 const pullCollector = msg.createMessageComponentCollector({ filter: pullFilter, time: 2000, max: 1 }); 
 
                 pullCollector.on('collect', async j => {
                     await j.deferUpdate();
+
+                    // ========================================================
+                    // 🦑 منطق الوحوش (Monster Encounter Logic)
+                    // ========================================================
+                    const monsterChance = Math.random();
+                    // نسبة ظهور 10%، ويجب أن يكون هناك وحوش معرفة في المنطقة الحالية
+                    const possibleMonsters = monstersConfig.filter(m => m.locations.includes(locationId));
                     
-                    // --- منطق الصيد (نفس الحسابات السابقة) ---
+                    if (possibleMonsters.length > 0 && monsterChance < 0.10) {
+                        const monster = possibleMonsters[Math.floor(Math.random() * possibleMonsters.length)];
+                        
+                        // 1. حساب قوة اللاعب (سلاح + مهارة)
+                        let playerWeapon = pvpCore.getWeaponData(sql, user);
+                        if (!playerWeapon || playerWeapon.currentLevel === 0) {
+                            playerWeapon = { name: "سكين صيد صدئة", currentStats: { damage: 15 } };
+                        }
+
+                        let playerSkill = null;
+                        try {
+                            if (pvpCore.getUserActiveSkill) playerSkill = await pvpCore.getUserActiveSkill(sql, user.id, guild.id);
+                        } catch (e) {}
+
+                        let basePower = playerWeapon.currentStats.damage;
+                        let skillBonus = 0;
+                        let skillMessage = "";
+
+                        if (playerSkill) {
+                            // تفعيل المهارة تلقائياً (محاكاة)
+                            skillBonus = playerSkill.damage || (playerSkill.level * 20) || 50; 
+                            skillMessage = `\n🔥 **مهارة تلقائية:** استخدمت **${playerSkill.name}** (+${skillBonus} DMG)!`;
+                        }
+
+                        const totalPlayerPower = basePower + skillBonus;
+
+                        // 2. موازنة قوة الوحش (Scaling)
+                        // الوحش يكون بقوة قريبة من اللاعب لجعل المعركة عادلة
+                        const variance = (Math.random() * 0.4) + 0.8; // 80% to 120%
+                        const monsterPower = Math.floor(Math.max(monster.base_power, totalPlayerPower * variance));
+
+                        // 3. النزال (RNG)
+                        const playerRoll = totalPlayerPower + (Math.random() * 50);
+                        const monsterRoll = monsterPower + (Math.random() * 50);
+
+                        if (monsterRoll > playerRoll) {
+                            // 💀 الخسارة
+                            const expireTime = Date.now() + (15 * 60 * 1000);
+                            sql.prepare(`INSERT INTO user_buffs (userID, guildID, buffType, expiresAt) VALUES (?, ?, 'pvp_wounded', ?)`).run(user.id, guild.id, expireTime);
+
+                            const loseEmbed = new EmbedBuilder()
+                                .setTitle(`🩸 ظهر ${monster.name} ${monster.emoji}!`)
+                                .setDescription(`بينما كنت تسحب السنارة، هاجمك وحش بقوة **${monsterPower}**!\nقوتك: **${totalPlayerPower}**\n\n❌ **لقد هزمك الوحش!**\n🤕 **أصبحت جريحاً ولن تتمكن من الصيد لمدة 15 دقيقة.**`)
+                                .setColor(Colors.DarkRed)
+                                .setThumbnail(monster.image || "https://i.postimg.cc/0QNJzXv1/Anime-Anger-GIF-Anime-Anger-ANGRY-Descobrir-e-Compartilhar-GIFs.gif");
+
+                            // تحديث وقت الصيد لمنع السبام
+                            userData.lastFish = Date.now();
+                            client.setLevel.run(userData);
+
+                            return j.editReply({ embeds: [loseEmbed], components: [] });
+                        } else {
+                            // ⚔️ الفوز
+                            var monsterReward = Math.floor(Math.random() * (monster.max_reward - monster.min_reward + 1)) + monster.min_reward;
+                            
+                            // رسالة الفوز (مؤقتة)
+                            let winMsg = `⚔️ **قهرت ${monster.name}!**\nاستخدمت **${playerWeapon.name}** بقوة **${basePower}**${skillMessage}\n💰 غنيمة الوحش: **${monsterReward}** ${EMOJI_MORA}`;
+                            await j.followUp({ content: winMsg, ephemeral: true });
+                        }
+                    }
+                    // ========================================================
+
+                    // --- الصيد الطبيعي ---
                     const fishCount = Math.floor(Math.random() * currentRod.max_fish) + 1;
                     let caughtFish = [];
-                    let totalValue = 0;
+                    let totalValue = (typeof monsterReward !== 'undefined') ? monsterReward : 0;
 
                     for (let k = 0; k < fishCount; k++) {
                         const roll = Math.random() * 100 + (currentRod.luck_bonus || 0);
@@ -156,7 +234,6 @@ module.exports = {
                         else if (roll > 30) rarity = 2;   
                         else rarity = 1;                  
 
-                        // الفلترة حسب المنطقة (Location Logic)
                         let possibleFish = [];
                         while (possibleFish.length === 0 && rarity >= 1) {
                              possibleFish = fishItems.filter(f => f.rarity === rarity); 
@@ -165,7 +242,6 @@ module.exports = {
                         
                         if (possibleFish.length > 0) {
                             const fish = possibleFish[Math.floor(Math.random() * possibleFish.length)];
-                            
                             sql.prepare(`
                                 INSERT INTO user_portfolio (guildID, userID, itemID, quantity) 
                                 VALUES (?, ?, ?, 1) 
@@ -193,10 +269,14 @@ module.exports = {
                     for (const [name, info] of Object.entries(summary)) {
                         let rarityStar = "";
                         if (info.rarity >= 5) rarityStar = "🌟"; else if (info.rarity === 4) rarityStar = "✨";
-                        
                         description += `✶ ${info.emoji} ${name} ${rarityStar} **x${info.count}**\n`;
                     }
-                    description += `\n✶ قيـمـة الصيد: \`${totalValue.toLocaleString()}\` ${EMOJI_MORA}`;
+
+                    if (typeof monsterReward !== 'undefined') {
+                        description += `\n⚔️ **غنيمة الوحش:** +${monsterReward} ${EMOJI_MORA}`;
+                    }
+
+                    description += `\n✶ إجمـالي المكسـب: \`${totalValue.toLocaleString()}\` ${EMOJI_MORA}`;
 
                     const resultEmbed = new EmbedBuilder()
                         .setTitle(`✥ رحـلـة صيـد فـي المحيـط !`) 
@@ -210,13 +290,11 @@ module.exports = {
 
                 pullCollector.on('end', async (collected) => {
                     if (collected.size === 0) {
-                        // انتهى الوقت ولم يضغط
                         const failEmbed = new EmbedBuilder()
                             .setTitle("💨 هربت السمكة!")
                             .setDescription("يـا فـاشـل هـربـت السمـكـة منـك <:mirkk:1435648219488190525>")
                             .setColor(Colors.Red);
                         
-                        // نحدث الوقت حتى لو فشل (عشان الكولداون)
                         userData.lastFish = Date.now();
                         client.setLevel.run(userData);
 
