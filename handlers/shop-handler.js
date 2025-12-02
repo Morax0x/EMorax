@@ -23,7 +23,15 @@ const THUMBNAILS = new Map([
     ['change_race', 'https://i.postimg.cc/rs4mmjvs/tsmym-bdwn-ʿnwan-9.png']
 ]);
 
-// --- دوال مساعدة محسنة ---
+// 🛠️ دالة المقارنة الذكية (الحل الجذري)
+// تحذف أي رموز ومسافات وتقارن الحروف فقط
+// مثال: "Dark Elf" == "dark_elf" == "DarkElf" -> true
+function normalize(str) {
+    if (!str) return "";
+    return str.toString().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// --- دوال مساعدة ---
 
 function getGeneralSkills() { 
     return skillsConfig.filter(s => s.id.startsWith('skill_')); 
@@ -31,11 +39,14 @@ function getGeneralSkills() {
 
 function getRaceSkillConfig(raceName) {
     if (!raceName) return null;
-    // 🛠️ إصلاح: تنظيف الاسم بدقة (إزالة مسافات زائدة، تحويل لصغير، استبدال المسافات بـ underscore)
-    // مثال: "Dark Elf" -> "dark_elf" -> "race_dark_elf_skill"
-    const cleanName = raceName.trim().toLowerCase().replace(/\s+/g, '_');
-    const skillId = `race_${cleanName}_skill`;
-    return skillsConfig.find(s => s.id === skillId); 
+    // البحث عن المهارة التي يحتوي آيديها على اسم العرق
+    // ID Format: race_RACENAME_skill
+    return skillsConfig.find(s => {
+        if (!s.id.startsWith('race_')) return false;
+        // نستخرج الاسم من الآيدي (نحذف race_ و _skill)
+        const idName = s.id.replace('race_', '').replace('_skill', '');
+        return normalize(idName) === normalize(raceName);
+    }); 
 }
 
 function getUserRace(member, sql) { 
@@ -56,11 +67,7 @@ function getAllUserAvailableSkills(member, sql) {
     } 
     
     let allSkills = []; 
-    // نضيف مهارة العرق أولاً إذا وجدت
-    if (raceSkill) { 
-        allSkills.push(raceSkill); 
-    } 
-    // ثم المهارات العامة
+    if (raceSkill) allSkills.push(raceSkill); 
     allSkills = allSkills.concat(generalSkills); 
     return allSkills; 
 }
@@ -278,7 +285,6 @@ async function handleShopSelectMenu(i, client, sql) {
             const allUserSkills = getAllUserAvailableSkills(i.member, sql);
             
             if (allUserSkills.length === 0) {
-                // قد لا يكون لديه مهارات لأن العرق غير محدد أو لا توجد مهارات عامة
                 return await i.editReply({ content: '❌ لا توجد مهارات متاحة. تأكد من اختيار عرقك أولاً.' });
             }
             
@@ -352,18 +358,19 @@ async function _handleWeaponUpgrade(i, client, sql) {
         const userId = i.user.id;
         const guildId = i.guild.id;
         const isBuy = i.customId.startsWith('buy_weapon_');
-        const raceName = i.customId.replace(isBuy ? 'buy_weapon_' : 'upgrade_weapon_', '');
+        // نستخرج الاسم من الزر
+        const raceNameFromBtn = i.customId.replace(isBuy ? 'buy_weapon_' : 'upgrade_weapon_', '');
         
-        // 🛠️ البحث الغير حساس (Fix for "Human" vs "human")
-        const weaponConfig = weaponsConfig.find(w => w.race.toLowerCase() === raceName.toLowerCase());
+        // 🛠️ الحل الجذري: البحث باستخدام دالة normalize
+        const weaponConfig = weaponsConfig.find(w => normalize(w.race) === normalize(raceNameFromBtn));
         
-        if (!weaponConfig) return await i.followUp({ content: '❌ خطأ: لم يتم العثور على بيانات هذا السلاح.', flags: MessageFlags.Ephemeral });
+        if (!weaponConfig) return await i.followUp({ content: `❌ خطأ: لم يتم العثور على سلاح لعرق "${raceNameFromBtn}".`, flags: MessageFlags.Ephemeral });
         let userData = client.getLevel.get(userId, guildId);
         if (!userData) userData = { ...client.defaultData, user: userId, guild: guildId };
         
-        // استخدام الاسم الصحيح من الكونفج
-        const dbRaceName = weaponConfig.race;
-        let userWeapon = sql.prepare("SELECT * FROM user_weapons WHERE userID = ? AND guildID = ? AND raceName = ?").get(userId, guildId, dbRaceName);
+        // نستخدم الاسم الدقيق من ملف الكونفج للبحث في الداتابيس
+        const exactRaceName = weaponConfig.race;
+        let userWeapon = sql.prepare("SELECT * FROM user_weapons WHERE userID = ? AND guildID = ? AND raceName = ?").get(userId, guildId, exactRaceName);
         
         let currentLevel = userWeapon ? userWeapon.weaponLevel : 0;
         let price = 0;
@@ -372,11 +379,13 @@ async function _handleWeaponUpgrade(i, client, sql) {
         if (userData.mora < price) return await i.followUp({ content: `❌ رصيدك غير كافي! تحتاج إلى **${price.toLocaleString()}** ${EMOJI_MORA}`, flags: MessageFlags.Ephemeral });
         userData.mora -= price; userData.shop_purchases = (userData.shop_purchases || 0) + 1; client.setLevel.run(userData);
         const newLevel = currentLevel + 1;
-        if (isBuy) sql.prepare("INSERT INTO user_weapons (userID, guildID, raceName, weaponLevel) VALUES (?, ?, ?, ?)").run(userId, guildId, dbRaceName, newLevel);
+        
+        if (isBuy) sql.prepare("INSERT INTO user_weapons (userID, guildID, raceName, weaponLevel) VALUES (?, ?, ?, ?)").run(userId, guildId, exactRaceName, newLevel);
         else sql.prepare("UPDATE user_weapons SET weaponLevel = ? WHERE id = ?").run(newLevel, userWeapon.id);
+        
         const newDamage = weaponConfig.base_damage + (weaponConfig.damage_increment * (newLevel - 1));
         const embed = new EmbedBuilder().setTitle(`${weaponConfig.emoji} سلاح العرق: ${weaponConfig.name}`).setColor(Colors.Blue).setImage(BANNER_URL).setThumbnail(THUMBNAILS.get('upgrade_weapon'))
-            .addFields({ name: "العرق", value: dbRaceName, inline: true }, { name: "المستوى", value: `Lv. ${newLevel}`, inline: true }, { name: "الضرر", value: `${newDamage} DMG`, inline: true });
+            .addFields({ name: "العرق", value: exactRaceName, inline: true }, { name: "المستوى", value: `Lv. ${newLevel}`, inline: true }, { name: "الضرر", value: `${newDamage} DMG`, inline: true });
         const row = new ActionRowBuilder();
         if (newLevel >= weaponConfig.max_level) {
             embed.addFields({ name: "التطوير", value: "وصلت للحد الأقصى!", inline: true });
@@ -384,7 +393,7 @@ async function _handleWeaponUpgrade(i, client, sql) {
         } else {
             const nextLevelPrice = weaponConfig.base_price + (weaponConfig.price_increment * newLevel);
             const nextDamage = newDamage + weaponConfig.damage_increment;
-            const buttonId = `upgrade_weapon_${dbRaceName}`;
+            const buttonId = `upgrade_weapon_${exactRaceName}`; // نستخدم الاسم الدقيق
             const buttonLabel = `تطوير (المستوى ${newLevel + 1})`;
             embed.addFields({ name: "المستوى القادم", value: `Lv. ${newLevel + 1}`, inline: true }, { name: "التأثير القادم", value: `${nextDamage} DMG`, inline: true }, { name: "تكلفة التطوير", value: `${nextLevelPrice.toLocaleString()} ${EMOJI_MORA}`, inline: true });
             row.addComponents(new ButtonBuilder().setCustomId(buttonId).setLabel(buttonLabel).setStyle(ButtonStyle.Success).setEmoji('⬆️'));
