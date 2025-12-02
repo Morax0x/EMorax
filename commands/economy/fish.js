@@ -149,7 +149,7 @@ module.exports = {
 
             const waitingEmbed = new EmbedBuilder()
                 .setTitle("🌊 السنارة في الماء...")
-                .setDescription("انتظر... لا تسحب السنارة حتى تشعر بالاهتزاز!")
+                .setDescription("انتظر... لا تسحب السنارة!")
                 .setColor(Colors.Grey)
                 .setImage("https://i.postimg.cc/Wz0g0Zg0/fishing.png");
 
