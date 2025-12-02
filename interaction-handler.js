@@ -1,4 +1,4 @@
-const { Events, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require("discord.js");
+const { Events, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionsBitField } = require("discord.js");
 const { handleQuestPanel } = require('./handlers/quest-panel-handler.js');
 const { handleStreakPanel } = require('./handlers/streak-panel-handler.js');
 const { handleShopInteractions, handleShopModal, handleShopSelectMenu, handleSkillSelectMenu } = require('./handlers/shop-handler.js');
@@ -41,11 +41,16 @@ async function updateBuilderEmbed(interaction, data) {
     await interaction.message.edit({ embeds: [embed], components: [row] });
 }
 
-
-// ( 🌟 تم إضافة antiRolesCache هنا 🌟 )
 module.exports = (client, sql, antiRolesCache) => {
 
     client.on(Events.InteractionCreate, async i => {
+
+        if (!sql.open && !i.isAutocomplete()) {
+             if (!i.replied && !i.deferred) {
+                 return i.reply({ content: "⚠️ قاعدة البيانات يتم تحديثها حالياً، الرجاء الانتظار...", ephemeral: true }).catch(() => {});
+             }
+             return;
+        }
 
         console.log(`[Interaction] Received: ${i.type}, ID: ${i.customId || i.commandName}`);
 
@@ -59,14 +64,34 @@ module.exports = (client, sql, antiRolesCache) => {
 
         try {
 
-            // --- 1. أوامر السلاش ---
+            // --- 1. أوامر السلاش ( 🌟 تم إضافة فحص الصلاحيات 🌟 ) ---
             if (i.isChatInputCommand()) {
                 const command = i.client.commands.get(i.commandName);
                 if (!command) {
-                    console.error(`[Slash] لم يتم العثور على أمر يطابق ${i.commandName}`);
                     await i.reply({ content: 'حدث خطأ، هذا الأمر غير موجود.', ephemeral: true });
                     return; 
                 }
+                
+                // التحقق من الصلاحيات (Allow Command)
+                let isAllowed = false;
+                if (i.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
+                else {
+                    try {
+                        const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(i.guild.id, command.name, i.channel.id);
+                        const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(i.guild.id, command.name, i.channel.parentId);
+                        
+                        if (channelPerm || categoryPerm) isAllowed = true;
+                        else {
+                            const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ?").get(i.guild.id, command.name);
+                            if (!hasRestrictions) isAllowed = true; 
+                        }
+                    } catch(e) { isAllowed = true; }
+                }
+
+                if (!isAllowed) {
+                    return i.reply({ content: "❌ لا يمكنك استخدام هذا الأمر في هذه القناة.", ephemeral: true });
+                }
+
                 try {
                     await command.execute(i); 
                 } catch (error) {
@@ -113,7 +138,19 @@ module.exports = (client, sql, antiRolesCache) => {
 
             // --- 4. الأزرار ---
             if (i.isButton()) {
-                if (i.customId === 'g_builder_content') {
+                const id = i.customId;
+
+                if (id.startsWith('customrole_')) {
+                    await handleCustomRoleInteraction(i, client, sql);
+                }
+                else if (
+                    id.startsWith('buy_') || id.startsWith('upgrade_') || id.startsWith('shop_') || 
+                    id.startsWith('replace_buff_') || id === 'cancel_purchase' || id === 'open_xp_modal' ||
+                    id === 'max_level' || id === 'max_rod' || id === 'max_boat'
+                ) {
+                    await handleShopInteractions(i, client, sql);
+                }
+                else if (id === 'g_builder_content') {
                     const data = giveawayBuilders.get(i.user.id) || {};
                     const modal = new ModalBuilder().setCustomId('g_content_modal').setTitle('إعداد المحتوى (1/2)');
                     modal.addComponents(
@@ -125,7 +162,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     );
                     await i.showModal(modal);
 
-                } else if (i.customId === 'g_builder_visuals') {
+                } else if (id === 'g_builder_visuals') {
                     const data = giveawayBuilders.get(i.user.id) || {};
                     const modal = new ModalBuilder().setCustomId('g_visuals_modal').setTitle('إعداد الشكل (2/2)');
                     modal.addComponents(
@@ -136,7 +173,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     );
                     await i.showModal(modal);
 
-                } else if (i.customId === 'g_builder_send') {
+                } else if (id === 'g_builder_send') {
                     await i.deferReply({ ephemeral: true });
                     const data = giveawayBuilders.get(i.user.id);
                     if (!data || !data.prize || !data.durationStr || !data.winnerCountStr) {
@@ -180,7 +217,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     await i.editReply("✅ تم الإرسال!");
                     return;
 
-                } else if (i.customId === 'g_enter') {
+                } else if (id === 'g_enter') {
                     const giveawayID = i.message.id;
                     const userID = i.user.id;
                     const getEntry = sql.prepare("SELECT * FROM giveaway_entries WHERE giveawayID = ? AND userID = ?");
@@ -204,7 +241,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     await i.message.edit({ embeds: [newEmbed] });
                     await i.reply({ content: replyMessage, ephemeral: true });
 
-                } else if (i.customId === 'g_enter_drop') {
+                } else if (id === 'g_enter_drop') {
                     const messageID = i.message.id;
                     const member = i.member;
                     try {
@@ -228,24 +265,24 @@ module.exports = (client, sql, antiRolesCache) => {
                         return i.reply({ content: "❌ حدث خطأ أثناء محاولة التسجيل.", ephemeral: true });
                     }
 
-                } else if (i.customId.startsWith('panel_') || i.customId.startsWith('quests_')) {
+                } else if (id.startsWith('panel_') || id.startsWith('quests_')) {
                     await handleQuestPanel(i, client, sql);
-                } else if (i.customId.startsWith('streak_panel_')) {
+                } else if (id.startsWith('streak_panel_')) {
                     await handleStreakPanel(i, client, sql);
-                } else if (i.customId.startsWith('buy_item_') ||
-                    i.customId.startsWith('replace_buff_') ||
-                    i.customId === 'cancel_purchase' ||
-                    i.customId === 'open_xp_modal' ||
-                    i.customId.startsWith('buy_weapon_') ||
-                    i.customId.startsWith('upgrade_weapon_') ||
-                    i.customId.startsWith('buy_skill_') ||
-                    i.customId.startsWith('upgrade_skill_') ||
-                    i.customId.startsWith('shop_paginate_item_') ||
-                    i.customId.startsWith('shop_skill_paginate_')) {
+                } else if (id.startsWith('buy_item_') ||
+                    id.startsWith('replace_buff_') ||
+                    id === 'cancel_purchase' ||
+                    id === 'open_xp_modal' ||
+                    id.startsWith('buy_weapon_') ||
+                    id.startsWith('upgrade_weapon_') ||
+                    id.startsWith('buy_skill_') ||
+                    id.startsWith('upgrade_skill_') ||
+                    id.startsWith('shop_paginate_item_') ||
+                    id.startsWith('shop_skill_paginate_')) {
                     await handleShopInteractions(i, client, sql);
-                } else if (i.customId.startsWith('pvp_')) {
+                } else if (id.startsWith('pvp_')) {
                     await handlePvpInteraction(i, client, sql);
-                } else if (i.customId.startsWith('customrole_')) { 
+                } else if (id.startsWith('customrole_')) { 
                     await handleCustomRoleInteraction(i, client, sql);
                 }
                 return; 
@@ -293,24 +330,34 @@ module.exports = (client, sql, antiRolesCache) => {
 
             // --- 6. القوائم المنسدلة ---
             } else if (i.isStringSelectMenu()) {
-                if (i.customId.startsWith('rr_')) { 
+                const id = i.customId;
+                
+                if (id.startsWith('rr_')) { 
                     // ( 🌟 تم تمرير antiRolesCache هنا 🌟 )
                     await handleReactionRole(i, client, sql, antiRolesCache); 
-                } else if (i.customId === 'g_reroll_select') {
+                } else if (id === 'g_reroll_select') {
                     await handleReroll(i, client, sql);
-                } else if (i.customId.startsWith('quest_panel_menu')) {
+                } else if (id.startsWith('quest_panel_menu')) {
                     await handleQuestPanel(i, client, sql);
-                } else if (i.customId === 'streak_panel_menu') {
+                } else if (id === 'streak_panel_menu') {
                     await handleStreakPanel(i, client, sql);
-                } else if (i.customId === 'shop_select_item') {
+                } else if (id === 'shop_select_item') {
                     await handleShopSelectMenu(i, client, sql);
-                } else if (i.customId === 'shop_skill_select_menu') {
+                } else if (id === 'shop_skill_select_menu') {
                     await handleSkillSelectMenu(i, client, sql);
-                } else if (i.customId === 'streak_panel_select_sep') {
+                } else if (id === 'streak_panel_select_sep') {
                     await handleStreakPanel(i, client, sql);
-                } else if (i.customId === 'pvp_skill_select') {
+                } else if (id === 'pvp_skill_select') {
                     await handlePvpInteraction(i, client, sql);
+                } 
+                
+                // ( 🌟🌟 هنا التصحيح المهم للمتجر 🌟🌟 )
+                else if (id === 'fishing_gear_sub_menu') {  // <--- القائمة الفرعية للعدة
+                    await handleShopInteractions(i, client, sql);
+                } else if (id === 'shop_buy_bait_menu') {     // <--- قائمة شراء الطعوم
+                    await handleShopInteractions(i, client, sql);
                 }
+
                 return; 
             }
 
