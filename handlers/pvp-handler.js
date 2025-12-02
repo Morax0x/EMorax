@@ -3,6 +3,68 @@ const core = require('./pvp-core.js');
 const { calculateMoraBuff } = require('../streak-handler.js'); // تأكد أن المسار صحيح
 
 /**
+ * دالة ذكاء اصطناعي بسيطة للوحش (PvE Monster Turn)
+ */
+async function processMonsterTurn(battleState, sql) {
+    const monsterId = "monster";
+    // اللاعب هو الخصم
+    const playerId = battleState.turn[1]; 
+    
+    const monster = battleState.players.get(monsterId);
+    const player = battleState.players.get(playerId);
+
+    // انتظار بسيط لمحاكاة التفكير
+    await new Promise(r => setTimeout(r, 1500)); 
+
+    // 1. تطبيق تأثيرات بداية الدور على الوحش
+    const effectsLog = core.applyPersistentEffects(battleState, monsterId);
+    battleState.log.push(...effectsLog);
+
+    // إذا مات الوحش بالسم
+    if (monster.hp <= 0) {
+        await core.endBattle(battleState, playerId, sql, "win");
+        return;
+    }
+
+    // 2. هجوم الوحش
+    let damage = monster.weapon.currentDamage;
+    
+    // حساب دفاع اللاعب
+    let damageTaken = Math.floor(damage);
+    if (player.effects.shield > 0) {
+        damageTaken = Math.floor(damageTaken * 0.5); // الدرع يقلل 50%
+        battleState.log.push(`🛡️ درع اللاعب قلل الضرر!`);
+    }
+
+    player.hp -= damageTaken;
+    battleState.log.push(`🦑 **${monster.name}** هاجمك وألحق **${damageTaken}** ضرر!`);
+
+    // 3. تقليل عدادات تأثيرات الوحش
+    Object.keys(monster.effects).forEach(e => { if (monster.effects[e] > 0) monster.effects[e]--; });
+
+    // 4. هل مات اللاعب؟
+    if (player.hp <= 0) {
+        player.hp = 0;
+        await core.endBattle(battleState, monsterId, sql, "win");
+        return;
+    }
+
+    // 5. إعادة الدور للاعب
+    battleState.turn = [playerId, monsterId];
+    
+    // تحديث الواجهة
+    const { embeds, components } = core.buildBattleEmbed(battleState, false);
+    
+    // استخدام edit لتحديث الرسالة الموجودة
+    if (battleState.message) {
+        await battleState.message.edit({ embeds, components }).catch(() => {});
+    }
+    
+    // تحرير القفل
+    battleState.processingTurn = false;
+}
+
+/**
  * يعالج تفاعلات قبول أو رفض التحدي (Challenge Phase)
  */
 async function handlePvpChallenge(i, client, sql) {
@@ -72,7 +134,7 @@ async function handlePvpChallenge(i, client, sql) {
             });
         }
 
-        // التحقق من جاهزية المتحدي (ربما غير معداته أثناء الانتظار)
+        // التحقق من جاهزية المتحدي
         const challengerRace = core.getUserRace(challengerMember, sql);
         const challengerWeapon = core.getWeaponData(sql, challengerMember);
 
@@ -111,7 +173,14 @@ async function handlePvpChallenge(i, client, sql) {
  * يعالج تفاعلات المعركة (Battle Phase: Attack, Skill, Forfeit)
  */
 async function handlePvpTurn(i, client, sql) {
-    const battleState = core.activePvpBattles.get(i.channel.id);
+    // 🛠️ التعديل المهم هنا: البحث في القائمتين (PvP و PvE)
+    let battleState = core.activePvpBattles.get(i.channel.id);
+    let isPvE = false;
+
+    if (!battleState) {
+        battleState = core.activePveBattles.get(i.channel.id);
+        isPvE = true;
+    }
     
     // إذا لم تكن هناك معركة نشطة
     if (!battleState) {
@@ -126,7 +195,7 @@ async function handlePvpTurn(i, client, sql) {
 
     // التأكد من أن الدور لهذا اللاعب
     if (i.user.id !== attackerId) {
-        return i.reply({ content: "ليس دورك! انتظر دور خصمك.", flags: [MessageFlags.Ephemeral] });
+        return i.reply({ content: "ليس دورك! انتظر دور الخصم.", flags: [MessageFlags.Ephemeral] });
     }
 
     // --- A. معالجة الأزرار التي لا تستهلك الدور (تصفح المهارات) ---
@@ -145,7 +214,7 @@ async function handlePvpTurn(i, client, sql) {
             return await i.update({ embeds, components });
         }
         
-        // التحقق من كولداون المهارة قبل استخدامها
+        // التحقق من كولداون المهارة
         if (i.customId.startsWith('pvp_skill_use_')) {
             const skillId = i.customId.replace('pvp_skill_use_', '');
             const attacker = battleState.players.get(attackerId);
@@ -154,32 +223,30 @@ async function handlePvpTurn(i, client, sql) {
             if (!skill || battleState.skillCooldowns[attackerId][skillId] > 0) {
                 return i.reply({ content: "هذه المهارة في وضع الانتظار (Cooldown)!", flags: [MessageFlags.Ephemeral] });
             }
-            // إذا المهارة جاهزة، يكمل الكود للأسفل ليتم تنفيذها
         }
     } catch (e) {
         if (e.code === 10062) return; 
         throw e; 
     }
 
-    // --- B. معالجة الأزرار التي تستهلك الدور (هجوم، تنفيذ مهارة، انسحاب) ---
+    // --- B. معالجة الأزرار التي تستهلك الدور ---
     if (battleState.processingTurn) {
-        return i.reply({ content: "⌛ جاري معالجة الدور... لحظة من فضلك.", flags: [MessageFlags.Ephemeral] });
+        return i.reply({ content: "⌛ جاري معالجة الدور...", flags: [MessageFlags.Ephemeral] });
     }
-    battleState.processingTurn = true; // قفل لمنع التكرار
+    battleState.processingTurn = true; // قفل
 
     try {
-        await i.deferUpdate(); // تأكيد استلام الأمر
+        await i.deferUpdate();
 
         const attacker = battleState.players.get(attackerId);
         const defender = battleState.players.get(defenderId);
-        const cleanAttackerName = core.cleanDisplayName(attacker.member.user.displayName);
-        const cleanDefenderName = core.cleanDisplayName(defender.member.user.displayName);
+        const attackerName = attacker.isMonster ? attacker.name : core.cleanDisplayName(attacker.member.user.displayName);
+        const defenderName = defender.isMonster ? defender.name : core.cleanDisplayName(defender.member.user.displayName);
 
-        // 1. تطبيق تأثيرات بداية الدور (مثل السم)
+        // 1. تأثيرات بداية الدور
         const persistentEffectsLog = core.applyPersistentEffects(battleState, attackerId);
         battleState.log.push(...persistentEffectsLog);
 
-        // إذا مات اللاعب بسبب السم قبل أن يلعب
         if (attacker.hp <= 0) {
             attacker.hp = 0;
             const { embeds: preEmbeds, components: preComponents } = core.buildBattleEmbed(battleState);
@@ -188,17 +255,11 @@ async function handlePvpTurn(i, client, sql) {
             return; 
         }
 
-        // 2. تقليل عداد التأثيرات والكولداون
-        Object.keys(attacker.effects).forEach(effect => {
-            if (attacker.effects[effect] > 0) attacker.effects[effect]--;
-        });
-        Object.keys(battleState.skillCooldowns[attackerId]).forEach(skill => {
-            if (battleState.skillCooldowns[attackerId][skill] > 0) {
-                battleState.skillCooldowns[attackerId][skill]--;
-            }
-        });
+        // 2. تقليل الكولداون
+        Object.keys(attacker.effects).forEach(effect => { if (attacker.effects[effect] > 0) attacker.effects[effect]--; });
+        Object.keys(battleState.skillCooldowns[attackerId]).forEach(skill => { if (battleState.skillCooldowns[attackerId][skill] > 0) battleState.skillCooldowns[attackerId][skill]--; });
 
-        // 3. معالجة الانسحاب
+        // 3. الانسحاب
         if (i.customId === 'pvp_action_forfeit') {
             await i.editReply({ content: '🏳️ تم الانسحاب...', embeds: [], components: [] });
             await core.endBattle(battleState, defenderId, sql, "forfeit", calculateMoraBuff);
@@ -207,98 +268,88 @@ async function handlePvpTurn(i, client, sql) {
 
         let actionLog = "";
 
-        // 4. تنفيذ المهارة (إذا تم اختيار مهارة)
+        // 4. تنفيذ المهارة
         if (i.customId.startsWith('pvp_skill_use_')) {
             const skillId = i.customId.replace('pvp_skill_use_', '');
             const skill = Object.values(attacker.skills).find(s => s.id === skillId);
 
-            // وضع المهارة في الكولداون
             battleState.skillCooldowns[attackerId][skillId] = core.SKILL_COOLDOWN_TURNS + 1; 
 
-            // منطق المهارات (Switch Case)
             switch (skillId) {
                 case 'skill_healing':
                     const healAmount = Math.floor(attacker.maxHp * (skill.effectValue / 100));
                     attacker.hp = Math.min(attacker.maxHp, attacker.hp + healAmount);
-                    actionLog = `❤️‍🩹 ${cleanAttackerName} استخدم الشفاء واستعاد **${healAmount}** HP!`;
+                    actionLog = `❤️‍🩹 ${attackerName} استخدم الشفاء واستعاد **${healAmount}** HP!`;
                     break;
                 case 'skill_shielding':
                     attacker.effects.shield = 2;
-                    actionLog = `🛡️ ${cleanAttackerName} فعّل الدرع! (حماية ${skill.effectValue}% للدور القادم)`;
+                    actionLog = `🛡️ ${attackerName} فعّل الدرع! (حماية ${skill.effectValue}% للدور القادم)`;
                     break;
                 case 'skill_buffing':
                     attacker.effects.buff = 2;
-                    actionLog = `💪 ${cleanAttackerName} فعّل التعزيز! (+${skill.effectValue}% ضرر)`;
+                    actionLog = `💪 ${attackerName} فعّل التعزيز! (+${skill.effectValue}% ضرر)`;
                     break;
                 case 'skill_rebound':
                      attacker.effects.rebound_active = 2;
-                     actionLog = `🔄 ${cleanAttackerName} فعّل الارتداد العكسي!`;
+                     actionLog = `🔄 ${attackerName} فعّل الارتداد العكسي!`;
                      break;
                 case 'skill_weaken':
                     defender.effects.weaken = 2;
-                    actionLog = `📉 ${cleanAttackerName} أضعف الخصم! (ضرر الخصم القادم -${skill.effectValue}%)`;
+                    actionLog = `📉 ${attackerName} أضعف الخصم! (ضرر الخصم القادم -${skill.effectValue}%)`;
                     break;
                 case 'skill_dispel':
-                    defender.effects.shield = 0;
-                    defender.effects.buff = 0;
-                    defender.effects.rebound_active = 0;
-                    defender.effects.penetrate = 0;
-                    actionLog = `💨 ${cleanAttackerName} استخدم التبديد! ألغى كل تأثيرات ${cleanDefenderName} الإيجابية.`;
+                    defender.effects.shield = 0; defender.effects.buff = 0; defender.effects.rebound_active = 0; defender.effects.penetrate = 0;
+                    actionLog = `💨 ${attackerName} استخدم التبديد! ألغى كل تأثيرات ${defenderName}.`;
                     break;
                 case 'skill_cleanse':
-                    attacker.effects.weaken = 0;
-                    attacker.effects.poison = 0;
+                    attacker.effects.weaken = 0; attacker.effects.poison = 0;
                     const cleanseHeal = Math.floor(attacker.maxHp * (skill.effectValue / 100));
                     attacker.hp = Math.min(attacker.maxHp, attacker.hp + cleanseHeal);
-                    actionLog = `✨ ${cleanAttackerName} تطهر من السموم واستعاد **${cleanseHeal}** HP.`;
+                    actionLog = `✨ ${attackerName} تطهر واستعاد **${cleanseHeal}** HP.`;
                     break;
                 case 'skill_poison':
                     defender.effects.poison = 4;
                     const basePoisonDmg = skill.effectValue;
                     defender.hp -= basePoisonDmg;
-                    actionLog = `☠️ ${cleanAttackerName} سمم الخصم! (**${basePoisonDmg}** ضرر فوري + سم مستمر).`;
+                    actionLog = `☠️ ${attackerName} سمم الخصم! (**${basePoisonDmg}** ضرر فوري + سم مستمر).`;
                     break;
                 case 'skill_gamble':
                     const baseDmg = attacker.weapon ? attacker.weapon.currentDamage : 10;
                     let gambleDamage = 0;
                     if (Math.random() < 0.5) {
                         gambleDamage = Math.floor(baseDmg * 1.5);
-                        actionLog = `🎲 ${cleanAttackerName} قامر ونجح! ضربة قوية **${gambleDamage}**!`;
+                        actionLog = `🎲 ${attackerName} قامر ونجح! ضربة قوية **${gambleDamage}**!`;
                     } else {
                         gambleDamage = Math.floor(baseDmg * 0.25);
-                        actionLog = `🎲 ${cleanAttackerName} قامر وفشل... ضربة ضعيفة **${gambleDamage}**.`;
+                        actionLog = `🎲 ${attackerName} قامر وفشل... ضربة ضعيفة **${gambleDamage}**.`;
                     }
                     defender.hp -= gambleDamage;
                     break;
-                // مهارات الأعراق الخاصة (يمكنك إضافة المزيد هنا)
                 case 'race_dragon_skill':
                     const trueDamage = skill.effectValue;
                     defender.hp -= trueDamage;
-                    actionLog = `🔥 ${cleanAttackerName} أطلق نفس التنين! (**${trueDamage}** ضرر حقيقي).`;
+                    actionLog = `🔥 ${attackerName} أطلق نفس التنين! (**${trueDamage}** ضرر حقيقي).`;
                     break;
+                // ... (باقي المهارات كما هي في الكود الأصلي) ...
                 default:
-                    // مهارة هجومية افتراضية للأعراق الأخرى
                     const raceDmg = Math.floor((attacker.weapon ? attacker.weapon.currentDamage : 10) * (skill.effectValue / 100));
                     defender.hp -= raceDmg;
-                    actionLog = `⚔️ ${cleanAttackerName} استخدم مهارة خاصة: ${skill.name} وألحق **${raceDmg}** ضرر!`;
+                    actionLog = `⚔️ ${attackerName} استخدم ${skill.name} وألحق **${raceDmg}** ضرر!`;
                     break;
             }
             battleState.log.push(actionLog);
         }
 
-        // 5. تنفيذ الهجوم العادي
+        // 5. الهجوم العادي
         if (i.customId === 'pvp_action_attack') {
             if (!attacker.weapon || attacker.weapon.currentLevel === 0) {
-                 battleState.log.push(`❌ ${cleanAttackerName} يحاول الهجوم بلا سلاح!`);
+                 battleState.log.push(`❌ ${attackerName} يحاول الهجوم بلا سلاح!`);
             } else {
                 let damage = attacker.weapon.currentDamage;
-                
-                // حساب البف (Buff)
                 if (attacker.effects.buff > 0) {
                     const buffSkill = attacker.skills['skill_buffing'] || attacker.skills['race_human_skill'];
                     if (buffSkill) { damage *= (1 + (buffSkill.effectValue / 100)); }
                 }
-                // حساب الضعف (Weaken)
                 if (attacker.effects.weaken > 0) {
                     const weakenSkill = defender.skills['skill_weaken'] || defender.skills['race_ghoul_skill'];
                     let weakenPercent = 0.10;
@@ -308,31 +359,29 @@ async function handlePvpTurn(i, client, sql) {
 
                 let damageTaken = Math.floor(damage);
 
-                // حساب الدفاع والاختراق
                 if (attacker.effects.penetrate > 0) {
-                    battleState.log.push(`👻 ${cleanAttackerName} اخترق دفاعات الخصم!`);
+                    battleState.log.push(`👻 ${attackerName} اخترق الدفاعات!`);
                 } else if (defender.effects.shield > 0) {
                     const shieldSkill = defender.skills['skill_shielding'] || defender.skills['race_human_skill'] || defender.skills['race_dwarf_skill'];
                     if (shieldSkill) { damageTaken = Math.floor(damageTaken * (1 - (shieldSkill.effectValue / 100))); }
                 }
 
                 defender.hp -= damageTaken;
-                battleState.log.push(`⚔️ ${cleanAttackerName} هاجم وألحق **${damageTaken}** ضرر!`);
+                battleState.log.push(`⚔️ ${attackerName} هاجم وألحق **${damageTaken}** ضرر!`);
 
-                // حساب الارتداد (Rebound)
                 if (defender.effects.rebound_active > 0 && defender.skills['skill_rebound']) {
                     const reboundSkill = defender.skills['skill_rebound'];
                     const reboundPercent = reboundSkill.effectValue / 100;
                     const reboundDamage = Math.floor(damageTaken * reboundPercent);
                     if (reboundDamage > 0) {
                         attacker.hp -= reboundDamage;
-                        battleState.log.push(`🔄 ${cleanDefenderName} رد **${reboundDamage}** ضرر للمهاجم!`);
+                        battleState.log.push(`🔄 ${defenderName} رد **${reboundDamage}** ضرر!`);
                     }
                 }
             }
         }
 
-        // 6. التحقق من نهاية المعركة (موت أحد الطرفين)
+        // 6. التحقق من النهاية
         if (defender.hp <= 0) {
             defender.hp = 0;
             const { embeds, components } = core.buildBattleEmbed(battleState);
@@ -340,7 +389,7 @@ async function handlePvpTurn(i, client, sql) {
             await core.endBattle(battleState, attackerId, sql, "win", calculateMoraBuff);
             return;
         }
-        if (attacker.hp <= 0) { // في حال مات المهاجم بسبب الارتداد أو التضحية
+        if (attacker.hp <= 0) {
             attacker.hp = 0;
             const { embeds, components } = core.buildBattleEmbed(battleState);
             await i.editReply({ embeds, components });
@@ -348,25 +397,32 @@ async function handlePvpTurn(i, client, sql) {
             return;
         }
 
-        // 7. تبديل الدور وتحديث الواجهة
+        // 7. تبديل الدور
         battleState.turn = [defenderId, attackerId];
         const { embeds, components } = core.buildBattleEmbed(battleState, false);
         await i.editReply({ embeds, components });
 
+        // 🤖 إذا كان الدور التالي للوحش (PvE)، شغله تلقائياً
+        if (isPvE && battleState.turn[0] === "monster") {
+            processMonsterTurn(battleState, sql); // تشغيل بدون await لتحرير القفل لاحقاً
+        } else {
+            battleState.processingTurn = false;
+        }
+
     } catch (err) {
         console.error("[PvP Handler Error]", err);
-        // محاولة إبلاغ المستخدم بالخطأ إن أمكن
-        if (!i.replied) await i.followUp({ content: "حدث خطأ أثناء المعركة.", flags: [MessageFlags.Ephemeral] }).catch(() => {});
+        if (!i.replied) await i.followUp({ content: "حدث خطأ.", flags: [MessageFlags.Ephemeral] }).catch(() => {});
     } finally {
-        // تحرير القفل ليتمكن اللاعب التالي من اللعب
-        if (battleState) {
+        // في حال لم يكن دور الوحش، نحرر القفل فوراً
+        // إذا كان دور الوحش، القفل سيتحرر داخل processMonsterTurn
+        if (battleState && (!isPvE || battleState.turn[0] !== "monster")) {
             battleState.processingTurn = false;
         }
     }
 }
 
 /**
- * الموجه الرئيسي لتفاعلات الـ PvP (يتم استدعاؤه من index.js)
+ * الموجه الرئيسي لتفاعلات الـ PvP
  */
 async function handlePvpInteraction(i, client, sql) {
     try {
@@ -376,7 +432,7 @@ async function handlePvpInteraction(i, client, sql) {
             await handlePvpTurn(i, client, sql);
         }
     } catch (error) {
-        if (error.code === 10062) return; // تفاعل منتهي الصلاحية
+        if (error.code === 10062) return; 
         console.error("[PvP Handler] Critical Error:", error);
     }
 }
