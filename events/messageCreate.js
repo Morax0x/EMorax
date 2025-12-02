@@ -117,25 +117,38 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
 
         // ============================================================
-        // 🌟 3. معالج الاختصارات (المصحح: داتابيس + قاموس + محصور بالقناة) 🌟
+        // 🌟 3. معالج الاختصارات (المصحح: داتابيس شاملة + أولوية للقناة) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
             let targetName = null;
 
-            // أ) البحث في الداتابيس (خاص بالقناة)
-            let dbShortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
-                .get(message.guild.id, message.channel.id, shortcutWord);
+            // أ) البحث في الداتابيس (للقناة الحالية أو الاختصارات العامة)
+            const foundShortcuts = sql.prepare(`
+                SELECT commandName, channelID 
+                FROM command_shortcuts 
+                WHERE guildID = ? 
+                AND shortcutWord = ? 
+                AND (channelID = ? OR channelID IS NULL OR channelID = '')
+            `).all(message.guild.id, shortcutWord, message.channel.id);
 
-            if (dbShortcut) {
-                targetName = dbShortcut.commandName.toLowerCase();
-            } 
-            // ب) هل هي كلمة عامة في القاموس؟ (لإصلاح عدم عمل "رصيد" و "توب")
-            else if (COMMAND_ALIASES_MAP[shortcutWord]) {
+            if (foundShortcuts.length > 0) {
+                // نفضل الاختصار المخصص لهذه القناة، وإذا لم يوجد نأخذ العام
+                const channelSpecific = foundShortcuts.find(s => s.channelID === message.channel.id);
+                const globalShortcut = foundShortcuts.find(s => !s.channelID || s.channelID === '');
+
+                if (channelSpecific) {
+                    targetName = channelSpecific.commandName.toLowerCase();
+                } else if (globalShortcut) {
+                    targetName = globalShortcut.commandName.toLowerCase();
+                }
+            }
+            
+            // ب) إذا لم نجد في الداتابيس، نستخدم القاموس
+            if (!targetName && COMMAND_ALIASES_MAP[shortcutWord]) {
                 targetName = COMMAND_ALIASES_MAP[shortcutWord];
             }
-
 
             if (targetName) {
                 // البحث عن الأمر
