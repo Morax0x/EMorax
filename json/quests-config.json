@@ -109,9 +109,9 @@
       "emoji": "😀"
     },
     {
-      "id": "d_sticker_20",
-      "name": "ارسل 20 ستيكر",
-      "description": "ارسل 20 ملصق (Sticker)",
+      "id": "d_sticker_3",
+      "name": "ارسل 3 ستيكر",
+      "description": "ارسل 3 ملصق (Sticker)",
       "stat": "stickers",
       "goal": 20,
       "reward": { "mora": 300, "xp": 150 },
