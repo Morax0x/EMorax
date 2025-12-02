@@ -7,18 +7,16 @@ const rootDir = process.cwd();
 // 2. استدعاء ملف الإعدادات
 const fishingConfig = require(path.join(rootDir, 'json', 'fishing-config.json'));
 
-// 3. استدعاء دوال الـ PvP بطريقة آمنة جداً
+// 3. استدعاء دوال الـ PvP بطريقة آمنة
 let pvpCore;
 try {
-    // نستخدم path.join لضمان المسار الصحيح
     pvpCore = require(path.join(rootDir, 'handlers', 'pvp-core.js'));
 } catch (e) {
     console.error("[Fish Cmd] Error loading pvp-core.js:", e.message);
-    pvpCore = {}; // كائن فارغ لتجنب الانهيار
+    pvpCore = {}; 
 }
 
 // 4. التأكد من وجود الدوال (Self-Healing)
-// إذا لم تكن الدالة موجودة، نضع دالة وهمية تمنع الكراش
 if (typeof pvpCore.getWeaponData !== 'function') {
     console.warn("[Fish Cmd] Warning: getWeaponData missing, using fallback.");
     pvpCore.getWeaponData = () => ({ name: "سكين صيد صدئة", currentDamage: 15, currentLevel: 1 });
@@ -149,7 +147,7 @@ module.exports = {
 
             const waitingEmbed = new EmbedBuilder()
                 .setTitle("🌊 السنارة في الماء...")
-                .setDescription("انتظر... لا تسحب السنارة!")
+                .setDescription("انتظر... لا تسحب السنارة حتى تشعر بالاهتزاز!")
                 .setColor(Colors.Grey)
                 .setImage("https://i.postimg.cc/Wz0g0Zg0/fishing.png");
 
@@ -185,7 +183,6 @@ module.exports = {
                 await i.editReply({ embeds: [biteEmbed], components: [gameRow] });
 
                 const pullFilter = j => j.user.id === user.id && j.customId.startsWith('fish_click_');
-                // وقت الضغط: 2 ثانية
                 const pullCollector = msg.createMessageComponentCollector({ filter: pullFilter, time: 2000, max: 1 }); 
 
                 pullCollector.on('collect', async j => {
@@ -207,7 +204,7 @@ module.exports = {
                     pullCollector.stop('success');
 
                     // ========================================================
-                    // 🦑 منطق الوحوش (نظام الأدوار Turn-Based)
+                    // 🦑 منطق الوحوش (PvE)
                     // ========================================================
                     const monsterChanceBase = Math.random();
                     const isOwner = user.id === OWNER_ID;
@@ -220,7 +217,6 @@ module.exports = {
                     if (possibleMonsters.length > 0 && monsterTriggered) {
                         const monster = possibleMonsters[Math.floor(Math.random() * possibleMonsters.length)];
                         
-                        // هنا الإصلاح: نستخدم pvpCore.getWeaponData بدلاً من افتراض وجوده
                         let playerWeapon = pvpCore.getWeaponData(sql, j.member);
                         if (!playerWeapon || playerWeapon.currentLevel === 0) {
                             playerWeapon = { name: "سكين صيد صدئة", currentDamage: 15, currentLevel: 1 };
@@ -235,7 +231,7 @@ module.exports = {
                         }
                     }
 
-                    // --- الصيد الطبيعي ---
+                    // --- الصيد الطبيعي (بدون وحوش) ---
                     const fishCount = Math.floor(Math.random() * currentRod.max_fish) + 1;
                     let caughtFish = [];
                     let totalValue = 0;
@@ -258,7 +254,11 @@ module.exports = {
                         
                         if (possibleFish.length > 0) {
                             const fish = possibleFish[Math.floor(Math.random() * possibleFish.length)];
-                            sql.prepare(`INSERT INTO user_portfolio (guildID, userID, itemID, quantity) VALUES (?, ?, ?, 1) ON CONFLICT(guildID, userID, itemID) DO UPDATE SET quantity = quantity + 1`).run(guild.id, user.id, fish.id);
+                            
+                            // ❌❌ تم إزالة كود الحفظ في قاعدة البيانات ❌❌
+                            // sql.prepare(`INSERT INTO user_portfolio ...`).run(...); 
+                            // (الآن السمك لا يُخزن كـ item)
+
                             caughtFish.push(fish);
                             totalValue += fish.price;
                         }
