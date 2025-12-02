@@ -6,12 +6,11 @@ const weaponsConfig = require('../json/weapons-config.json');
 const skillsConfig = require('../json/skills-config.json');
 const path = require('path');
 
-// Fishing Config
+// استيراد ملف الصيد
 const rootDir = process.cwd();
 const { rods: rodsConfig, boats: boatsConfig, baits: baitsConfig } = require(path.join(rootDir, 'json', 'fishing-config.json'));
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
-const OWNER_ID = "1145327691772481577";
 const XP_EXCHANGE_RATE = 3;
 const BANNER_URL = 'https://i.postimg.cc/NMkWVyLV/line.png';
 
@@ -35,9 +34,11 @@ const THUMBNAILS = new Map([
     ['change_race', 'https://i.postimg.cc/rs4mmjvs/tsmym-bdwn-ʿnwan-9.png']
 ]);
 
-// --- Helper Functions ---
+// --- دوال مساعدة ---
 function normalize(str) { if (!str) return ""; return str.toString().toLowerCase().replace(/[^a-z0-9]/g, ""); }
+
 function getGeneralSkills() { return skillsConfig.filter(s => s.id.startsWith('skill_')); }
+
 function getRaceSkillConfig(raceName) { 
     if (!raceName) return null;
     return skillsConfig.find(s => {
@@ -46,6 +47,7 @@ function getRaceSkillConfig(raceName) {
         return normalize(idName) === normalize(raceName);
     }); 
 }
+
 function getUserRace(member, sql) { 
     if (!member || !member.roles) return null;
     const allRaceRoles = sql.prepare("SELECT roleID, raceName FROM race_roles WHERE guildID = ?").all(member.guild.id); 
@@ -53,10 +55,21 @@ function getUserRace(member, sql) {
     const userRace = allRaceRoles.find(r => userRoleIDs.includes(r.roleID)); 
     return userRace || null; 
 }
-function getAllUserAvailableSkills(member, sql) { const generalSkills = getGeneralSkills(); const userRace = getUserRace(member, sql); let raceSkill = null; if (userRace) { raceSkill = getRaceSkillConfig(userRace.raceName); } let allSkills = []; if (raceSkill) { allSkills.push(raceSkill); } allSkills = allSkills.concat(generalSkills); return allSkills; }
+
+function getAllUserAvailableSkills(member, sql) { 
+    const generalSkills = getGeneralSkills(); 
+    const userRace = getUserRace(member, sql); 
+    let raceSkill = null; 
+    if (userRace) { raceSkill = getRaceSkillConfig(userRace.raceName); } 
+    let allSkills = []; 
+    if (raceSkill) { allSkills.push(raceSkill); } 
+    allSkills = allSkills.concat(generalSkills); 
+    return allSkills; 
+}
+
 function getBuyableItems() { return shopItems.filter(it => !['upgrade_weapon', 'upgrade_skill', 'exchange_xp', 'upgrade_rod', 'fishing_gear_menu'].includes(it.id)); }
 
-// --- Builders ---
+// --- بناء القوائم ---
 function buildPaginatedItemEmbed(selectedItemId) {
     const buyableItems = getBuyableItems();
     const itemIndex = buyableItems.findIndex(it => it.id === selectedItemId);
@@ -117,7 +130,7 @@ function _buildSkillEmbedFields(embed, buttonRow, skillConfig, currentLevel) {
     }
 }
 
-// --- Fishing Functions ---
+// --- دوال عدة الصيد ---
 async function _handleRodSelect(i, client, sql) {
     if(i.replied || i.deferred) await i.editReply("جاري التحميل..."); else await i.deferReply({ flags: MessageFlags.Ephemeral });
     let userData = sql.prepare("SELECT rodLevel FROM levels WHERE user = ? AND guild = ?").get(i.user.id, i.guild.id);
@@ -200,15 +213,25 @@ async function _handleBaitBuy(i, client, sql) {
     await i.editReply(`✅ تم شراء **${qty}x ${bait.name}** بنجاح!`);
 }
 
+// 🌟 دالة شراء السلاح (مع البحث بـ ID السلاح) 🌟
 async function _handleWeaponUpgrade(i, client, sql) {
     try {
         await i.deferUpdate();
         const userId = i.user.id; const guildId = i.guild.id; const isBuy = i.customId.startsWith('buy_weapon_');
-        const raceName = i.customId.replace(isBuy ? 'buy_weapon_' : 'upgrade_weapon_', ''); 
-        const weaponConfig = weaponsConfig.find(w => normalize(w.race) === normalize(raceName));
+        
+        // نستخرج "آيدي السلاح" أو "اسم العرق" من الزر
+        // لكن في القائمة المنسدلة كنا نستخدم raceName
+        // لذا سنستخدم normalize لضمان المطابقة
+        const raceNameFromBtn = i.customId.replace(isBuy ? 'buy_weapon_' : 'upgrade_weapon_', ''); 
+        
+        // البحث عن السلاح الذي يطابق عرقه العرق الممرر في الزر
+        const weaponConfig = weaponsConfig.find(w => normalize(w.race) === normalize(raceNameFromBtn));
+        
         if (!weaponConfig) return await i.followUp({ content: '❌ خطأ: لم يتم العثور على بيانات هذا السلاح.', flags: MessageFlags.Ephemeral });
         
+        // استخدام الاسم الرسمي من الملف
         const exactRaceName = weaponConfig.race;
+
         let userData = client.getLevel.get(userId, guildId); if (!userData) userData = { ...client.defaultData, user: userId, guild: guildId };
         let userWeapon = sql.prepare("SELECT * FROM user_weapons WHERE userID = ? AND guildID = ? AND raceName = ?").get(userId, guildId, exactRaceName);
         let currentLevel = userWeapon ? userWeapon.weaponLevel : 0;
@@ -349,19 +372,15 @@ async function _handleReplaceBuffButton(i, client, sql) {
     } catch (error) { console.error("خطأ في زر استبدال المعزز:", error); if (i.replied || i.deferred) await i.followUp({ content: '❌ حدث خطأ.', flags: MessageFlags.Ephemeral }); }
 }
 
-// 🌟 1. الدالة الرئيسية للمودالات (تأكدنا من وجودها) 🌟
 async function handleShopModal(i, client, sql) {
     if (i.customId === 'exchange_xp_modal') {
         await _handleXpExchangeModal(i, client, sql);
         return true;
     }
-    
-    // معالجة مودال الشراء والبيع للسوق والمزرعة
     const isBuyMarket = i.customId.startsWith('buy_modal_');
     const isSellMarket = i.customId.startsWith('sell_modal_');
     const isBuyFarm = i.customId.startsWith('buy_animal_');
     const isSellFarm = i.customId.startsWith('sell_animal_');
-
     if (isBuyMarket || isSellMarket || isBuyFarm || isSellFarm) {
         await _handleBuySellModal(i, client, sql, { isBuyMarket, isSellMarket, isBuyFarm, isSellFarm });
         return true;
@@ -369,11 +388,12 @@ async function handleShopModal(i, client, sql) {
     return false;
 }
 
-// 🌟 2. دالة الشراء والبيع (علنية: ephemeral = false) 🌟
+// ( 🌟 دالة الشراء والبيع - تم تعيين ephemeral: false لتكون ظاهرة 🌟 )
 async function _handleBuySellModal(i, client, sql, types) {
     const { isBuyMarket, isSellMarket, isBuyFarm, isSellFarm } = types;
-    // ✅ الرد علني (Public)
+    // ✅ الرد علني (ظاهر للكل)
     await i.deferReply({ ephemeral: false });
+    
     try {
         const quantityString = i.fields.getTextInputValue('quantity_input');
         const quantity = parseInt(quantityString.trim().replace(/,/g, ''));
@@ -397,7 +417,7 @@ async function _handleBuySellModal(i, client, sql, types) {
                  for (let j = 0; j < quantity; j++) sql.prepare("INSERT INTO user_farm (guildID, userID, animalID, purchaseTimestamp, lastCollected) VALUES (?, ?, ?, ?, ?)").run(i.guild.id, i.user.id, animal.id, now, now);
                  userData.shop_purchases = (userData.shop_purchases || 0) + 1;
                  client.setLevel.run(userData);
-                 const embed = new EmbedBuilder().setTitle('✅ تم الشراء').setColor(Colors.Green).setDescription(`📦 **${quantity}** × ${animal.name}\n💵 التكلفة: **${totalCost.toLocaleString()}** ${EMOJI_MORA}`);
+                 const embed = new EmbedBuilder().setTitle('✅ تم الشراء').setColor(Colors.Green).setDescription(`📦 **${quantity}** × ${animal.name}\n💵 التكلفة: **${totalCost.toLocaleString()}** ${EMOJI_MORA}`).setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
                  return await i.editReply({ embeds: [embed] });
              } else {
                  const farmCount = sql.prepare("SELECT COUNT(*) as count FROM user_farm WHERE userID = ? AND guildID = ? AND animalID = ?").get(i.user.id, i.guild.id, animal.id).count;
@@ -407,7 +427,7 @@ async function _handleBuySellModal(i, client, sql, types) {
                  const totalGain = Math.floor(animal.price * 0.70 * quantity);
                  userData.mora += totalGain;
                  client.setLevel.run(userData);
-                 const embed = new EmbedBuilder().setTitle('✅ تم البيع').setColor(Colors.Green).setDescription(`📦 **${quantity}** × ${animal.name}\n💵 الربح: **${totalGain.toLocaleString()}** ${EMOJI_MORA}`);
+                 const embed = new EmbedBuilder().setTitle('✅ تم البيع').setColor(Colors.Green).setDescription(`📦 **${quantity}** × ${animal.name}\n💵 الربح: **${totalGain.toLocaleString()}** ${EMOJI_MORA}`).setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
                  return await i.editReply({ embeds: [embed] });
              }
         }
@@ -430,7 +450,7 @@ async function _handleBuySellModal(i, client, sql, types) {
              if (pfItem) sql.prepare("UPDATE user_portfolio SET quantity = quantity + ? WHERE id = ?").run(quantity, pfItem.id);
              else sql.prepare("INSERT INTO user_portfolio (guildID, userID, itemID, quantity) VALUES (?, ?, ?, ?)").run(i.guild.id, i.user.id, item.id, quantity);
              
-             const embed = new EmbedBuilder().setTitle('✅ تم الشراء').setColor(Colors.Green).setDescription(`📦 **${quantity}** × ${item.name}\n💵 التكلفة: **${totalCost.toLocaleString()}** ${EMOJI_MORA}`);
+             const embed = new EmbedBuilder().setTitle('✅ تم الشراء').setColor(Colors.Green).setDescription(`📦 **${quantity}** × ${item.name}\n💵 التكلفة: **${totalCost.toLocaleString()}** ${EMOJI_MORA}`).setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
              await i.editReply({ embeds: [embed] });
         } else {
              let pfItem = getPortfolio.get(i.user.id, i.guild.id, item.id);
@@ -444,7 +464,7 @@ async function _handleBuySellModal(i, client, sql, types) {
              if (userQty - quantity > 0) sql.prepare("UPDATE user_portfolio SET quantity = ? WHERE id = ?").run(userQty - quantity, pfItem.id);
              else sql.prepare("DELETE FROM user_portfolio WHERE id = ?").run(pfItem.id);
              
-             const embed = new EmbedBuilder().setTitle('✅ تم البيع').setColor(Colors.Green).setDescription(`📦 **${quantity}** × ${item.name}\n💵 الربح: **${totalGain.toLocaleString()}** ${EMOJI_MORA}`);
+             const embed = new EmbedBuilder().setTitle('✅ تم البيع').setColor(Colors.Green).setDescription(`📦 **${quantity}** × ${item.name}\n💵 الربح: **${totalGain.toLocaleString()}** ${EMOJI_MORA}`).setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
              await i.editReply({ embeds: [embed] });
         }
     } catch (error) { console.error(error); await i.editReply("❌ حدث خطأ."); }
@@ -483,12 +503,10 @@ async function _handleXpExchangeModal(i, client, sql) {
     } catch (e) { console.error(e); }
 }
 
-// 🌟 6. الدالة الرئيسية (تأكدنا من وجودها) 🌟
 async function handleShopSelectMenu(i, client, sql) {
     try {
         const selected = i.values[0];
         
-        // Fishing Gear
         if (selected === 'fishing_gear_menu') {
             await i.deferReply({ flags: MessageFlags.Ephemeral });
             const embed = new EmbedBuilder().setTitle('🎣 عـدة الـصـيـد').setDescription('اختر القسم الذي تريد تصفحه:').setColor(Colors.Aqua).setImage(BANNER_URL);
@@ -498,7 +516,6 @@ async function handleShopSelectMenu(i, client, sql) {
             return await i.editReply({ embeds: [embed], components: [row] });
         }
         
-        // Weapons & Skills
         if (selected === 'upgrade_weapon') { await _handleWeaponUpgrade(i, client, sql); return; }
         if (selected === 'upgrade_skill') {
             await i.deferReply({ flags: MessageFlags.Ephemeral });
@@ -509,14 +526,12 @@ async function handleShopSelectMenu(i, client, sql) {
             return await i.editReply({ content: 'اختر مهارة:', components: [row] });
         }
         
-        // Exchange XP
         if (selected === 'exchange_xp') {
              const btn = new ButtonBuilder().setCustomId('open_xp_modal').setLabel('بدء التبادل').setStyle(ButtonStyle.Primary).setEmoji('🪙');
              const embed = new EmbedBuilder().setTitle('تبديل الخبرة').setDescription(`السعر: ${XP_EXCHANGE_RATE} مورا = 1 XP`).setColor(Colors.Blue).setImage(BANNER_URL).setThumbnail(THUMBNAILS.get('exchange_xp'));
              return await i.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(btn)], flags: MessageFlags.Ephemeral });
         }
 
-        // Regular Items
         const item = getBuyableItems().find(it => it.id === selected);
         if (item) {
              const paginationEmbed = buildPaginatedItemEmbed(selected);
@@ -525,13 +540,10 @@ async function handleShopSelectMenu(i, client, sql) {
     } catch (e) { console.error(e); }
 }
 
-// 🌟 7. دالة التفاعل الرئيسية (تأكدنا من وجودها) 🌟
 async function handleShopInteractions(i, client, sql) {
-    // Pagination
     if (i.customId.startsWith('shop_paginate_item_')) { try { await i.deferUpdate(); const id = i.customId.replace('shop_paginate_item_', ''); const embed = buildPaginatedItemEmbed(id); if (embed) await i.editReply(embed); } catch (e) {} return; }
     if (i.customId.startsWith('shop_skill_paginate_')) { try { await i.deferUpdate(); const idx = i.customId.replace('shop_skill_paginate_', ''); const skills = getAllUserAvailableSkills(i.member, sql); const embed = buildSkillEmbedWithPagination(skills, idx, sql, i); if (embed) await i.editReply(embed); } catch (e) {} return; }
 
-    // Fishing Sub-Menu
     if (i.isStringSelectMenu() && i.customId === 'fishing_gear_sub_menu') {
         const val = i.values[0];
         if (val === 'gear_rods') await _handleRodSelect(i, client, sql);
@@ -540,7 +552,6 @@ async function handleShopInteractions(i, client, sql) {
         return;
     }
 
-    // Actions
     if (i.customId === 'upgrade_rod') await _handleRodUpgrade(i, client, sql);
     else if (i.customId === 'upgrade_boat') await _handleBoatUpgrade(i, client, sql);
     else if (i.isStringSelectMenu() && i.customId === 'shop_buy_bait_menu') await _handleBaitBuy(i, client, sql);
@@ -555,12 +566,10 @@ async function handleShopInteractions(i, client, sql) {
         xpModal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('xp_amount_input').setLabel('الكمية').setStyle(TextInputStyle.Short).setRequired(true)));
         await i.showModal(xpModal);
     }
-    // (فتح مودال الشراء/البيع للمزرعة والسوق)
     else if (i.customId.startsWith('buy_market_') || i.customId.startsWith('sell_market_') || i.customId.startsWith('buy_animal_') || i.customId.startsWith('sell_animal_')) {
-        const action = i.customId.split('_')[0]; // buy or sell
+        const action = i.customId.split('_')[0];
         const modalId = action === 'buy' ? (i.customId.includes('market') ? 'buy_modal_' : 'buy_animal_') : (i.customId.includes('market') ? 'sell_modal_' : 'sell_animal_');
-        const suffix = i.customId.split('_').slice(2).join('_'); // item id
-        
+        const suffix = i.customId.split('_').slice(2).join('_');
         const modal = new ModalBuilder().setCustomId(modalId + suffix).setTitle(action === 'buy' ? 'شراء' : 'بيع');
         const input = new TextInputBuilder().setCustomId('quantity_input').setLabel('الكمية').setStyle(TextInputStyle.Short).setRequired(true);
         modal.addComponents(new ActionRowBuilder().addComponents(input));
@@ -580,9 +589,4 @@ async function handleSkillSelectMenu(i, client, sql) {
     } catch (error) { console.error(error); }
 }
 
-module.exports = {
-    handleShopModal,
-    handleShopSelectMenu,
-    handleShopInteractions,
-    handleSkillSelectMenu
-};
+module.exports = { handleShopModal, handleShopSelectMenu, handleShopInteractions, handleSkillSelectMenu };
