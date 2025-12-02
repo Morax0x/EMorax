@@ -1,14 +1,20 @@
 const { EmbedBuilder, Colors, ButtonBuilder, ButtonStyle, ActionRowBuilder, ComponentType } = require("discord.js");
-// ( 🌟 تأكد من صحة المسار لملف achievements.js و top.js 🌟 )
+// (تأكد أن ملف achievements موجود في commands مباشرة)
 const { buildAchievementsEmbed, buildDailyEmbed, buildWeeklyEmbed } = require('../commands/achievements.js');
-const { generateLeaderboard } = require('../commands/leveling/top.js'); 
+
+// ( 🌟 هنا التصحيح: تم إزالة leveling من المسار لأن الملف في commands مباشرة 🌟 )
+const { generateLeaderboard } = require('../commands/top.js'); 
+
 const questsConfig = require('../json/quests-config.json');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const EMOJI_STAR = '⭐';
 
 // --- الدوال المساعدة ---
-function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
+function getTodayDateString() {
+    return new Date().toISOString().split('T')[0];
+}
+
 function getWeekStartDateString() {
     const now = new Date();
     const dayOfWeek = now.getUTCDay(); 
@@ -79,15 +85,22 @@ async function handleQuestPanel(i, client, sql) {
 
     // 1. تحليل التفاعل (قائمة أو زر)
     if (i.isStringSelectMenu()) {
-        // ( 🌟 هنا كان الخلل: values[0] قد تكون 'empire' أو غيرها )
         section = i.values[0];
         await i.deferUpdate(); 
     } else if (i.isButton()) {
         const parts = i.customId.split('_');
-        // ID: panel_SECTION_prev_PAGE
-        const action = parts[parts.length - 2]; // prev/next
+        // ID format: panel_SECTION_prev_PAGE
+        // We need to be careful parsing the section if it contains underscores (e.g. top_achievements)
+        // Last part is page, second to last is action (prev/next)
+        // Everything before that is the section (after 'panel_')
+        
         const pageNum = parseInt(parts[parts.length - 1]);
-        section = parts.slice(1, parts.length - 2).join('_'); // تجميع اسم القسم
+        const action = parts[parts.length - 2]; // prev/next
+        
+        // Reconstruct section name
+        const prefixLength = 'panel_'.length;
+        const suffixLength = `_${action}_${pageNum}`.length;
+        section = i.customId.substring(prefixLength, i.customId.length - suffixLength);
         
         currentPage = pageNum;
         if (action === 'prev') currentPage--;
@@ -99,7 +112,7 @@ async function handleQuestPanel(i, client, sql) {
         section = i.customId.replace('panel_', '');
     }
 
-    // ( 🌟 معالجة خاصة لقسم الإمبراطورية empire 🌟 )
+    // ( معالجة خاصة لقسم الإمبراطورية )
     if (section === 'empire') {
          return i.followUp({ content: "🚧 **قسم مهام الإمبراطورية قيد التطوير حالياً!**", ephemeral: true });
     }
@@ -147,7 +160,7 @@ async function handleQuestPanel(i, client, sql) {
     let totalPages = 1;
     let data;
 
-    // ( 🌟 التوجيه الصحيح للأقسام 🌟 )
+    // ( التوجيه الصحيح للأقسام )
     if (section === 'daily') {
         data = await buildDailyEmbed(sql, i.member, dailyStats, currentPage);
     } else if (section === 'weekly') {
@@ -156,11 +169,10 @@ async function handleQuestPanel(i, client, sql) {
         data = await generateLeaderboard(sql, i.guild, 'achievements', currentPage);
     } else if (section === 'my_achievements') {
         data = await buildMyAchievementsEmbed(i, sql, currentPage);
-    } else if (section === 'achievements') { // القائمة العامة للإنجازات
+    } else if (section === 'achievements') { 
         data = await buildAchievementsEmbed(sql, i.member, levelData, totalStats, completedAchievements, currentPage);
     } else {
-        // إذا القسم غير معروف (مثل empire القديمة)
-        return i.followUp({ content: "❌ هذا القسم غير متوفر حالياً أو تم نقله.", ephemeral: true });
+        return i.followUp({ content: "❌ هذا القسم غير متوفر حالياً.", ephemeral: true });
     }
 
     if (data) {
