@@ -1,6 +1,7 @@
 const { EmbedBuilder, Colors, ButtonBuilder, ButtonStyle, ActionRowBuilder, ComponentType } = require("discord.js");
 const { buildAchievementsEmbed, buildDailyEmbed, buildWeeklyEmbed } = require('../commands/achievements.js');
-const { generateLeaderboard } = require('../commands/leveling/top.js'); 
+// ( 🌟 تم تصحيح المسار هنا: الملف موجود في commands مباشرة 🌟 )
+const { generateLeaderboard } = require('../commands/top.js'); 
 const questsConfig = require('../json/quests-config.json');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
@@ -62,8 +63,6 @@ async function buildMyAchievementsEmbed(interaction, sql, page = 1) {
         }
         embed.setDescription(description);
 
-        // ( 🌟 إصلاح: استخدام ID موحد للأزرار 🌟 )
-        // نستخدم 'panel_' كبادئة ثابتة لكل الأزرار في هذا الملف
         return { embeds: [embed], totalPages };
 
     } catch (err) {
@@ -78,25 +77,18 @@ async function handleQuestPanel(i, client, sql) {
     const guildId = i.guild.id;
     const id = `${userId}-${guildId}`;
     
-    // 1. تحديد الصفحة الحالية والقسم المطلوب
     let currentPage = 1;
     let section = "";
 
-    // إذا كان اختيار من القائمة المنسدلة
+    // التعامل مع القائمة المنسدلة أو الأزرار
     if (i.isStringSelectMenu()) {
         section = i.values[0];
         await i.deferUpdate(); 
-    } 
-    // إذا كان زر تنقل (السابق/التالي)
-    else if (i.isButton()) {
+    } else if (i.isButton()) {
         const parts = i.customId.split('_');
-        // المتوقع: panel_SECTION_prev_PAGE
-        // مثال: panel_daily_next_2
-        const action = parts[parts.length - 2]; // prev أو next
-        const pageNum = parseInt(parts[parts.length - 1]); // رقم الصفحة الحالية
-        
-        // استخراج اسم القسم من الـ ID (كل شيء بين panel_ و _prev/next)
-        // panel_my_achievements_next_1 -> my_achievements
+        // Format: panel_SECTION_prev_PAGE
+        const action = parts[parts.length - 2]; // prev or next
+        const pageNum = parseInt(parts[parts.length - 1]);
         section = parts.slice(1, parts.length - 2).join('_');
         
         currentPage = pageNum;
@@ -106,10 +98,10 @@ async function handleQuestPanel(i, client, sql) {
         await i.deferUpdate();
     } else {
         await i.deferReply({ ephemeral: true });
-        section = i.customId.replace('panel_', ''); // Fallback
+        section = i.customId.replace('panel_', '');
     }
 
-    // 2. منطق الإشعارات
+    // إعدادات الإشعارات
     if (section.includes('toggle_notif') || section === 'notifications') {
         let notifData = client.getQuestNotif.get(id);
         if (!notifData) {
@@ -142,7 +134,7 @@ async function handleQuestPanel(i, client, sql) {
         return await i.editReply({ embeds: [notifEmbed], components: [notifButtons], files: [] });
     }
 
-    // 3. جلب البيانات
+    // جلب البيانات
     const dateStr = getTodayDateString();
     const weekStartDateStr = getWeekStartDateString();
     const totalStatsId = `${userId}-${guildId}`;
@@ -157,7 +149,6 @@ async function handleQuestPanel(i, client, sql) {
     let totalPages = 1;
     let data;
 
-    // 4. تحديد المحتوى بناءً على القسم
     if (section === 'daily') {
         data = await buildDailyEmbed(sql, i.member, dailyStats, currentPage);
     } else if (section === 'weekly') {
@@ -174,17 +165,15 @@ async function handleQuestPanel(i, client, sql) {
         embeds = Array.isArray(data.embeds) ? data.embeds : [data.embed];
         files = data.files || [];
         totalPages = data.totalPages || 1;
-        currentPage = Math.max(1, Math.min(currentPage, totalPages)); // تصحيح الصفحة إذا تجاوزت الحدود
+        currentPage = Math.max(1, Math.min(currentPage, totalPages));
     } else {
         return await i.editReply({ content: "❌ القسم غير موجود.", embeds: [], components: [] });
     }
 
-    // 5. بناء أزرار التنقل (موحدة لجميع الأقسام)
     let components = [];
     if (totalPages > 1) {
         const pageRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
-                // ( 🌟 التنسيق الموحد: panel_SECTION_prev_PAGE 🌟 )
                 .setCustomId(`panel_${section}_prev_${currentPage}`)
                 .setStyle(ButtonStyle.Secondary)
                 .setEmoji('<:left:1439164494759723029>')
