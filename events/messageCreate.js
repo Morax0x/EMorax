@@ -130,8 +130,15 @@ module.exports = {
             }
 
             if (targetName) {
-                const cmd = client.commands.get(targetName) || 
-                            client.commands.find(c => c.aliases && c.aliases.includes(targetName));
+                const findCmd = (name) => {
+                    const n = name.toLowerCase();
+                    return client.commands.get(n) || 
+                           client.commands.find(c => c.name && c.name.toLowerCase() === n) ||
+                           client.commands.find(c => c.aliases && c.aliases.includes(n)) ||
+                           client.commands.find(c => c.data && c.data.name && c.data.name.toLowerCase() === n);
+                };
+
+                const cmd = findCmd(targetName);
 
                 if (cmd) {
                     let isAllowed = false;
@@ -163,8 +170,6 @@ module.exports = {
                         }
                     }
                     return; 
-                } else {
-                    console.log(`[Warning] Shortcut '${shortcutWord}' points to '${targetName}', but no such command found in folders.`);
                 }
             }
         } catch (err) { console.error("[Shortcut Handler Error]", err); }
@@ -176,7 +181,15 @@ module.exports = {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             
-            const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
+            const findCmd = (name) => {
+                const n = name.toLowerCase();
+                return client.commands.get(n) || 
+                       client.commands.find(c => c.name && c.name.toLowerCase() === n) ||
+                       client.commands.find(c => c.aliases && c.aliases.includes(n)) ||
+                       client.commands.find(c => c.data && c.data.name && c.data.name.toLowerCase() === n);
+            };
+
+            const command = findCmd(commandName);
             
             if (command) {
                 args.prefix = Prefix;
@@ -227,7 +240,16 @@ module.exports = {
             const args = message.content.trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             
-            const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
+            const findCmd = (name) => {
+                const n = name.toLowerCase();
+                return client.commands.get(n) || 
+                       client.commands.find(c => c.name && c.name.toLowerCase() === n) ||
+                       client.commands.find(c => c.aliases && c.aliases.includes(n)) ||
+                       client.commands.find(c => c.data && c.data.name && c.data.name.toLowerCase() === n);
+            };
+
+            const command = findCmd(commandName);
+
             if (command && command.category === "Economy") {
                 if (!checkPermissions(message, command)) return;
                 try { await command.execute(message, args); } catch (error) {}
