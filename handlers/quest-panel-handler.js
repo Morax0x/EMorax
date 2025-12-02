@@ -1,17 +1,14 @@
 const { EmbedBuilder, Colors, ButtonBuilder, ButtonStyle, ActionRowBuilder, ComponentType } = require("discord.js");
+// ( 🌟 تأكد من صحة المسار لملف achievements.js و top.js 🌟 )
 const { buildAchievementsEmbed, buildDailyEmbed, buildWeeklyEmbed } = require('../commands/achievements.js');
-// ( 🌟 تم تصحيح المسار هنا: الملف موجود في commands مباشرة 🌟 )
-const { generateLeaderboard } = require('../commands/top.js'); 
+const { generateLeaderboard } = require('../commands/leveling/top.js'); 
 const questsConfig = require('../json/quests-config.json');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const EMOJI_STAR = '⭐';
 
 // --- الدوال المساعدة ---
-function getTodayDateString() {
-    return new Date().toISOString().split('T')[0];
-}
-
+function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
     const now = new Date();
     const dayOfWeek = now.getUTCDay(); 
@@ -29,13 +26,13 @@ function createNotifButton(label, customId, currentStatus) {
         .setStyle(isEnabled ? ButtonStyle.Success : ButtonStyle.Danger);
 }
 
-// --- دالة إنجازاتي ---
+// --- دالة إنجازاتي (My Achievements) ---
 async function buildMyAchievementsEmbed(interaction, sql, page = 1) {
     try {
         const completed = sql.prepare("SELECT * FROM user_achievements WHERE userID = ? AND guildID = ?").all(interaction.user.id, interaction.guild.id);
 
         if (completed.length === 0) {
-            return { embeds: [new EmbedBuilder().setTitle('🎖️ إنجازاتي').setColor(Colors.DarkRed).setDescription('لم تقم بإكمال أي إنجازات بعد.').setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png')], components: [] };
+            return { embeds: [new EmbedBuilder().setTitle('🎖️ إنجازاتي').setColor(Colors.DarkRed).setDescription('لم تقم بإكمال أي إنجازات بعد.').setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png')], components: [], totalPages: 1 };
         }
 
         const completedIDs = new Set(completed.map(c => c.achievementID));
@@ -80,16 +77,17 @@ async function handleQuestPanel(i, client, sql) {
     let currentPage = 1;
     let section = "";
 
-    // التعامل مع القائمة المنسدلة أو الأزرار
+    // 1. تحليل التفاعل (قائمة أو زر)
     if (i.isStringSelectMenu()) {
+        // ( 🌟 هنا كان الخلل: values[0] قد تكون 'empire' أو غيرها )
         section = i.values[0];
         await i.deferUpdate(); 
     } else if (i.isButton()) {
         const parts = i.customId.split('_');
-        // Format: panel_SECTION_prev_PAGE
-        const action = parts[parts.length - 2]; // prev or next
+        // ID: panel_SECTION_prev_PAGE
+        const action = parts[parts.length - 2]; // prev/next
         const pageNum = parseInt(parts[parts.length - 1]);
-        section = parts.slice(1, parts.length - 2).join('_');
+        section = parts.slice(1, parts.length - 2).join('_'); // تجميع اسم القسم
         
         currentPage = pageNum;
         if (action === 'prev') currentPage--;
@@ -101,7 +99,12 @@ async function handleQuestPanel(i, client, sql) {
         section = i.customId.replace('panel_', '');
     }
 
-    // إعدادات الإشعارات
+    // ( 🌟 معالجة خاصة لقسم الإمبراطورية empire 🌟 )
+    if (section === 'empire') {
+         return i.followUp({ content: "🚧 **قسم مهام الإمبراطورية قيد التطوير حالياً!**", ephemeral: true });
+    }
+
+    // 2. منطق الإشعارات
     if (section.includes('toggle_notif') || section === 'notifications') {
         let notifData = client.getQuestNotif.get(id);
         if (!notifData) {
@@ -118,26 +121,21 @@ async function handleQuestPanel(i, client, sql) {
             client.setQuestNotif.run(notifData);
         }
 
-        const notifEmbed = new EmbedBuilder()
-            .setTitle('🔔 إعدادات الإشعارات')
-            .setDescription('قم بتحديد الإشعارات التي ترغب بتفعيلها أو تعطيلها.')
-            .setColor(Colors.Purple)
-            .setImage('https://i.postimg.cc/5217mTwV/almham_alywmyt-3.png');
-
+        const notifEmbed = new EmbedBuilder().setTitle('🔔 إعدادات الإشعارات').setDescription('قم بتحديد الإشعارات التي ترغب بتفعيلها أو تعطيلها.').setColor(Colors.Purple).setImage('https://i.postimg.cc/5217mTwV/almham_alywmyt-3.png');
         const notifButtons = new ActionRowBuilder().addComponents(
             createNotifButton('المهام اليومية', 'panel_toggle_notif_daily', notifData.dailyNotif),
             createNotifButton('المهام الأسبوعية', 'panel_toggle_notif_weekly', notifData.weeklyNotif),
             createNotifButton('الإنجازات', 'panel_toggle_notif_ach', notifData.achievementsNotif),
             createNotifButton('زيادة المستوى', 'panel_toggle_notif_level', notifData.levelNotif)
         );
-        
         return await i.editReply({ embeds: [notifEmbed], components: [notifButtons], files: [] });
     }
 
-    // جلب البيانات
+    // 3. جلب البيانات للأقسام الأخرى
     const dateStr = getTodayDateString();
     const weekStartDateStr = getWeekStartDateString();
     const totalStatsId = `${userId}-${guildId}`;
+    
     const levelData = client.getLevel.get(userId, guildId) || { ...client.defaultData, user: userId, guild: guildId };
     const dailyStats = client.getDailyStats.get(`${userId}-${guildId}-${dateStr}`) || {};
     const weeklyStats = client.getWeeklyStats.get(`${userId}-${guildId}-${weekStartDateStr}`) || {};
@@ -149,6 +147,7 @@ async function handleQuestPanel(i, client, sql) {
     let totalPages = 1;
     let data;
 
+    // ( 🌟 التوجيه الصحيح للأقسام 🌟 )
     if (section === 'daily') {
         data = await buildDailyEmbed(sql, i.member, dailyStats, currentPage);
     } else if (section === 'weekly') {
@@ -157,8 +156,11 @@ async function handleQuestPanel(i, client, sql) {
         data = await generateLeaderboard(sql, i.guild, 'achievements', currentPage);
     } else if (section === 'my_achievements') {
         data = await buildMyAchievementsEmbed(i, sql, currentPage);
-    } else if (section === 'achievements') {
+    } else if (section === 'achievements') { // القائمة العامة للإنجازات
         data = await buildAchievementsEmbed(sql, i.member, levelData, totalStats, completedAchievements, currentPage);
+    } else {
+        // إذا القسم غير معروف (مثل empire القديمة)
+        return i.followUp({ content: "❌ هذا القسم غير متوفر حالياً أو تم نقله.", ephemeral: true });
     }
 
     if (data) {
@@ -166,23 +168,13 @@ async function handleQuestPanel(i, client, sql) {
         files = data.files || [];
         totalPages = data.totalPages || 1;
         currentPage = Math.max(1, Math.min(currentPage, totalPages));
-    } else {
-        return await i.editReply({ content: "❌ القسم غير موجود.", embeds: [], components: [] });
     }
 
     let components = [];
     if (totalPages > 1) {
         const pageRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId(`panel_${section}_prev_${currentPage}`)
-                .setStyle(ButtonStyle.Secondary)
-                .setEmoji('<:left:1439164494759723029>')
-                .setDisabled(currentPage === 1),
-            new ButtonBuilder()
-                .setCustomId(`panel_${section}_next_${currentPage}`)
-                .setStyle(ButtonStyle.Secondary)
-                .setEmoji('<:right:1439164491072929915>')
-                .setDisabled(currentPage === totalPages)
+            new ButtonBuilder().setCustomId(`panel_${section}_prev_${currentPage}`).setStyle(ButtonStyle.Secondary).setEmoji('<:left:1439164494759723029>').setDisabled(currentPage === 1),
+            new ButtonBuilder().setCustomId(`panel_${section}_next_${currentPage}`).setStyle(ButtonStyle.Secondary).setEmoji('<:right:1439164491072929915>').setDisabled(currentPage === totalPages)
         );
         components.push(pageRow);
     }
