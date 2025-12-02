@@ -5,7 +5,7 @@ const path = require('path');
 const rootDir = process.cwd();
 const fishingConfig = require(path.join(rootDir, 'json', 'fishing-config.json'));
 
-// استدعاء دوال الـ PvP (لجلب قوة اللاعب ومهاراته)
+// استدعاء دوال الـ PvP
 let pvpCore = {};
 try {
     pvpCore = require('../../handlers/pvp-core.js'); 
@@ -22,7 +22,6 @@ const boatsConfig = fishingConfig.boats;
 const locationsConfig = fishingConfig.locations;
 const monstersConfig = fishingConfig.monsters || [];
 
-// 🔒 آيدي المالك
 const OWNER_ID = "1145327691772481577";
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 
@@ -43,14 +42,11 @@ module.exports = {
         const client = interactionOrMessage.client;
         const sql = client.sql;
 
-        // دالة الرد الموحدة (محدثة لدعم Flags)
         const reply = async (payload) => {
-            // تحويل ephemeral: true القديمة إلى Flags الحديثة
             if (payload.ephemeral) {
                 delete payload.ephemeral;
                 payload.flags = [MessageFlags.Ephemeral];
             }
-
             if (isSlash) {
                 if (interactionOrMessage.deferred || interactionOrMessage.replied) return interactionOrMessage.editReply(payload);
                 return interactionOrMessage.reply({ ...payload, fetchReply: true }); 
@@ -58,7 +54,6 @@ module.exports = {
             return interactionOrMessage.reply(payload);
         };
 
-        // 1. جلب بيانات المستخدم
         let userData = client.getLevel.get(user.id, guild.id);
         if (!userData) {
             userData = { 
@@ -73,25 +68,21 @@ module.exports = {
             client.setLevel.run(userData);
         }
 
-        // 🛡️ التحقق من الجرح (PvP Wounded)
         const now = Date.now();
         const woundedDebuff = sql.prepare("SELECT * FROM user_buffs WHERE userID = ? AND guildID = ? AND buffType = 'pvp_wounded' AND expiresAt > ?").get(user.id, guild.id, now);
         if (woundedDebuff) {
             const minutesLeft = Math.ceil((woundedDebuff.expiresAt - now) / 60000);
             return reply({ 
                 content: `🩹 | أنت **جريح** حالياً ولا يمكنك الصيد!\nعليك الراحة لمدة **${minutesLeft}** دقيقة حتى تشفى.`,
-                // استخدام الـ Flags بدلاً من ephemeral
                 flags: [MessageFlags.Ephemeral]
             });
         }
 
-        // تجهيز بيانات العدة
         const currentRod = rodsConfig.find(r => r.level === (userData.rodLevel || 1)) || rodsConfig[0];
         const currentBoat = boatsConfig.find(b => b.level === (userData.boatLevel || 1)) || boatsConfig[0];
         const locationId = userData.currentLocation || 'beach';
         const currentLocation = locationsConfig.find(l => l.id === locationId) || locationsConfig[0];
 
-        // 2. التحقق من الكولداون
         let cooldown = currentRod.cooldown - (currentBoat.speed_bonus || 0);
         if (cooldown < 10000) cooldown = 10000; 
 
@@ -108,7 +99,6 @@ module.exports = {
 
         if (isSlash) await interactionOrMessage.deferReply();
 
-        // 3. واجهة الانتظار
         const startEmbed = new EmbedBuilder()
             .setTitle(`🎣 رحلة صيد: ${currentLocation.name}`)
             .setColor(Colors.Blue)
@@ -168,7 +158,8 @@ module.exports = {
                     if (possibleMonsters.length > 0 && monsterChance < 0.10) {
                         const monster = possibleMonsters[Math.floor(Math.random() * possibleMonsters.length)];
                         
-                        let playerWeapon = pvpCore.getWeaponData(sql, user);
+                        // 🛠️ التصحيح هنا: نمرر j.member بدلاً من user لضمان وجود الرتب والسيرفر
+                        let playerWeapon = pvpCore.getWeaponData(sql, j.member);
                         if (!playerWeapon || playerWeapon.currentLevel === 0) {
                             playerWeapon = { name: "سكين صيد صدئة", currentStats: { damage: 15 } };
                         }
@@ -212,7 +203,6 @@ module.exports = {
                             var monsterReward = Math.floor(Math.random() * (monster.max_reward - monster.min_reward + 1)) + monster.min_reward;
                             
                             let winMsg = `⚔️ **قهرت ${monster.name}!**\nاستخدمت **${playerWeapon.name}** بقوة **${basePower}**${skillMessage}\n💰 غنيمة الوحش: **${monsterReward}** ${EMOJI_MORA}`;
-                            // استخدام Flags هنا
                             await j.followUp({ content: winMsg, flags: [MessageFlags.Ephemeral] });
                         }
                     }
