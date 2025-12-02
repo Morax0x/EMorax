@@ -1,27 +1,17 @@
 const { EmbedBuilder, Colors, ButtonBuilder, ButtonStyle, ActionRowBuilder, ComponentType } = require("discord.js");
-// (تأكد أن ملف achievements موجود في commands مباشرة)
+// تأكد أن المسارات صحيحة
 const { buildAchievementsEmbed, buildDailyEmbed, buildWeeklyEmbed } = require('../commands/achievements.js');
-
-// ( 🌟 هنا التصحيح: تم إزالة leveling من المسار لأن الملف في commands مباشرة 🌟 )
 const { generateLeaderboard } = require('../commands/top.js'); 
-
 const questsConfig = require('../json/quests-config.json');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const EMOJI_STAR = '⭐';
 
 // --- الدوال المساعدة ---
-function getTodayDateString() {
-    return new Date().toISOString().split('T')[0];
-}
-
+function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
-    const now = new Date();
-    const dayOfWeek = now.getUTCDay(); 
-    const diff = now.getUTCDate() - (dayOfWeek + 2) % 7;
-    const friday = new Date(now.setUTCDate(diff));
-    friday.setUTCHours(0, 0, 0, 0);
-    return friday.toISOString().split('T')[0];
+    const now = new Date(); const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7;
+    const friday = new Date(now.setUTCDate(diff)); friday.setUTCHours(0, 0, 0, 0); return friday.toISOString().split('T')[0];
 }
 
 function createNotifButton(label, customId, currentStatus) {
@@ -32,46 +22,26 @@ function createNotifButton(label, customId, currentStatus) {
         .setStyle(isEnabled ? ButtonStyle.Success : ButtonStyle.Danger);
 }
 
-// --- دالة إنجازاتي (My Achievements) ---
 async function buildMyAchievementsEmbed(interaction, sql, page = 1) {
     try {
         const completed = sql.prepare("SELECT * FROM user_achievements WHERE userID = ? AND guildID = ?").all(interaction.user.id, interaction.guild.id);
-
-        if (completed.length === 0) {
-            return { embeds: [new EmbedBuilder().setTitle('🎖️ إنجازاتي').setColor(Colors.DarkRed).setDescription('لم تقم بإكمال أي إنجازات بعد.').setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png')], components: [], totalPages: 1 };
-        }
+        if (completed.length === 0) return { embeds: [new EmbedBuilder().setTitle('🎖️ إنجازاتي').setColor(Colors.DarkRed).setDescription('لم تقم بإكمال أي إنجازات بعد.').setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png')], components: [], totalPages: 1 };
 
         const completedIDs = new Set(completed.map(c => c.achievementID));
         const completedDetails = questsConfig.achievements.filter(ach => completedIDs.has(ach.id)); 
-
         const perPage = 10;
         const totalPages = Math.ceil(completedDetails.length / perPage) || 1;
         page = Math.max(1, Math.min(page, totalPages));
-
         const start = (page - 1) * perPage;
         const end = start + perPage;
         const achievementsToShow = completedDetails.slice(start, end); 
 
-        const embed = new EmbedBuilder()
-            .setTitle('🎖️ إنجازاتي') 
-            .setColor(Colors.DarkRed)
-            .setAuthor({ name: interaction.member.displayName, iconURL: interaction.user.displayAvatarURL() })
-            .setFooter({ text: `صفحة ${page} / ${totalPages} (الإجمالي: ${completedDetails.length})` }) 
-            .setTimestamp()
-            .setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png');
-
+        const embed = new EmbedBuilder().setTitle('🎖️ إنجازاتي').setColor(Colors.DarkRed).setAuthor({ name: interaction.member.displayName, iconURL: interaction.user.displayAvatarURL() }).setFooter({ text: `صفحة ${page} / ${totalPages} (الإجمالي: ${completedDetails.length})` }).setTimestamp().setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png');
         let description = '';
-        for (const ach of achievementsToShow) {
-            description += `${ach.emoji || '🏆'} **${ach.name}**\n> ${ach.description}\n> *المكافأة: ${EMOJI_MORA} \`${ach.reward.mora}\` | ${EMOJI_STAR}XP: \`${ach.reward.xp}\`*\n\n`;
-        }
+        for (const ach of achievementsToShow) { description += `${ach.emoji || '🏆'} **${ach.name}**\n> ${ach.description}\n> *المكافأة: ${EMOJI_MORA} \`${ach.reward.mora}\` | ${EMOJI_STAR}XP: \`${ach.reward.xp}\`*\n\n`; }
         embed.setDescription(description);
-
         return { embeds: [embed], totalPages };
-
-    } catch (err) {
-        console.error("Error building my achievements embed:", err);
-        return { embeds: [new EmbedBuilder().setTitle(' خطأ').setDescription('حدث خطأ أثناء جلب إنجازاتك.').setColor(Colors.Red)], totalPages: 1 };
-    }
+    } catch (err) { console.error("Error building my achievements embed:", err); return { embeds: [new EmbedBuilder().setTitle(' خطأ').setDescription('حدث خطأ.').setColor(Colors.Red)], totalPages: 1 }; }
 }
 
 // --- الدالة الرئيسية ---
@@ -83,29 +53,31 @@ async function handleQuestPanel(i, client, sql) {
     let currentPage = 1;
     let section = "";
 
-    // 1. تحليل التفاعل (قائمة أو زر)
+    // 1. تحديد القسم والصفحة (المنطق المصحح)
     if (i.isStringSelectMenu()) {
         section = i.values[0];
         await i.deferUpdate(); 
-    } else if (i.isButton()) {
-        const parts = i.customId.split('_');
-        // ID format: panel_SECTION_prev_PAGE
-        // We need to be careful parsing the section if it contains underscores (e.g. top_achievements)
-        // Last part is page, second to last is action (prev/next)
-        // Everything before that is the section (after 'panel_')
+    } 
+    else if (i.isButton()) {
+        // إزالة البادئة panel_
+        let rawId = i.customId.replace('panel_', '');
         
-        const pageNum = parseInt(parts[parts.length - 1]);
-        const action = parts[parts.length - 2]; // prev/next
-        
-        // Reconstruct section name
-        const prefixLength = 'panel_'.length;
-        const suffixLength = `_${action}_${pageNum}`.length;
-        section = i.customId.substring(prefixLength, i.customId.length - suffixLength);
-        
-        currentPage = pageNum;
-        if (action === 'prev') currentPage--;
-        if (action === 'next') currentPage++;
-        
+        // هل هو زر تقليب صفحات؟ (يحتوي على _prev_ أو _next_)
+        if (rawId.includes('_prev_') || rawId.includes('_next_')) {
+            const parts = rawId.split('_');
+            const pageNum = parseInt(parts.pop()); // الرقم هو الأخير
+            const action = parts.pop(); // prev أو next هو قبل الأخير
+            
+            section = parts.join('_'); // الباقي هو اسم القسم
+            
+            currentPage = pageNum;
+            if (action === 'prev') currentPage--;
+            if (action === 'next') currentPage++;
+        } 
+        else {
+            // زر عادي (مثل الإشعارات)
+            section = rawId;
+        }
         await i.deferUpdate();
     } else {
         await i.deferReply({ ephemeral: true });
@@ -118,7 +90,7 @@ async function handleQuestPanel(i, client, sql) {
     }
 
     // 2. منطق الإشعارات
-    if (section.includes('toggle_notif') || section === 'notifications') {
+    if (section.startsWith('toggle_notif') || section === 'notifications') {
         let notifData = client.getQuestNotif.get(id);
         if (!notifData) {
             notifData = { id: id, userID: userId, guildID: guildId, dailyNotif: 1, weeklyNotif: 1, achievementsNotif: 1, levelNotif: 1 };
@@ -126,7 +98,7 @@ async function handleQuestPanel(i, client, sql) {
         }
         if (typeof notifData.levelNotif === 'undefined') notifData.levelNotif = 1;
 
-        if (section.includes('toggle_notif')) {
+        if (section.startsWith('toggle_notif')) {
             if (section.endsWith('daily')) notifData.dailyNotif = notifData.dailyNotif === 1 ? 0 : 1;
             else if (section.endsWith('weekly')) notifData.weeklyNotif = notifData.weeklyNotif === 1 ? 0 : 1;
             else if (section.endsWith('ach')) notifData.achievementsNotif = notifData.achievementsNotif === 1 ? 0 : 1;
@@ -185,8 +157,16 @@ async function handleQuestPanel(i, client, sql) {
     let components = [];
     if (totalPages > 1) {
         const pageRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`panel_${section}_prev_${currentPage}`).setStyle(ButtonStyle.Secondary).setEmoji('<:left:1439164494759723029>').setDisabled(currentPage === 1),
-            new ButtonBuilder().setCustomId(`panel_${section}_next_${currentPage}`).setStyle(ButtonStyle.Secondary).setEmoji('<:right:1439164491072929915>').setDisabled(currentPage === totalPages)
+            new ButtonBuilder()
+                .setCustomId(`panel_${section}_prev_${currentPage}`)
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji('<:left:1439164494759723029>')
+                .setDisabled(currentPage === 1),
+            new ButtonBuilder()
+                .setCustomId(`panel_${section}_next_${currentPage}`)
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji('<:right:1439164491072929915>')
+                .setDisabled(currentPage === totalPages)
         );
         components.push(pageRow);
     }
