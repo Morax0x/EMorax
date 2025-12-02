@@ -77,6 +77,8 @@ module.exports = {
             return reply({ content: `⏳ | أنت متعب! ارتح قليلاً.\nالوقت المتبقي: **${minutes}د ${seconds}ث**` });
         }
 
+        if (isSlash) await interactionOrMessage.deferReply();
+
         // 3. واجهة الانتظار (قبل الرمي)
         const startEmbed = new EmbedBuilder()
             .setTitle(`🎣 رحلة صيد: ${currentLocation.name}`)
@@ -149,18 +151,12 @@ module.exports = {
                         else rarity = 1;                 
 
                         // الفلترة حسب المنطقة (Location Logic)
-                        // نصيد فقط الأسماك المتوفرة في المنطقة الحالية (أو أقل منها ندرة)
-                        // إذا لم نجد سمكة في هذه الندرة في هذه المنطقة، نقلل الندرة
                         let possibleFish = [];
                         while (possibleFish.length === 0 && rarity >= 1) {
-                             possibleFish = fishItems.filter(f => f.rarity === rarity); // (مؤقتاً كل الأسماك، يمكن تخصيصها حسب currentLocation.fish_types)
+                             possibleFish = fishItems.filter(f => f.rarity === rarity); 
                              if (possibleFish.length === 0) rarity--;
                         }
                         
-                        // تحسين: فلترة حسب المنطقة إذا أردت تفعيلها بدقة
-                        // const allowedRarities = currentLocation.fish_types; // مصفوفة [1, 2]
-                        // if (!allowedRarities.includes(rarity)) ...
-
                         if (possibleFish.length > 0) {
                             const fish = possibleFish[Math.floor(Math.random() * possibleFish.length)];
                             
@@ -191,16 +187,18 @@ module.exports = {
                     for (const [name, info] of Object.entries(summary)) {
                         let rarityStar = "";
                         if (info.rarity >= 5) rarityStar = "🌟"; else if (info.rarity === 4) rarityStar = "✨";
-                        description += `✬ **${info.count}x** ${info.emoji} ${name} ${rarityStar}\n`;
+                        
+                        // ( 🌟 التعديل هنا: استبدال ✬ بـ ✶ 🌟 )
+                        description += `✶ **${info.count}x** ${info.emoji} ${name} ${rarityStar}\n`;
                     }
                     description += `\n✶ قيـمـة الصيد: \`${totalValue.toLocaleString()}\` ${EMOJI_MORA}`;
 
                     const resultEmbed = new EmbedBuilder()
-                        .setTitle(`🎣 صيد موفق!`)
+                        .setTitle(`✥ رحـلـة صيـد فـي المحيـط !`) // (العنوان المطلوب)
                         .setDescription(description)
                         .setColor(Colors.Green)
                         .setThumbnail('https://i.postimg.cc/Wz0g0Zg0/fishing.png')
-                        .setFooter({ text: "تم إضافة المبلغ لرصيدك" });
+                        .setFooter({ text: `السنارة: ${currentRod.name} (Lvl ${currentRod.level})` }); // (بدون الجملة الزائدة)
 
                     await j.editReply({ embeds: [resultEmbed], components: [] });
                 });
