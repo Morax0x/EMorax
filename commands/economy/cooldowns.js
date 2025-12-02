@@ -1,5 +1,19 @@
-const { EmbedBuilder, SlashCommandBuilder } = require("discord.js");
+const { EmbedBuilder, SlashCommandBuilder, MessageFlags } = require("discord.js");
 const SQLite = require("better-sqlite3");
+const path = require('path');
+
+// استدعاء ملف إعدادات الصيد لحساب الكولداون الديناميكي
+const rootDir = process.cwd();
+let fishingConfig = { rods: [], boats: [] };
+try {
+    fishingConfig = require(path.join(rootDir, 'json', 'fishing-config.json'));
+} catch (e) {
+    console.warn("[GameTime] Could not load fishing-config.json, using defaults.");
+    // قيم افتراضية في حال فشل التحميل
+    fishingConfig.rods = [{ level: 1, cooldown: 300000 }]; 
+    fishingConfig.boats = [{ level: 1, speed_bonus: 0 }];
+}
+
 const sql = new SQLite('./mainDB.sqlite');
 
 const EMOJI_READY = '🟢';
@@ -18,6 +32,7 @@ function formatTimeSimple(ms) {
     return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
+// قائمة الأوامر الثابتة
 const COMMANDS_TO_CHECK = [
     { name: 'daily', db_column: 'lastDaily', cooldown: 22 * 60 * 60 * 1000, label: 'راتب' },
     { name: 'bank', db_column: 'lastInterest', cooldown: 24 * 60 * 60 * 1000, label: 'فوائد البنك' },
@@ -28,7 +43,8 @@ const COMMANDS_TO_CHECK = [
     { name: 'roulette', db_column: 'lastRoulette', cooldown: 1 * 60 * 60 * 1000, label: 'روليت' },
     { name: 'pvp', db_column: 'lastPVP', cooldown: 5 * 60 * 1000, label: 'تحدي' },
     { name: 'transfer', db_column: 'lastTransfer', cooldown: 5 * 60 * 1000, label: 'تحويل' },
-    { name: 'deposit', db_column: 'lastDeposit', cooldown: 1 * 60 * 60 * 1000, label: 'إيداع' }
+    { name: 'deposit', db_column: 'lastDeposit', cooldown: 1 * 60 * 60 * 1000, label: 'إيداع' },
+    // الصيد (Fish) سيتم حسابه ديناميكياً في الأسفل
 ];
 
 module.exports = {
@@ -62,11 +78,14 @@ module.exports = {
                 message = interactionOrMessage;
                 client = message.client;
                 guild = message.guild;
-                // (أوامر البريفكس لهذا الأمر لا تدعم رؤية الآخرين، فقط منفذ الأمر)
                 targetUser = message.author;
             }
 
             const reply = async (payload) => {
+                if (payload.ephemeral) {
+                    delete payload.ephemeral;
+                    payload.flags = [MessageFlags.Ephemeral];
+                }
                 if (isSlash) {
                     return interaction.editReply(payload);
                 } else {
@@ -83,6 +102,7 @@ module.exports = {
             const now = Date.now();
             const descriptionLines = [];
 
+            // 1. حساب الأوامر الثابتة
             for (const cmd of COMMANDS_TO_CHECK) {
                 const lastUsed = data[cmd.db_column] || 0;
                 const cooldownAmount = cmd.cooldown;
@@ -93,6 +113,28 @@ module.exports = {
                 } else {
                     descriptionLines.push(`${EMOJI_READY} **${cmd.label}**`);
                 }
+            }
+
+            // 2. 🎣 حساب كولداون الصيد (ديناميكي)
+            // نحدد مستوى السنارة والقارب للمستخدم
+            const userRodLevel = data.rodLevel || 1;
+            const userBoatLevel = data.boatLevel || 1;
+
+            // نجلب بياناتهم من الكونفج
+            const currentRod = fishingConfig.rods.find(r => r.level === userRodLevel) || fishingConfig.rods[0];
+            const currentBoat = fishingConfig.boats.find(b => b.level === userBoatLevel) || fishingConfig.boats[0];
+
+            // نحسب الكولداون الفعلي (وقت السنارة - سرعة القارب)
+            let fishCooldown = currentRod.cooldown - (currentBoat.speed_bonus || 0);
+            if (fishCooldown < 10000) fishCooldown = 10000; // الحد الأدنى
+
+            const lastFish = data.lastFish || 0;
+            const fishTimeLeft = lastFish + fishCooldown - now;
+
+            if (fishTimeLeft > 0) {
+                descriptionLines.push(`${EMOJI_WAIT} **صيد**: \`${formatTimeSimple(fishTimeLeft)}\``);
+            } else {
+                descriptionLines.push(`${EMOJI_READY} **صيد**`);
             }
 
             const embed = new EmbedBuilder()
@@ -107,7 +149,7 @@ module.exports = {
 
         } catch (error) {
             console.error("Error in gametime command:", error);
-            const errorPayload = { content: "حدث خطأ أثناء جلب الأوقات.", ephemeral: true };
+            const errorPayload = { content: "حدث خطأ أثناء جلب الأوقات.", flags: [MessageFlags.Ephemeral] };
             if (isSlash) {
                 if (interaction.deferred || interaction.replied) {
                     await interaction.editReply(errorPayload);
