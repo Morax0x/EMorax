@@ -152,40 +152,37 @@ module.exports = {
 
             setTimeout(async () => {
                 // 🎲 إعداد لعبة الألوان
-                // 1. نختار لون الهدف (الصحيح)
                 const targetColor = COLOR_GAME_OPTIONS[Math.floor(Math.random() * COLOR_GAME_OPTIONS.length)];
                 
-                // 2. نختار 3 ألوان أخرى عشوائية (مموهة)
                 let distractors = COLOR_GAME_OPTIONS.filter(c => c.id !== targetColor.id);
-                // خلط المموهات واختيار 2 أو 3 منها
                 distractors = distractors.sort(() => 0.5 - Math.random()).slice(0, 3);
                 
-                // 3. ندمج الهدف مع المموهات ونخلطهم
                 let gameButtons = [targetColor, ...distractors];
                 gameButtons = gameButtons.sort(() => 0.5 - Math.random());
 
-                // 4. بناء الأزرار
                 const gameRow = new ActionRowBuilder();
                 gameButtons.forEach(btn => {
                     gameRow.addComponents(
                         new ButtonBuilder()
-                            .setCustomId(`fish_click_${btn.id}`) // الآيدي يحمل اسم اللون
+                            .setCustomId(`fish_click_${btn.id}`)
                             .setEmoji(btn.emoji)
                             .setStyle(ButtonStyle.Secondary)
                     );
                 });
 
+                // لون عشوائي للايمبد
+                const randomEmbedColor = Math.floor(Math.random() * 0xFFFFFF);
+
                 const biteEmbed = new EmbedBuilder()
                     .setTitle("🎣 الـسنـارة تهـتز اسحـب الان !")
                     .setDescription(`**اسحـب السنـارة بسـرعة اضغـط على** ${targetColor.emoji}`)
-                    .setColor(Colors.Green);
+                    .setColor(randomEmbedColor);
 
                 await i.editReply({ embeds: [biteEmbed], components: [gameRow] });
 
-                // 5. كوليكتور الاستجابة (3 ثواني)
-                // الفلتر يتأكد أن الزر المضغوط هو نفس لون الهدف
                 const pullFilter = j => j.user.id === user.id && j.customId.startsWith('fish_click_');
-                const pullCollector = msg.createMessageComponentCollector({ filter: pullFilter, time: 3000, max: 1 }); 
+                // الوقت ثانيتين
+                const pullCollector = msg.createMessageComponentCollector({ filter: pullFilter, time: 2000, max: 1 }); 
 
                 pullCollector.on('collect', async j => {
                     await j.deferUpdate();
@@ -195,28 +192,36 @@ module.exports = {
                     // ❌ إذا ضغط اللون الخطأ
                     if (clickedColorId !== targetColor.id) {
                         pullCollector.stop('wrong_color');
+                        
+                        const clickedButtonObj = COLOR_GAME_OPTIONS.find(c => c.id === clickedColorId);
+                        const wrongEmoji = clickedButtonObj ? clickedButtonObj.emoji : '❓';
+
                         const failEmbed = new EmbedBuilder()
                             .setTitle("❌ أفلتت السنارة!")
-                            .setDescription(`طلبت منك ضغط ${targetColor.emoji} لكنك ضغطت زرًا خاطئًا!`)
+                            .setDescription(`سحـبت السنـارة من المـكان الغـلط ضغـطت زر ${wrongEmoji}`)
                             .setColor(Colors.Red);
+                        
                         userData.lastFish = Date.now();
                         client.setLevel.run(userData);
                         await j.editReply({ embeds: [failEmbed], components: [] });
                         return;
                     }
 
-                    pullCollector.stop('success'); // إيقاف الكوليكتور بنجاح
+                    pullCollector.stop('success');
 
                     // ========================================================
-                    // 🦑 منطق الوحوش (مع الغش للمالك للتجربة)
+                    // 🦑 منطق الوحوش (المحدث)
                     // ========================================================
-                    // 🚨 هنا التعديل: إذا كنت المالك النسبة 50%، للغير 10%
                     const monsterChanceBase = Math.random();
                     const isOwner = user.id === OWNER_ID;
+                    
+                    // 🌟 تعديل النسبة: 50% للمالك، 10% للبقية
                     const monsterTriggered = isOwner ? (monsterChanceBase < 0.50) : (monsterChanceBase < 0.10);
 
+                    // 🌟 تعديل الفلترة: الوحش يجب أن يكون من نفس المنطقة الحالية
                     const possibleMonsters = monstersConfig.filter(m => m.locations.includes(locationId));
                     
+                    // يظهر الوحش فقط إذا تم تفعيله، ووجد وحش في هذه المنطقة
                     if (possibleMonsters.length > 0 && monsterTriggered) {
                         const monster = possibleMonsters[Math.floor(Math.random() * possibleMonsters.length)];
                         
@@ -247,6 +252,7 @@ module.exports = {
                         const monsterRoll = monsterPower + (Math.random() * 50);
 
                         if (monsterRoll > playerRoll) {
+                            // الخسارة
                             const expireTime = Date.now() + (15 * 60 * 1000);
                             sql.prepare(`INSERT INTO user_buffs (userID, guildID, buffType, expiresAt) VALUES (?, ?, 'pvp_wounded', ?)`).run(user.id, guild.id, expireTime);
 
@@ -261,9 +267,15 @@ module.exports = {
 
                             return j.editReply({ embeds: [loseEmbed], components: [] });
                         } else {
+                            // الفوز
                             var monsterReward = Math.floor(Math.random() * (monster.max_reward - monster.min_reward + 1)) + monster.min_reward;
+                            // 🌟 إضافة XP عشوائي (50 - 300)
+                            var monsterXP = Math.floor(Math.random() * (300 - 50 + 1)) + 50;
                             
-                            let winMsg = `⚔️ **قهرت ${monster.name}!**\nاستخدمت **${playerWeapon.name}** بقوة **${basePower}**${skillMessage}\n💰 غنيمة الوحش: **${monsterReward}** ${EMOJI_MORA}`;
+                            // تحديث XP في الداتابيس
+                            userData.xp = (userData.xp || 0) + monsterXP;
+
+                            let winMsg = `⚔️ **قهرت ${monster.name}!**\nاستخدمت **${playerWeapon.name}** بقوة **${basePower}**${skillMessage}\n💰 غنيمة الوحش: **${monsterReward}** ${EMOJI_MORA} و **${monsterXP}** XP ✨`;
                             await j.followUp({ content: winMsg, flags: [MessageFlags.Ephemeral] });
                         }
                     }
@@ -321,18 +333,19 @@ module.exports = {
 
                     if (typeof monsterReward !== 'undefined') {
                         description += `\n⚔️ **غنيمة الوحش:** +${monsterReward} ${EMOJI_MORA}`;
+                        if (typeof monsterXP !== 'undefined') description += ` | +${monsterXP} XP ✨`;
                     }
 
                     description += `\n✶ إجمـالي المكسـب: \`${totalValue.toLocaleString()}\` ${EMOJI_MORA}`;
 
-                    const resultEmbed = new EmbedBuilder()
+                    const successEmbed = new EmbedBuilder()
                         .setTitle(`✥ رحـلـة صيـد فـي المحيـط !`) 
                         .setDescription(description)
-                        .setColor(Colors.Green)
+                        .setColor(randomEmbedColor) // لون عشوائي
                         .setThumbnail('https://i.postimg.cc/Wz0g0Zg0/fishing.png')
                         .setFooter({ text: `السنارة: ${currentRod.name} (Lvl ${currentRod.level})` });
 
-                    await j.editReply({ embeds: [resultEmbed], components: [] });
+                    await j.editReply({ embeds: [successEmbed], components: [] });
                 });
 
                 pullCollector.on('end', async (collected, reason) => {
