@@ -6,8 +6,8 @@ const KSA_TIMEZONE = 'Asia/Riyadh';
 const EMOJI_MEDIA_STREAK = '<a:Streak:1438932297519730808>';
 const EMOJI_SHIELD = '<:Shield:1437804676224516146>';
 
-// القائمة المسموحة للفواصل
-const ALLOWED_SEPARATORS_REGEX = ['\\|', '•', '»', '✦', '★', '❖', '✧', '✬', '〢', '┇'];
+// ( 🌟 Expanded list of separators to catch old formats 🌟 )
+const ALLOWED_SEPARATORS_REGEX = ['\\|', '•', '»', '✦', '★', '❖', '✧', '✬', '〢', '┇', '-', ':'];
 
 function getKSADateString(dateObject) {
     return new Date(dateObject).toLocaleString('en-CA', {
@@ -101,6 +101,7 @@ function calculateMoraBuff(member, sql) {
     return finalMultiplier;
 }
 
+// ( 🌟 Nickname Update Logic - Fixed to remove old streaks correctly 🌟 )
 async function updateNickname(member, sql) {
     if (!member) return;
     if (!sql || typeof sql.prepare !== 'function') return;
@@ -112,20 +113,22 @@ async function updateNickname(member, sql) {
     const settings = sql.prepare("SELECT streakEmoji FROM settings WHERE guild = ?").get(member.guild.id);
     const streakEmoji = settings?.streakEmoji || '🔥';
 
-    // --- ( 🌟 التعديل هنا: تحويل القديم | إلى الجديد » تلقائياً ) ---
+    // Force update separator if it's the old one
     let separator = streakData?.separator || '»'; 
     if (separator === '|') separator = '»';
-    // -------------------------------------------------------------
 
     const streakCount = streakData?.streakCount || 0;
     const nicknameActive = streakData?.nicknameActive ?? 1;
 
     let baseName = member.displayName;
 
-    const escapedEmoji = streakEmoji.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, "\\$1");
-    const regexString = `\\s*(${ALLOWED_SEPARATORS_REGEX.join('|')})\\s*\\d+\\s* ?${escapedEmoji}`;
-    const regex = new RegExp(regexString, 'g');
+    // ( 🌟 Regex to remove ANY previous streak format (Separator + Number + Any Emoji/Text) 🌟 )
+    // This regex looks for: [Space] [Separator] [Space] [Number] [Space] [Anything until end]
+    const separatorsPattern = ALLOWED_SEPARATORS_REGEX.join('|');
+    // Matches: "Name | 50 🔥", "Name » 50 🔥", "Name • 50 ⚡"
+    const regex = new RegExp(`\\s*(${separatorsPattern})\\s*\\d+\\s*.*$`, 'g');
 
+    // Clean the name
     baseName = baseName.replace(regex, '').trim();
 
     let newName;
@@ -145,7 +148,7 @@ async function updateNickname(member, sql) {
         try {
             await member.setNickname(newName);
         } catch (err) {
-            console.error(`[Streak Nickname] Failed to update nickname for ${member.user.tag}: ${err.message}`);
+            // console.error(`[Streak Nickname] Failed to update nickname for ${member.user.tag}: ${err.message}`);
         }
     }
 }
@@ -173,7 +176,6 @@ async function checkDailyStreaks(client, sql) {
         const streakEmoji = settings.get(streakData.guildID)?.streakEmoji || '🔥';
         const sendDM = streakData.dmNotify === 1;
 
-        // زر الانتقال للسيرفر
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setLabel(`الذهاب إلى: ${member.guild.name}`)
@@ -206,7 +208,6 @@ async function checkDailyStreaks(client, sql) {
                 const oldStreak = streakData.streakCount;
                 streakData.streakCount = 0;
                 streakData.hasGracePeriod = 0;
-                // (لا نحدث الوقت عند التصفير)
                 updateStreak.run(streakData);
                 if (sendDM) {
                     const embed = new EmbedBuilder().setTitle('✶ اشـعـارات الـستريـك').setColor(Colors.Red)
@@ -267,16 +268,14 @@ async function handleStreakMessage(message) {
             highestStreak: 1
         };
         setStreak.run(streakData);
-        console.log(`[Streak] New streak started for ${message.author.tag}.`);
+        // console.log(`[Streak] New streak started for ${message.author.tag}.`);
         await updateNickname(message.member, sql);
 
     } else {
-        // ( 🌟 هنا: تحديث الفاصلة القديمة تلقائياً عند التحدث 🌟 )
         if (streakData.separator === '|') {
             streakData.separator = '»';
             sql.prepare("UPDATE streaks SET separator = ? WHERE id = ?").run('»', id);
         }
-        // --------------------------------------------------------
 
         const lastDateKSA = getKSADateString(streakData.lastMessageTimestamp);
         if (todayKSA === lastDateKSA) return;
@@ -294,7 +293,7 @@ async function handleStreakMessage(message) {
             streakData.hasItemShield = 0;
             if (streakData.highestStreak < 1) streakData.highestStreak = 1;
             setStreak.run(streakData);
-            console.log(`[Streak] Restarted for ${message.author.tag}.`);
+            // console.log(`[Streak] Restarted for ${message.author.tag}.`);
             await updateNickname(message.member, sql);
         } else {
             const diffDays = getDayDifference(todayKSA, lastDateKSA);
@@ -458,7 +457,6 @@ async function checkDailyMediaStreaks(client, sql) {
         const sendDM = streakData.dmNotify === 1;
         const emoji = EMOJI_MEDIA_STREAK;
 
-        // زر الانتقال للسيرفر
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setLabel(`الذهاب إلى: ${member.guild.name}`)
@@ -469,7 +467,7 @@ async function checkDailyMediaStreaks(client, sql) {
         if (diffDays === 2) {
             if (streakData.hasItemShield === 1) {
                 streakData.hasItemShield = 0;
-                streakData.lastMediaTimestamp = Date.now(); // ( 🌟 إصلاح: تحديث الوقت )
+                streakData.lastMediaTimestamp = Date.now(); 
                 updateStreak.run(streakData);
                 if (sendDM) {
                     const embed = new EmbedBuilder().setTitle(`✶ اشـعـارات ستريك الميديا ${emoji}`).setColor(Colors.Green)
@@ -478,7 +476,7 @@ async function checkDailyMediaStreaks(client, sql) {
                 }
             } else if (streakData.hasGracePeriod === 1) {
                 streakData.hasGracePeriod = 0;
-                streakData.lastMediaTimestamp = Date.now(); // ( 🌟 إصلاح: تحديث الوقت )
+                streakData.lastMediaTimestamp = Date.now(); 
                 updateStreak.run(streakData);
                 if (sendDM) {
                      const embed = new EmbedBuilder().setTitle(`✶ اشـعـارات ستريك الميديا ${emoji}`).setColor(Colors.Green)
@@ -545,7 +543,6 @@ async function sendMediaStreakReminders(client, sql) {
         try {
             const channel = await client.channels.fetch(channelID);
             
-            // ( 🌟 إضافة: حذف الرسالة القديمة 🌟 )
             if (channelData.lastReminderMessageID) {
                 try {
                     const oldMessage = await channel.messages.fetch(channelData.lastReminderMessageID);
@@ -619,7 +616,6 @@ async function sendDailyMediaUpdate(client, sql) {
                 } catch (e) {}
             }
 
-            // ( 🌟 إضافة: حذف رسالة التذكير أيضاً عند بداية اليوم الجديد 🌟 )
             if (channelData.lastReminderMessageID) {
                  try {
                     const oldRemind = await channel.messages.fetch(channelData.lastReminderMessageID);
@@ -660,7 +656,6 @@ async function sendStreakWarnings(client, sql) {
         const streakEmoji = settings.get(streakData.guildID)?.streakEmoji || '🔥';
         const timeLeft = (streakData.lastMessageTimestamp + (36 * 60 * 60 * 1000)) - now; 
 
-        // زر الانتقال للسيرفر
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setLabel(`الذهاب إلى: ${member.guild.name}`)
