@@ -5,7 +5,6 @@ const { processReportLogic, sendReportError } = require("../handlers/report-hand
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
-// كولداون الردود التلقائية + سقاية الشجرة
 const autoResponderCooldowns = new Collection();
 const treeCooldowns = new Set();
 
@@ -99,30 +98,24 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
 
         // ============================================================
-        // 🌟 3. معالج الاختصارات (مع البحث العام Fallback) 🌟
+        // 🌟 3. معالج الاختصارات (بدون قاموس + صارم للقناة) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
-            // أ) البحث في القناة الحالية
+            // 1. ابحث عن الاختصار المرتبط بهذه القناة تحديداً
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
-            // ب) البحث العام (Fallback) - هذا الذي كنت تريده
-            if (!shortcut) {
-                shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND shortcutWord = ? LIMIT 1")
-                    .get(message.guild.id, shortcutWord);
-            }
-            
             if (shortcut) {
                 const targetName = shortcut.commandName.toLowerCase();
-                
-                // البحث عن الأمر (بالاسم أو Alias)
+                // ابحث عن الأمر في الملفات (بالاسم أو الـ Aliases)
                 const cmd = client.commands.get(targetName) || 
                             client.commands.find(c => c.aliases && c.aliases.includes(targetName));
 
                 if (cmd) {
+                    // بما أن الاختصار مسجل لهذه القناة خصيصاً، فهو مسموح تلقائياً
                     if (checkPermissions(message, cmd)) {
                         const cooldownMsg = checkCooldown(message, cmd);
                         if (cooldownMsg) {
@@ -130,45 +123,73 @@ module.exports = {
                              return;
                         }
                         try {
-                            // تمرير البريفكس الفارغ للأوامر
                             const finalArgs = argsRaw.slice(1);
                             finalArgs.prefix = ""; 
                             await cmd.execute(message, finalArgs); 
-                        } catch (e) { console.error(e); }
+                        } catch (e) { console.error(`[Shortcut Exec Error]`, e); }
                     }
-                    return; // تم التنفيذ
+                    return; 
                 }
             }
-        } catch (err) { console.error("[Shortcut Error]", err); }
+        } catch (err) { console.error("[Shortcut Handler Error]", err); }
         // ============================================================
 
-        // 4. معالج البريفكس
+        // 4. معالج البريفكس (التحقق الصارم)
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
         if (message.content.startsWith(Prefix)) {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
+            
+            // البحث عن الأمر (بدون قواميس)
             const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
             
             if (command) {
                 args.prefix = Prefix;
+                
                 let isAllowed = false;
-                if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
-                else {
+                
+                // 1. الإدارة العليا دائماً مسموح لهم
+                if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+                    isAllowed = true;
+                } else {
+                    // 2. التحقق من جدول الصلاحيات (command_permissions)
                     try {
+                        // هل الأمر مسموح في هذه القناة بالتحديد؟
                         const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.id);
+                        
+                        // هل الأمر مسموح في الكاتاغوري؟
                         const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.parentId);
-                        if (channelPerm || categoryPerm) isAllowed = true;
-                        else { const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ?").get(message.guild.id, command.name); if (!hasRestrictions) isAllowed = true; }
+                        
+                        if (channelPerm || categoryPerm) {
+                            isAllowed = true;
+                        } else {
+                            // ( 🛑 المنطق الصارم: إذا لم يكن مسموحاً في القناة، هل هو ممنوع كلياً؟ )
+                            // في نظامك القديم، إذا لم يوجد قيد، فهو مسموح. لكن إذا أردت منع الرد إلا في القنوات المحددة:
+                            // نتحقق هل تم تقييد الأمر في أي مكان في السيرفر؟
+                            const isRestrictedAnywhere = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? LIMIT 1").get(message.guild.id, command.name);
+                            
+                            if (!isRestrictedAnywhere) {
+                                // الأمر غير مقيد بأي قناة، إذن هو متاح للجميع (السلوك الافتراضي)
+                                isAllowed = true;
+                            } else {
+                                // الأمر مقيد في قنوات معينة، وهذه القناة ليست منها -> ممنوع
+                                isAllowed = false;
+                            }
+                        }
                     } catch (err) { isAllowed = true; }
                 }
+
                 if (isAllowed) {
                     if (checkPermissions(message, command)) {
                         const cooldownMsg = checkCooldown(message, command);
                         if (cooldownMsg) { if (typeof cooldownMsg === 'string') message.reply(cooldownMsg); } 
-                        else { try { await command.execute(message, args); } catch (error) { console.error(error); message.reply("Error"); } }
+                        else { try { await command.execute(message, args); } catch (error) { console.error(error); message.reply("❌ حدث خطأ أثناء تنفيذ الأمر."); } }
                     }
+                } else {
+                    // (اختياري: يمكنك حذف هذا السطر إذا كنت لا تريد أن يرد البوت بـ "غير مسموح")
+                    // console.log(`[Command Blocked] ${command.name} tried in ${message.channel.name}`);
                 }
                 return;
             }
@@ -250,14 +271,13 @@ module.exports = {
             }
         } catch (err) { console.error("[Auto Responder Error]", err); }
 
-        // 7. تتبع الإحصائيات (محدث للإيموجي والستيكر)
+        // 7. تتبع الإحصائيات
         try {
             const userID = message.author.id;
             const guildID = message.guild.id;
 
             if (client.incrementQuestStats) {
                 await client.incrementQuestStats(userID, guildID, 'messages', 1);
-                
                 if (message.attachments.size > 0) await client.incrementQuestStats(userID, guildID, 'images', 1);
                 if (message.stickers.size > 0) await client.incrementQuestStats(userID, guildID, 'stickers', message.stickers.size);
                 
