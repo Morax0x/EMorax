@@ -4,8 +4,6 @@ const shopItems = require('../json/shop-items.json');
 const farmAnimals = require('../json/farm-animals.json');
 const weaponsConfig = require('../json/weapons-config.json');
 const skillsConfig = require('../json/skills-config.json');
-
-// ( 🌟 Import Fishing Config 🌟 )
 const { rods: rodsConfig, boats: boatsConfig, baits: baitsConfig } = require('../json/fishing-config.json');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
@@ -96,7 +94,7 @@ function _buildSkillEmbedFields(embed, buttonRow, skillConfig, currentLevel) {
     }
 }
 
-// --- Rod Functions ---
+// --- Fishing Gear Functions ---
 async function _handleRodSelect(i, client, sql) {
     if(i.replied || i.deferred) await i.editReply("جاري التحميل..."); else await i.deferReply({ flags: MessageFlags.Ephemeral });
     let userData = sql.prepare("SELECT rodLevel FROM levels WHERE user = ? AND guild = ?").get(i.user.id, i.guild.id);
@@ -175,7 +173,9 @@ async function _handleBoatUpgrade(i, client, sql) {
     
     userData.mora -= nextBoat.price;
     userData.boatLevel = nextLevel;
-    sql.prepare("UPDATE levels SET boatLevel = ?, mora = ?, currentLocation = ? WHERE user = ? AND guild = ?").run(nextLevel, userData.mora, nextBoat.location_id, userId, i.guild.id);
+    sql.prepare("UPDATE levels SET boatLevel = ?, mora = ?, currentLocation = ? WHERE user = ? AND guild = ?")
+       .run(nextLevel, userData.mora, nextBoat.location_id, userId, i.guild.id);
+       
     await i.followUp({ content: `🎉 مبروك! تم شراء **${nextBoat.name}**!`, flags: MessageFlags.Ephemeral });
     await _handleBoatSelect(i, client, sql);
 }
@@ -202,7 +202,6 @@ async function handleShopSelectMenu(i, client, sql) {
     try {
         const selected = i.values[0];
         
-        // Fishing Gear Main Menu
         if (selected === 'fishing_gear_menu') {
             await i.deferReply({ flags: MessageFlags.Ephemeral });
             const embed = new EmbedBuilder().setTitle('🎣 عـدة الـصـيـد').setDescription('اختر القسم الذي تريد تصفحه:').setColor(Colors.Aqua).setImage(BANNER_URL);
@@ -262,7 +261,6 @@ async function handleShopInteractions(i, client, sql) {
         try { await i.deferUpdate(); const idx = i.customId.replace('shop_skill_paginate_', ''); const skills = getAllUserAvailableSkills(i.member, sql); const embed = buildSkillEmbedWithPagination(skills, idx, sql, i); if (embed) await i.editReply(embed); } catch (e) {} return;
     }
 
-    // Fishing Gear Sub-Menu Handler
     if (i.isStringSelectMenu() && i.customId === 'fishing_gear_sub_menu') {
         const val = i.values[0];
         if (val === 'gear_rods') await _handleRodSelect(i, client, sql);
@@ -271,12 +269,10 @@ async function handleShopInteractions(i, client, sql) {
         return;
     }
 
-    // Fishing Actions
     if (i.customId === 'upgrade_rod') await _handleRodUpgrade(i, client, sql);
     else if (i.customId === 'upgrade_boat') await _handleBoatUpgrade(i, client, sql);
     else if (i.isStringSelectMenu() && i.customId === 'shop_buy_bait_menu') await _handleBaitBuy(i, client, sql);
     
-    // General Shop Actions
     if (i.customId.startsWith('buy_item_')) await _handleShopButton(i, client, sql);
     else if (i.customId.startsWith('replace_buff_')) await _handleReplaceBuffButton(i, client, sql);
     else if (i.customId.startsWith('buy_weapon_') || i.customId.startsWith('upgrade_weapon_')) await _handleWeaponUpgrade(i, client, sql);
@@ -458,6 +454,56 @@ async function _handleReplaceBuffButton(i, client, sql) {
         client.setLevel.run(userData);
         await i.editReply({ content: `✅ تم إلغاء معززك القديم وشراء **${item.name}** بنجاح!\nرصيدك المتبقي: **${userData.mora.toLocaleString()}** ${EMOJI_MORA}`, components: [], embeds: [] });
     } catch (error) { console.error("خطأ في زر استبدال المعزز:", error); if (i.replied || i.deferred) await i.followUp({ content: '❌ حدث خطأ.', flags: MessageFlags.Ephemeral }); }
+}
+
+// ( 🌟 دالة التعامل مع المودالات (Modals) 🌟 )
+// هنا يجب وضع دالة _handleBuySellModal التي كانت ناقصة في النسخ السابقة
+// تأكد من وجود هذه الدالة إذا كنت تستخدم مودالات للشراء
+async function handleShopModal(i, client, sql) {
+    if (i.customId === 'exchange_xp_modal') {
+        await _handleXpExchangeModal(i, client, sql);
+        return true;
+    }
+    // يمكنك إضافة مودالات أخرى هنا إذا لزم الأمر
+    return false;
+}
+
+// ( 🌟 دالة التعامل مع مودال تبديل الخبرة 🌟 )
+async function _handleXpExchangeModal(i, client, sql) {
+    try {
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        const userId = i.user.id; const guildId = i.guild.id;
+        const userLoan = sql.prepare("SELECT 1 FROM user_loans WHERE userID = ? AND guildID = ? AND remainingAmount > 0").get(userId, guildId);
+        if (userLoan) return await i.editReply({ content: `❌ عليك قرض.` });
+        let userData = client.getLevel.get(userId, guildId);
+        if (!userData) userData = { ...client.defaultData, user: userId, guild: guildId };
+        const userMora = userData.mora || 0;
+        const amountString = i.fields.getTextInputValue('xp_amount_input').trim().toLowerCase();
+        let amountToBuy = 0;
+        if (amountString === 'all' || amountString === 'كامل') {
+             if (userMora < XP_EXCHANGE_RATE) return await i.editReply({ content: '❌ ليس لديك مورا.' });
+             amountToBuy = Math.floor(userMora / XP_EXCHANGE_RATE);
+        } else {
+             amountToBuy = parseInt(amountString.replace(/,/g, ''));
+             if (isNaN(amountToBuy) || amountToBuy <= 0) return await i.editReply({ content: '❌ رقم غير صالح.' });
+        }
+        const totalCost = amountToBuy * XP_EXCHANGE_RATE;
+        if (userMora < totalCost) return await i.editReply({ content: `❌ رصيدك غير كافي.` });
+        userData.mora -= totalCost; userData.xp += amountToBuy; userData.totalXP += amountToBuy;
+        let nextXP = 5 * (userData.level ** 2) + (50 * userData.level) + 100;
+        let levelUpOccurred = false;
+        while (userData.xp >= nextXP) {
+             const oldLevel = userData.level; userData.level++; userData.xp -= nextXP;
+             nextXP = 5 * (userData.level ** 2) + (50 * userData.level) + 100;
+             levelUpOccurred = true;
+             await sendLevelUpMessage(i, i.member, userData.level, oldLevel, userData, sql);
+        }
+        userData.shop_purchases = (userData.shop_purchases || 0) + 1;
+        client.setLevel.run(userData);
+        let msg = `✅ تم شراء **${amountToBuy} XP** بـ **${totalCost}** مورا.`;
+        if (levelUpOccurred) msg += `\n🎉 مبروك المستوى الجديد ${userData.level}!`;
+        await i.editReply({ content: msg });
+    } catch (e) { console.error(e); }
 }
 
 module.exports = {
