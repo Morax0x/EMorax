@@ -1,9 +1,13 @@
 const { EmbedBuilder, Colors, MessageFlags, ButtonBuilder, ButtonStyle, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require("discord.js");
 const { sendLevelUpMessage } = require('./handler-utils.js');
-const shopItems = require('../json/shop-items.json');
-const weaponsConfig = require('../json/weapons-config.json');
-const skillsConfig = require('../json/skills-config.json');
-const { rods: rodsConfig, boats: boatsConfig, baits: baitsConfig } = require('../json/fishing-config.json');
+const path = require('path');
+
+// تحديد المسار الجذري لضمان قراءة الملفات
+const rootDir = process.cwd();
+const shopItems = require(path.join(rootDir, 'json', 'shop-items.json'));
+const weaponsConfig = require(path.join(rootDir, 'json', 'weapons-config.json'));
+const skillsConfig = require(path.join(rootDir, 'json', 'skills-config.json'));
+const { rods: rodsConfig, boats: boatsConfig, baits: baitsConfig } = require(path.join(rootDir, 'json', 'fishing-config.json'));
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const OWNER_ID = "1145327691772481577";
@@ -19,11 +23,53 @@ const THUMBNAILS = new Map([
     ['change_race', 'https://i.postimg.cc/rs4mmjvs/tsmym-bdwn-ʿnwan-9.png']
 ]);
 
-function getGeneralSkills() { return skillsConfig.filter(s => s.id.startsWith('skill_')); }
-function getRaceSkillConfig(raceName) { const skillId = `race_${raceName.toLowerCase().replace(' ', '_')}_skill`; return skillsConfig.find(s => s.id === skillId); }
-function getUserRace(member, sql) { const allRaceRoles = sql.prepare("SELECT roleID, raceName FROM race_roles WHERE guildID = ?").all(member.guild.id); const userRoleIDs = member.roles.cache.map(r => r.id); const userRace = allRaceRoles.find(r => userRoleIDs.includes(r.roleID)); return userRace || null; }
-function getAllUserAvailableSkills(member, sql) { const generalSkills = getGeneralSkills(); const userRace = getUserRace(member, sql); let raceSkill = null; if (userRace) { raceSkill = getRaceSkillConfig(userRace.raceName); } let allSkills = []; if (raceSkill) { allSkills.push(raceSkill); } allSkills = allSkills.concat(generalSkills); return allSkills; }
-function getBuyableItems() { return shopItems.filter(it => !['upgrade_weapon', 'upgrade_skill', 'exchange_xp', 'upgrade_rod', 'fishing_gear_menu'].includes(it.id)); }
+// --- دوال مساعدة محسنة ---
+
+function getGeneralSkills() { 
+    return skillsConfig.filter(s => s.id.startsWith('skill_')); 
+}
+
+function getRaceSkillConfig(raceName) {
+    if (!raceName) return null;
+    // 🛠️ إصلاح: تنظيف الاسم بدقة (إزالة مسافات زائدة، تحويل لصغير، استبدال المسافات بـ underscore)
+    // مثال: "Dark Elf" -> "dark_elf" -> "race_dark_elf_skill"
+    const cleanName = raceName.trim().toLowerCase().replace(/\s+/g, '_');
+    const skillId = `race_${cleanName}_skill`;
+    return skillsConfig.find(s => s.id === skillId); 
+}
+
+function getUserRace(member, sql) { 
+    if (!member || !member.roles) return null;
+    const allRaceRoles = sql.prepare("SELECT roleID, raceName FROM race_roles WHERE guildID = ?").all(member.guild.id); 
+    const userRoleIDs = member.roles.cache.map(r => r.id); 
+    const userRace = allRaceRoles.find(r => userRoleIDs.includes(r.roleID)); 
+    return userRace || null; 
+}
+
+function getAllUserAvailableSkills(member, sql) { 
+    const generalSkills = getGeneralSkills(); 
+    const userRace = getUserRace(member, sql); 
+    let raceSkill = null; 
+    
+    if (userRace) { 
+        raceSkill = getRaceSkillConfig(userRace.raceName); 
+    } 
+    
+    let allSkills = []; 
+    // نضيف مهارة العرق أولاً إذا وجدت
+    if (raceSkill) { 
+        allSkills.push(raceSkill); 
+    } 
+    // ثم المهارات العامة
+    allSkills = allSkills.concat(generalSkills); 
+    return allSkills; 
+}
+
+function getBuyableItems() { 
+    return shopItems.filter(it => !['upgrade_weapon', 'upgrade_skill', 'exchange_xp', 'upgrade_rod', 'fishing_gear_menu'].includes(it.id)); 
+}
+
+// --- بناء القوائم ---
 
 function buildPaginatedItemEmbed(selectedItemId) {
     const buyableItems = getBuyableItems();
@@ -46,16 +92,24 @@ function buildPaginatedItemEmbed(selectedItemId) {
 function buildSkillEmbedWithPagination(allUserSkills, pageIndex, sql, i) {
     pageIndex = parseInt(pageIndex) || 0;
     const totalSkills = allUserSkills.length;
+    
+    if (totalSkills === 0) return { content: '❌ لا توجد مهارات متاحة للعرض.', embeds: [], components: [] };
+
     if (pageIndex < 0) pageIndex = totalSkills - 1;
     if (pageIndex >= totalSkills) pageIndex = 0;
+    
     const skillConfig = allUserSkills[pageIndex];
-    if (!skillConfig) return { content: '❌ خطأ: لم يتم العثور على المهارة.', embeds: [], components: [] };
+    if (!skillConfig) return { content: '❌ خطأ: لم يتم العثور على بيانات المهارة.', embeds: [], components: [] };
+    
     const prevIndex = (pageIndex - 1 + totalSkills) % totalSkills;
     const nextIndex = (pageIndex + 1) % totalSkills;
+    
     let userSkill = sql.prepare("SELECT * FROM user_skills WHERE userID = ? AND guildID = ? AND skillID = ?").get(i.user.id, i.guild.id, skillConfig.id);
     let currentLevel = userSkill ? userSkill.skillLevel : 0;
+    
     const isRaceSkill = skillConfig.id.startsWith('race_');
-    const embedTitle = `${skillConfig.emoji} ${skillConfig.name}`;
+    const embedTitle = `${skillConfig.emoji} ${skillConfig.name} ${isRaceSkill ? '(مهارة عرق)' : ''}`;
+    
     const embed = new EmbedBuilder().setTitle(embedTitle).setDescription(skillConfig.description).setColor(isRaceSkill ? Colors.Gold : Colors.Blue).setImage(BANNER_URL).setThumbnail(THUMBNAILS.get('upgrade_skill')).setFooter({ text: `المهارة ${pageIndex + 1} / ${totalSkills}` });
     const navigationRow = new ActionRowBuilder();
     const buttonRow = new ActionRowBuilder();
@@ -68,19 +122,36 @@ function buildSkillEmbedWithPagination(allUserSkills, pageIndex, sql, i) {
 function _buildSkillEmbedFields(embed, buttonRow, skillConfig, currentLevel) {
     let currentEffect, nextEffect, nextLevelPrice, buttonId, buttonLabel;
     const effectType = skillConfig.stat_type.includes('%') ? '%' : (skillConfig.stat_type === 'TrueDMG' || skillConfig.stat_type === 'RecoilDMG' ? ' DMG' : '');
-    if (currentLevel === 0) { currentEffect = 0; } else if (skillConfig.max_level === 1) { currentEffect = skillConfig.base_value; } else { currentEffect = skillConfig.base_value + (skillConfig.value_increment * (currentLevel - 1)); }
+    
+    if (currentLevel === 0) { currentEffect = 0; } 
+    else if (skillConfig.max_level === 1) { currentEffect = skillConfig.base_value; } 
+    else { currentEffect = skillConfig.base_value + (skillConfig.value_increment * (currentLevel - 1)); }
+    
     embed.addFields({ name: "المستوى الحالي", value: `Lv. ${currentLevel}`, inline: true }, { name: "التأثير الحالي", value: `${currentEffect}${effectType}`, inline: true });
+    
     if (currentLevel >= skillConfig.max_level) {
         embed.addFields({ name: "التطوير القادم", value: "وصلت للحد الأقصى!", inline: true });
         buttonRow.addComponents(new ButtonBuilder().setCustomId('max_level').setLabel('الحد الأقصى').setStyle(ButtonStyle.Success).setDisabled(true));
     } else {
-        if (currentLevel === 0) { nextLevelPrice = skillConfig.base_price; buttonLabel = `شراء (المستوى 1)`; buttonId = `buy_skill_${skillConfig.id}`; } 
-        else { nextLevelPrice = skillConfig.base_price + (skillConfig.price_increment * currentLevel); buttonLabel = `تطوير (المستوى ${currentLevel + 1})`; buttonId = `upgrade_skill_${skillConfig.id}`; }
-        if (skillConfig.max_level === 1) { nextEffect = skillConfig.base_value; } else { nextEffect = skillConfig.base_value + (skillConfig.value_increment * currentLevel); }
-        embed.addFields({ name: "المستوى القادم", value: `Lv. ${currentLevel + 1}`, inline: true }, { name: "التأثير القادم", value: `${nextEffect}${effectType}`, inline: true }, { name: "تكلفة التطوير", value: `${nextLevelPrice.toLocaleString()} ${EMOJI_MORA}`, inline: true });
+        if (currentLevel === 0) { 
+            nextLevelPrice = skillConfig.base_price; 
+            buttonLabel = `شراء (Lv.1)`; 
+            buttonId = `buy_skill_${skillConfig.id}`; 
+        } else { 
+            nextLevelPrice = skillConfig.base_price + (skillConfig.price_increment * currentLevel); 
+            buttonLabel = `تطوير (Lv.${currentLevel + 1})`; 
+            buttonId = `upgrade_skill_${skillConfig.id}`; 
+        }
+        
+        if (skillConfig.max_level === 1) { nextEffect = skillConfig.base_value; } 
+        else { nextEffect = skillConfig.base_value + (skillConfig.value_increment * currentLevel); }
+        
+        embed.addFields({ name: "المستوى القادم", value: `Lv. ${currentLevel + 1}`, inline: true }, { name: "التأثير القادم", value: `${nextEffect}${effectType}`, inline: true }, { name: "التكلفة", value: `${nextLevelPrice.toLocaleString()} ${EMOJI_MORA}`, inline: true });
         buttonRow.addComponents(new ButtonBuilder().setCustomId(buttonId).setLabel(buttonLabel).setStyle(ButtonStyle.Success).setEmoji('⬆️'));
     }
 }
+
+// --- معالجات التفاعل ---
 
 async function _handleRodSelect(i, client, sql) {
     if(i.replied || i.deferred) await i.editReply("جاري التحميل..."); else await i.deferReply({ flags: MessageFlags.Ephemeral });
@@ -201,47 +272,16 @@ async function handleShopSelectMenu(i, client, sql) {
         }
         
         if (selected === 'upgrade_weapon') {
-            // 🆕 هنا تم الإصلاح: نرسل i.member لأن الدالة getUserRace تحتاجه
-            // لكن أولاً يجب أن نتأكد أن العضو لديه عرق
-            const userRace = getUserRace(i.member, sql);
-            if (!userRace) {
-                return await i.reply({ content: '❌ ليس لديك عرق! قم باختيار عرقك من قائمة الرولات أولاً.', flags: MessageFlags.Ephemeral });
-            }
-            
-            // 🛠️ التعديل: تمرير اسم العرق مباشرة للزر
-            const raceName = userRace.raceName; 
-            const weaponConfig = weaponsConfig.find(w => w.race.toLowerCase() === raceName.toLowerCase());
-            
-            if (!weaponConfig) {
-                return await i.reply({ content: `❌ لم يتم العثور على سلاح لعرقك (${raceName}).`, flags: MessageFlags.Ephemeral });
-            }
-
-            // الآن نبني زر الشراء/التطوير لهذا السلاح المحدد
-            let userWeapon = sql.prepare("SELECT * FROM user_weapons WHERE userID = ? AND guildID = ? AND raceName = ?").get(i.user.id, i.guild.id, raceName);
-            let currentLevel = userWeapon ? userWeapon.weaponLevel : 0;
-            let price = (currentLevel === 0) ? weaponConfig.base_price : weaponConfig.base_price + (weaponConfig.price_increment * currentLevel);
-            let damage = weaponConfig.base_damage + (weaponConfig.damage_increment * currentLevel);
-            let nextDamage = damage + weaponConfig.damage_increment;
-
-            const embed = new EmbedBuilder().setTitle(`${weaponConfig.emoji} سلاح العرق: ${weaponConfig.name}`).setColor(Colors.Blue).setImage(BANNER_URL).setThumbnail(THUMBNAILS.get('upgrade_weapon'))
-                .addFields({ name: "العرق", value: raceName, inline: true }, { name: "المستوى الحالي", value: `Lv. ${currentLevel}`, inline: true }, { name: "الضرر الحالي", value: `${damage} DMG`, inline: true });
-
-            const row = new ActionRowBuilder();
-            if (currentLevel >= weaponConfig.max_level) {
-                embed.addFields({ name: "التطوير", value: "الحد الأقصى", inline: true });
-                row.addComponents(new ButtonBuilder().setCustomId('max_level').setLabel('الحد الأقصى').setStyle(ButtonStyle.Success).setDisabled(true));
-            } else {
-                const buttonLabel = currentLevel === 0 ? "شراء السلاح" : `تطوير (Lv.${currentLevel + 1})`;
-                const buttonId = currentLevel === 0 ? `buy_weapon_${raceName}` : `upgrade_weapon_${raceName}`;
-                embed.addFields({ name: "المستوى القادم", value: `Lv. ${currentLevel + 1}`, inline: true }, { name: "الضرر القادم", value: `${nextDamage} DMG`, inline: true }, { name: "التكلفة", value: `${price.toLocaleString()} ${EMOJI_MORA}`, inline: true });
-                row.addComponents(new ButtonBuilder().setCustomId(buttonId).setLabel(buttonLabel).setStyle(ButtonStyle.Success).setEmoji('⬆️'));
-            }
-            return await i.reply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
-
+            await _handleWeaponUpgrade(i, client, sql); return;
         } else if (selected === 'upgrade_skill') {
             await i.deferReply({ flags: MessageFlags.Ephemeral });
             const allUserSkills = getAllUserAvailableSkills(i.member, sql);
-            if (allUserSkills.length === 0) return await i.editReply({ content: '❌ لا توجد مهارات متاحة.' });
+            
+            if (allUserSkills.length === 0) {
+                // قد لا يكون لديه مهارات لأن العرق غير محدد أو لا توجد مهارات عامة
+                return await i.editReply({ content: '❌ لا توجد مهارات متاحة. تأكد من اختيار عرقك أولاً.' });
+            }
+            
             const skillOptions = allUserSkills.map(skill => new StringSelectMenuOptionBuilder().setLabel(skill.name).setDescription(skill.description.substring(0, 100)).setValue(skill.id).setEmoji(skill.emoji));
             const row = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('shop_skill_select_menu').setPlaceholder('اختر المهارة...').addOptions(skillOptions));
             return await i.editReply({ content: 'اختر مهارة:', components: [row] });
@@ -312,18 +352,16 @@ async function _handleWeaponUpgrade(i, client, sql) {
         const userId = i.user.id;
         const guildId = i.guild.id;
         const isBuy = i.customId.startsWith('buy_weapon_');
-        // هنا نستخرج اسم العرق من الآيدي
         const raceName = i.customId.replace(isBuy ? 'buy_weapon_' : 'upgrade_weapon_', '');
         
-        // 🛠️ الإصلاح الجوهري: البحث الغير حساس لحالة الأحرف (Case-Insensitive)
+        // 🛠️ البحث الغير حساس (Fix for "Human" vs "human")
         const weaponConfig = weaponsConfig.find(w => w.race.toLowerCase() === raceName.toLowerCase());
         
         if (!weaponConfig) return await i.followUp({ content: '❌ خطأ: لم يتم العثور على بيانات هذا السلاح.', flags: MessageFlags.Ephemeral });
         let userData = client.getLevel.get(userId, guildId);
         if (!userData) userData = { ...client.defaultData, user: userId, guild: guildId };
         
-        // البحث في الداتابيس (أيضاً بحذر)
-        // نستخدم raceName الأصلي من الكونفج لضمان التوافق
+        // استخدام الاسم الصحيح من الكونفج
         const dbRaceName = weaponConfig.race;
         let userWeapon = sql.prepare("SELECT * FROM user_weapons WHERE userID = ? AND guildID = ? AND raceName = ?").get(userId, guildId, dbRaceName);
         
@@ -334,10 +372,8 @@ async function _handleWeaponUpgrade(i, client, sql) {
         if (userData.mora < price) return await i.followUp({ content: `❌ رصيدك غير كافي! تحتاج إلى **${price.toLocaleString()}** ${EMOJI_MORA}`, flags: MessageFlags.Ephemeral });
         userData.mora -= price; userData.shop_purchases = (userData.shop_purchases || 0) + 1; client.setLevel.run(userData);
         const newLevel = currentLevel + 1;
-        
         if (isBuy) sql.prepare("INSERT INTO user_weapons (userID, guildID, raceName, weaponLevel) VALUES (?, ?, ?, ?)").run(userId, guildId, dbRaceName, newLevel);
         else sql.prepare("UPDATE user_weapons SET weaponLevel = ? WHERE id = ?").run(newLevel, userWeapon.id);
-        
         const newDamage = weaponConfig.base_damage + (weaponConfig.damage_increment * (newLevel - 1));
         const embed = new EmbedBuilder().setTitle(`${weaponConfig.emoji} سلاح العرق: ${weaponConfig.name}`).setColor(Colors.Blue).setImage(BANNER_URL).setThumbnail(THUMBNAILS.get('upgrade_weapon'))
             .addFields({ name: "العرق", value: dbRaceName, inline: true }, { name: "المستوى", value: `Lv. ${newLevel}`, inline: true }, { name: "الضرر", value: `${newDamage} DMG`, inline: true });
@@ -356,6 +392,35 @@ async function _handleWeaponUpgrade(i, client, sql) {
         await i.editReply({ embeds: [embed], components: [row] });
         await i.followUp({ content: `🎉 تم التطوير بنجاح إلى المستوى ${newLevel}!`, flags: MessageFlags.Ephemeral });
     } catch (error) { console.error("خطأ في زر تطوير السلاح:", error); if (i.replied || i.deferred) await i.followUp({ content: '❌ حدث خطأ.', flags: MessageFlags.Ephemeral }); }
+}
+
+async function _handleSkillUpgrade(i, client, sql) {
+    try {
+        await i.deferUpdate();
+        const userId = i.user.id; const guildId = i.guild.id; const isBuy = i.customId.startsWith('buy_skill_');
+        const skillId = i.customId.replace(isBuy ? 'buy_skill_' : 'upgrade_skill_', '');
+        const skillConfig = skillsConfig.find(s => s.id === skillId);
+        
+        if (!skillConfig) return await i.followUp({ content: '❌ خطأ: لم يتم العثور على بيانات هذه المهارة.', flags: MessageFlags.Ephemeral });
+        
+        let userData = client.getLevel.get(userId, guildId);
+        if (!userData) userData = { ...client.defaultData, user: userId, guild: guildId };
+        let userSkill = sql.prepare("SELECT * FROM user_skills WHERE userID = ? AND guildID = ? AND skillID = ?").get(userId, guildId, skillId);
+        let currentLevel = userSkill ? userSkill.skillLevel : 0;
+        let price = 0;
+        if (currentLevel >= skillConfig.max_level) return await i.followUp({ content: '❌ لقد وصلت للحد الأقصى للتطوير بالفعل!', flags: MessageFlags.Ephemeral });
+        price = (currentLevel === 0) ? skillConfig.base_price : skillConfig.base_price + (skillConfig.price_increment * currentLevel);
+        if (userData.mora < price) return await i.followUp({ content: `❌ رصيدك غير كافي! تحتاج إلى **${price.toLocaleString()}** ${EMOJI_MORA}`, flags: MessageFlags.Ephemeral });
+        userData.mora -= price; userData.shop_purchases = (userData.shop_purchases || 0) + 1; client.setLevel.run(userData);
+        const newLevel = currentLevel + 1;
+        if (isBuy) sql.prepare("INSERT INTO user_skills (userID, guildID, skillID, skillLevel) VALUES (?, ?, ?, ?)").run(userId, guildId, skillId, newLevel);
+        else sql.prepare("UPDATE user_skills SET skillLevel = ? WHERE id = ?").run(newLevel, userSkill.id);
+        const allUserSkills = getAllUserAvailableSkills(i.member, sql);
+        const currentPageIndex = allUserSkills.findIndex(s => s.id === skillId);
+        const updatedEmbed = buildSkillEmbedWithPagination(allUserSkills, currentPageIndex, sql, i);
+        await i.editReply(updatedEmbed);
+        await i.followUp({ content: `🎉 تم التطوير بنجاح إلى المستوى ${newLevel}!`, flags: MessageFlags.Ephemeral });
+    } catch (error) { console.error("خطأ في زر تطوير المهارة:", error); if (i.replied || i.deferred) await i.followUp({ content: '❌ حدث خطأ.', flags: MessageFlags.Ephemeral }); }
 }
 
 async function _handleShopButton(i, client, sql) {
