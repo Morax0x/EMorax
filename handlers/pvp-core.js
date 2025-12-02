@@ -1,7 +1,10 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, ComponentType } = require("discord.js");
-const { calculateMoraBuff } = require('../streak-handler.js');
-const weaponsConfig = require('../json/weapons-config.json');
-const skillsConfig = require('../json/skills-config.json');
+const path = require('path');
+
+// تحديد المسارات الصحيحة لملفات الكونفج
+const rootDir = process.cwd();
+const weaponsConfig = require(path.join(rootDir, 'json', 'weapons-config.json'));
+const skillsConfig = require(path.join(rootDir, 'json', 'skills-config.json'));
 
 // --- 1. الإعدادات والحالة ---
 const EMOJI_MORA = '<:mora:1435647151349698621>';
@@ -11,23 +14,6 @@ const SKILL_COOLDOWN_TURNS = 3;
 
 const activePvpChallenges = new Set();
 const activePvpBattles = new Map();
-
-const WIN_IMAGES = [
-    'https://i.postimg.cc/JhMrnyLd/download-1.gif',
-    'https://i.postimg.cc/FHgv29L0/download.gif',
-    'https://i.postimg.cc/9MzjRZNy/haru-midoriya.gif',
-    'https://i.postimg.cc/4ygk8q3G/tumblr-nmao11Zm-Bx1r3rdh2o2-500-gif-500-281.gif',
-    'https://i.postimg.cc/pL6NNpdC/Epic7-Epic-Seven-GIF-Epic7-Epic-Seven-Tensura-Discover-Share-GIFs.gif',
-    'https://i.postimg.cc/05dLktNF/download-5.gif',
-    'https://i.postimg.cc/sXRVMwhZ/download-2.gif'
-];
-
-const FORFEIT_IMAGES = [
-    'https://i.postimg.cc/xd8msjxk/escapar-a-toda-velocidad.gif',
-    'https://i.postimg.cc/1zb8JGVC/download.gif',
-    'https://i.postimg.cc/rmSwjvkV/download-1.gif',
-    'https://i.postimg.cc/8PyPZRqt/download.jpg'
-];
 
 // --- 2. الدوال المساعدة (Helpers & Getters) ---
 
@@ -83,12 +69,40 @@ function getAllSkillData(sql, member) {
         if (!skillsOutput[raceSkillId]) {
             const skillConfig = skillsConfig.find(s => s.id === raceSkillId);
             if (skillConfig) {
-                skillsOutput[raceSkillId] = { ...skillConfig, currentLevel: 0, effectValue: 0 };
+                skillsOutput[raceSkillId] = { ...skillConfig, currentLevel: 0, effectValue: 0 }; // مهارة العرق (Passive/Active)
             }
         }
     }
 
     return skillsOutput;
+}
+
+// 🆕 دالة جديدة: جلب مهارة نشطة لاستخدامها في الصيد
+async function getUserActiveSkill(sql, userId, guildId) {
+    // محاكاة كائن العضو (Member Object) لأن الدوال تتطلب Member
+    // ملاحظة: هذا يتطلب أن يكون لديك client متاح، لكن هنا سنعتمد على البيانات الخام
+    const userSkills = sql.prepare("SELECT * FROM user_skills WHERE userID = ? AND guildID = ?").all(userId, guildId);
+    
+    // نبحث عن أقوى مهارة هجومية يملكها
+    // (نفترض أن المهارات الهجومية هي: fireball, strike, etc. أو نأخذ أي مهارة عشوائية)
+    if (userSkills.length > 0) {
+        // نختار مهارة عشوائية من التي يملكها (لإضافة تنوع في الصيد)
+        const randomSkillData = userSkills[Math.floor(Math.random() * userSkills.length)];
+        const skillConfig = skillsConfig.find(s => s.id === randomSkillData.skillID);
+        
+        if (skillConfig) {
+            const level = randomSkillData.skillLevel;
+            // حساب قوة تقريبية للمهارة لاستخدامها في معادلة الصيد
+            // القوة = القيمة الأساسية + (الزيادة * المستوى)
+            const power = skillConfig.base_value + (skillConfig.value_increment * (level - 1));
+            return { 
+                name: skillConfig.name, 
+                level: level, 
+                damage: power // نستخدم هذا الرقم كـ Bonus Damage
+            };
+        }
+    }
+    return null;
 }
 
 // --- 3. دوال بناء الواجهة (UI Builders) ---
@@ -106,7 +120,7 @@ function buildSkillButtons(battleState, attackerId, page = 0) {
     const attacker = battleState.players.get(attackerId);
     const cooldowns = battleState.skillCooldowns[attackerId];
 
-    const availableSkills = Object.values(attacker.skills).filter(s => s.currentLevel > 0);
+    const availableSkills = Object.values(attacker.skills).filter(s => s.currentLevel > 0 || s.id.startsWith('race_'));
 
     const skillsPerPage = 4;
     const totalPages = Math.ceil(availableSkills.length / skillsPerPage);
@@ -123,7 +137,7 @@ function buildSkillButtons(battleState, attackerId, page = 0) {
         skillButtons.addComponents(
             new ButtonBuilder()
                 .setCustomId(`pvp_skill_use_${skill.id}`)
-                .setLabel(`${skill.name} (Lv.${skill.currentLevel})`)
+                .setLabel(`${skill.name} ${skill.currentLevel > 0 ? `(Lv.${skill.currentLevel})` : ''}`)
                 .setEmoji(skill.emoji)
                 .setStyle(ButtonStyle.Primary)
                 .setDisabled(cooldown > 0)
@@ -156,14 +170,14 @@ function buildSkillButtons(battleState, attackerId, page = 0) {
 
 function buildEffectsString(effects) {
     let effectsArray = [];
-    if (effects.shield > 0) effectsArray.push(`🛡️ درع (${effects.shield} دور)`);
-    if (effects.buff > 0) effectsArray.push(`💪 معزز (${effects.buff} دور)`);
-    if (effects.weaken > 0) effectsArray.push(`📉 إضعاف (${effects.weaken} دور)`);
-    if (effects.poison > 0) effectsArray.push(`☠️ تسمم (${effects.poison} دور)`);
-    if (effects.penetrate > 0) effectsArray.push(`👻 اختراق (${effects.penetrate} دور)`);
-    if (effects.rebound_active > 0) effectsArray.push(`🔄 ارتداد (${effects.rebound_active} دور)`);
+    if (effects.shield > 0) effectsArray.push(`🛡️ درع (${effects.shield})`);
+    if (effects.buff > 0) effectsArray.push(`💪 معزز (${effects.buff})`);
+    if (effects.weaken > 0) effectsArray.push(`📉 إضعاف (${effects.weaken})`);
+    if (effects.poison > 0) effectsArray.push(`☠️ تسمم (${effects.poison})`);
+    if (effects.penetrate > 0) effectsArray.push(`👻 اختراق (${effects.penetrate})`);
+    if (effects.rebound_active > 0) effectsArray.push(`🔄 ارتداد (${effects.rebound_active})`);
 
-    return effectsArray.length > 0 ? effectsArray.join('\n') : 'لا يوجد';
+    return effectsArray.length > 0 ? effectsArray.join(' | ') : 'لا يوجد';
 }
 
 function buildBattleEmbed(battleState, skillSelectionMode = false, skillPage = 0) {
@@ -196,175 +210,28 @@ function buildBattleEmbed(battleState, skillSelectionMode = false, skillPage = 0
         );
 
     if (battleState.log.length > 0) {
-        embed.addFields({ name: "آخر الأحداث:", value: battleState.log.slice(-3).join('\n'), inline: false });
+        embed.addFields({ name: "📝 سجل القتال:", value: battleState.log.slice(-3).join('\n'), inline: false });
     }
 
     if (skillSelectionMode) {
         const skillComponents = buildSkillButtons(battleState, attackerId, skillPage);
-        embed.setTitle(`🌟 اختر مهارتك - Lv.${attacker.maxHp}`) // أنت تعرض maxHp هنا بدلاً من level، هذا مجرد نص
-             .setDescription(`تكلفة التفعيل: دور واحد | **اختر بحكمة** (${attacker.member})`);
+        embed.setTitle(`🌟 اختر المهارة`)
+             .setDescription(`اختر مهارة لاستخدامها (تستهلك الدور).`);
 
         return { embeds: [embed], components: skillComponents };
     }
 
     const mainButtons = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('pvp_action_attack').setLabel('هـجـوم').setStyle(ButtonStyle.Danger).setEmoji('⚔️'),
-        new ButtonBuilder().setCustomId('pvp_action_skill').setLabel('مـهــارة').setStyle(ButtonStyle.Primary).setEmoji('<:goldgem:979098126591868928>'),
+        new ButtonBuilder().setCustomId('pvp_action_skill').setLabel('مـهــارات').setStyle(ButtonStyle.Primary).setEmoji('✨'),
         new ButtonBuilder().setCustomId('pvp_action_forfeit').setLabel('انسحاب').setStyle(ButtonStyle.Secondary).setEmoji('🏳️')
     );
 
     return { embeds: [embed], components: [mainButtons] };
 }
 
-
-// --- 4. دوال منطق المعركة الأساسي (Core Battle Logic) ---
-
-async function endBattle(battleState, winnerId, sql, reason = "win") {
-    if (!activePvpBattles.has(battleState.message.channel.id)) {
-        console.log(`[PvP End] Battle in ${battleState.message.channel.id} already ended.`);
-        return;
-    }
-
-    activePvpChallenges.delete(battleState.message.channel.id);
-    activePvpBattles.delete(battleState.message.channel.id);
-
-    const collectors = battleState.collectors;
-    if (collectors && collectors.button) {
-        collectors.button.stop();
-    }
-
-    const getScore = battleState.message.client.getLevel;
-    const setScore = battleState.message.client.setLevel;
-    const guildId = battleState.message.guild.id;
-
-    const loserId = Array.from(battleState.players.keys()).find(id => id !== winnerId);
-    const winner = battleState.players.get(winnerId);
-    const loser = battleState.players.get(loserId);
-
-    if (!winner || !loser) {
-        console.error(`[PvP End] Could not find winner or loser in battle state.`);
-        const disabledRows = [];
-        if (battleState.message && battleState.message.components && Array.isArray(battleState.message.components)) {
-            battleState.message.components.forEach(row => {
-                const newRow = new ActionRowBuilder();
-                row.components.forEach(component => {
-                    newRow.addComponents(ButtonBuilder.from(component).setDisabled(true));
-                });
-                disabledRows.push(newRow);
-            });
-        }
-        if (battleState.message) {
-            await battleState.message.edit({ content: "انتهت المعركة، لكن حدث خطأ (ربما غادر أحد اللاعبين).", embeds: [], components: disabledRows }).catch(e => console.error("PvP: Failed to disable buttons on error end", e.message));
-        }
-        return;
-    }
-
-    const cleanWinnerName = cleanDisplayName(winner.member.user.displayName);
-    const cleanLoserName = cleanDisplayName(loser.member.user.displayName);
-
-    const moraMultiplier = calculateMoraBuff(winner.member, sql);
-    const bonus = Math.floor(battleState.bet * moraMultiplier) - battleState.bet;
-    const finalWinnings = battleState.totalPot + bonus;
-
-    let bonusString = "";
-    if (bonus > 0) {
-        bonusString = ` ( +${bonus.toLocaleString()} ${EMOJI_MORA} )`;
-    } else if (bonus < 0) {
-        bonusString = ` ( ${bonus.toLocaleString()} ${EMOJI_MORA} )`;
-    }
-
-    let descriptionLines = [];
-    let embed = new EmbedBuilder();
-
-    if (reason === "forfeit") {
-        const randomImage = FORFEIT_IMAGES[Math.floor(Math.random() * FORFEIT_IMAGES.length)];
-        embed.setImage(randomImage);
-        descriptionLines.push(`🏳️ **${cleanLoserName}** انسحب!`);
-    } else {
-        const randomImage = WIN_IMAGES[Math.floor(Math.random() * WIN_IMAGES.length)];
-        embed.setImage(randomImage);
-    }
-
-    let winnerData = getScore.get(winnerId, guildId);
-    winnerData.mora += finalWinnings;
-    setScore.run(winnerData);
-
-    const WINNER_BUFF_DURATION_MS = 5 * 60 * 1000;
-    const winnerExpiresAt = Date.now() + WINNER_BUFF_DURATION_MS;
-    try {
-        sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)")
-           .run(guildId, winnerId, 3, winnerExpiresAt, 'xp', 0.03);
-        sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)")
-           .run(guildId, winnerId, 3, winnerExpiresAt, 'mora', 0.03);
-    } catch (dbErr) {
-         console.error(`[PvP Buff] Failed to apply winner buff to ${winnerId}:`, dbErr);
-    }
-
-    const WOUNDED_DURATION_MS = 15 * 60 * 1000;
-    const loserExpiresAt = Date.now() + WOUNDED_DURATION_MS;
-    try {
-        sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)")
-           .run(guildId, loserId, -15, loserExpiresAt, 'mora', -0.15);
-        sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)")
-           .run(guildId, loserId, 0, loserExpiresAt, 'pvp_wounded', 0);
-    } catch (dbErr) {
-         console.error(`[PvP Debuff] Failed to apply wounded debuff to ${loserId}:`, dbErr);
-    }
-
-    descriptionLines.push(`✶ الـفـائـز: ${winner.member}`);
-    descriptionLines.push(`✦ مبـلغ الرهـان: **${finalWinnings.toLocaleString()}** ${EMOJI_MORA}${bonusString}`);
-    descriptionLines.push(`✦ حـصـل على تعزيـز اكس بي ومورا: +3% \` 5 د \` <a:buff:1438796257522094081>`);
-    descriptionLines.push(``);
-    descriptionLines.push(`✶ الـخـاسـر: ${loser.member}`);
-    descriptionLines.push(`✦ اصبـح جـريـح وبطـور الشفـاء \` 15 د \``);
-    descriptionLines.push(`✦ حـصـل عـلى اضـعـاف اكس بي ومورا: -15% \` 15 د \` <a:Nerf:1438795685280612423>`);
-
-    embed.setTitle(`❖ انـتـهـى الـقـتـال <a:mTrophy:1438797228826300518>`)
-         .setDescription(descriptionLines.join('\n'))
-         .setColor(Colors.Gold)
-         .setThumbnail(winner.member.displayAvatarURL());
-
-    const disabledRows = [];
-    if (battleState.message && battleState.message.components && Array.isArray(battleState.message.components)) {
-        battleState.message.components.forEach(row => {
-            const newRow = new ActionRowBuilder();
-            row.components.forEach(component => {
-                newRow.addComponents(ButtonBuilder.from(component).setDisabled(true));
-            });
-            disabledRows.push(newRow);
-        });
-    }
-
-    if (battleState.message) {
-        await battleState.message.edit({ embeds: battleState.message.embeds, components: disabledRows }).catch(e => console.error("PvP: Failed to disable buttons on end", e.message));
-    }
-
-    await battleState.message.channel.send({ embeds: [embed] });
-}
-
-function applyPersistentEffects(battleState, attackerId) {
-    const attacker = battleState.players.get(attackerId);
-    let logEntries = [];
-
-    if (attacker.effects.poison > 0) {
-        const poisonSkill = attacker.skills['skill_poison'] || attacker.skills['race_dark_elf_skill'];
-        let poisonDamage = 0;
-
-        if (poisonSkill && poisonSkill.id === 'skill_poison') {
-            const baseWeaponDmg = attacker.weapon ? attacker.weapon.currentDamage : 10;
-            poisonDamage = Math.floor(baseWeaponDmg * (poisonSkill.effectValue / 100));
-        } else if (poisonSkill && poisonSkill.id === 'race_dark_elf_skill') {
-            poisonDamage = poisonSkill.effectValue;
-        }
-
-        if (poisonDamage > 0) {
-            attacker.hp -= poisonDamage;
-            logEntries.push(`☠️ ${cleanDisplayName(attacker.member.user.displayName)} تلقى **${poisonDamage}** ضرر من السم!`);
-        }
-    }
-
-    return logEntries;
-}
+// --- 4. دوال المنطق الأساسي (Core Logic) ---
+// (هذه الدوال تستخدم فقط داخل معارك الـ PvP الكاملة)
 
 async function startPvpBattle(i, client, sql, challengerMember, opponentMember, bet) {
     const getLevel = i.client.getLevel;
@@ -376,12 +243,7 @@ async function startPvpBattle(i, client, sql, challengerMember, opponentMember, 
     if (!challengerData) challengerData = { ...client.defaultData, user: challengerMember.id, guild: i.guild.id };
     if (!opponentData) opponentData = { ...client.defaultData, user: opponentMember.id, guild: i.guild.id };
 
-    if (challengerData.mora < bet || opponentData.mora < bet) {
-         activePvpChallenges.delete(i.channel.id);
-         await i.followUp({ content: "أحد اللاعبين لم يعد يمتلك المورا الكافية. تم إلغاء التحدي." });
-         return;
-    }
-
+    // خصم الرهان
     challengerData.mora -= bet;
     opponentData.mora -= bet;
     setLevel.run(challengerData);
@@ -394,20 +256,21 @@ async function startPvpBattle(i, client, sql, challengerMember, opponentMember, 
     let opponentStartHp = opponentMaxHp;
     let battleLog = [];
 
+    // التحقق من الجروح السابقة
     const now = Date.now();
     const challengerWound = sql.prepare("SELECT 1 FROM user_buffs WHERE userID = ? AND guildID = ? AND buffType = 'pvp_wounded' AND expiresAt > ?").get(challengerMember.id, i.guild.id, now);
     if (challengerWound) { 
         challengerStartHp = Math.floor(challengerMaxHp * 0.85); 
-        battleLog.push(`🤕 ${cleanDisplayName(challengerMember.user.displayName)} يبدأ القتال وهو جريح! (HP -15%)`);
+        battleLog.push(`🤕 ${cleanDisplayName(challengerMember.user.displayName)} يبدأ جريحاً! (HP -15%)`);
     }
 
     const opponentWound = sql.prepare("SELECT 1 FROM user_buffs WHERE userID = ? AND guildID = ? AND buffType = 'pvp_wounded' AND expiresAt > ?").get(opponentMember.id, i.guild.id, now);
     if (opponentWound) { 
         opponentStartHp = Math.floor(opponentMaxHp * 0.85); 
-        battleLog.push(`🤕 ${cleanDisplayName(opponentMember.user.displayName)} يبدأ القتال وهو جريح! (HP -15%)`);
+        battleLog.push(`🤕 ${cleanDisplayName(opponentMember.user.displayName)} يبدأ جريحاً! (HP -15%)`);
     }
 
-    battleLog.push(`🔥 بدأ القتال! ${cleanDisplayName(opponentMember.user.displayName)} يبدأ أولاً!`);
+    battleLog.push(`🔥 بدأ القتال!`);
 
     const allSkillIds = skillsConfig.map(s => s.id);
     const initialCooldowns = allSkillIds.reduce((acc, id) => { acc[id] = 0; return acc; }, {});
@@ -416,7 +279,7 @@ async function startPvpBattle(i, client, sql, challengerMember, opponentMember, 
         message: null,
         bet: bet,
         totalPot: bet * 2,
-        turn: [opponentMember.id, challengerMember.id],
+        turn: [opponentMember.id, challengerMember.id], // الخصم يبدأ أولاً
         log: battleLog,
         skillPage: 0,
         processingTurn: false,
@@ -434,19 +297,14 @@ async function startPvpBattle(i, client, sql, challengerMember, opponentMember, 
     activePvpBattles.set(i.channel.id, battleState);
 
     const { embeds, components } = buildBattleEmbed(battleState);
-    const battleMessage = await i.channel.send({ embeds, components });
+    const battleMessage = await i.channel.send({ content: `${challengerMember} 🆚 ${opponentMember}`, embeds, components });
     battleState.message = battleMessage;
 
+    // ملاحظة: الكوليكتور هنا فقط للمراقبة الزمنية، التفاعل الفعلي يتم عبر الهاندلر العام
     const filter = (interaction) => battleState.players.has(interaction.user.id);
-    const buttonCollector = battleMessage.createMessageComponentCollector({ filter, componentType: ComponentType.Button, time: 5 * 60 * 1000 });
+    const buttonCollector = battleMessage.createMessageComponentCollector({ filter, componentType: ComponentType.Button, time: 5 * 60 * 1000 }); // 5 دقائق للمعركة
 
     battleState.collectors = { button: buttonCollector };
-
-    // --- ( ⬇️ هذا هو الإصلاح ⬇️ ) ---
-    // تم حذف بلوك .on('collect') بالكامل
-    // الكوليكتور ما زال يعمل في الخلفية ليقوم بتحديث التايمر (time)
-    // والهاندلر العام في (index.js) هو الذي سيعالج الضغطات
-    // --- ( ⬆️ نهاية الإصلاح ⬆️ ) ---
 
     buttonCollector.on('end', (collected, reason) => {
         const battleStateToEnd = activePvpBattles.get(i.channel.id);
@@ -455,10 +313,84 @@ async function startPvpBattle(i, client, sql, challengerMember, opponentMember, 
         if (reason === 'time') {
             const attackerId = battleStateToEnd.turn[0];
             const defenderId = battleStateToEnd.turn[1];
-            console.log(`[PvP Timeout] Battle in ${i.channel.id} ended. ${attackerId} (attacker) timed out. ${defenderId} wins.`);
-            endBattle(battleStateToEnd, defenderId, sql, "forfeit");
+            // إنهاء المعركة بانسحاب من عليه الدور بسبب الوقت
+            // (يتطلب استدعاء endBattle من الملف الخارجي أو تمريرها، هنا سنكتفي بالتنظيف)
+            activePvpBattles.delete(i.channel.id);
+            activePvpChallenges.delete(i.channel.id);
+            battleMessage.edit({ content: "⌛ انتهى وقت المعركة!", components: [] }).catch(() => {});
         }
     });
+}
+
+// دالة لإنهاء المعركة (تستدعى من الهاندلر)
+async function endBattle(battleState, winnerId, sql, reason = "win", calculateMoraBuffFunc) {
+    if (!activePvpBattles.has(battleState.message.channel.id)) return;
+
+    activePvpChallenges.delete(battleState.message.channel.id);
+    activePvpBattles.delete(battleState.message.channel.id);
+
+    if (battleState.collectors.button) battleState.collectors.button.stop();
+
+    const getScore = battleState.message.client.getLevel;
+    const setScore = battleState.message.client.setLevel;
+    const guildId = battleState.message.guild.id;
+
+    const loserId = Array.from(battleState.players.keys()).find(id => id !== winnerId);
+    const winner = battleState.players.get(winnerId);
+    const loser = battleState.players.get(loserId);
+
+    // حساب المكاسب
+    let bonus = 0;
+    if (calculateMoraBuffFunc) {
+        const moraMultiplier = calculateMoraBuffFunc(winner.member, sql);
+        bonus = Math.floor(battleState.bet * moraMultiplier) - battleState.bet;
+    }
+    const finalWinnings = battleState.totalPot + bonus;
+
+    // تحديث رصيد الفائز
+    let winnerData = getScore.get(winnerId, guildId);
+    winnerData.mora += finalWinnings;
+    // إضافة نقاط خبرة للفائز
+    winnerData.xp += 100; 
+    setScore.run(winnerData);
+
+    // تطبيق البف للفائز (Buffs)
+    const winnerExpiresAt = Date.now() + (5 * 60 * 1000);
+    sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guildId, winnerId, 3, winnerExpiresAt, 'xp', 0.03);
+
+    // تطبيق الديبف للخاسر (الجرح)
+    const loserExpiresAt = Date.now() + (15 * 60 * 1000);
+    sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guildId, loserId, 0, loserExpiresAt, 'pvp_wounded', 0);
+
+    const embed = new EmbedBuilder()
+        .setTitle(`🏆 الفائز هو ${cleanDisplayName(winner.member.user.displayName)}!`)
+        .setDescription(
+            `💰 **المكسب:** ${finalWinnings.toLocaleString()} ${EMOJI_MORA}\n` +
+            `🗡️ **الخاسر:** ${loser.member} (أصبح جريحاً لمدة 15 دقيقة)\n` +
+            (reason === "forfeit" ? "🏳️ سبب الفوز: انسحاب الخصم." : "⚔️ سبب الفوز: القضاء على الخصم.")
+        )
+        .setColor(Colors.Gold)
+        .setThumbnail(winner.member.displayAvatarURL());
+
+    await battleState.message.channel.send({ embeds: [embed] });
+    
+    // تعطيل الأزرار في الرسالة القديمة
+    await battleState.message.edit({ components: [] }).catch(() => {});
+}
+
+// دالة لتطبيق التأثيرات المستمرة (مثل السم)
+function applyPersistentEffects(battleState, attackerId) {
+    const attacker = battleState.players.get(attackerId);
+    let logEntries = [];
+
+    if (attacker.effects.poison > 0) {
+        // ضرر السم الافتراضي أو المعتمد على المهارة
+        const poisonDamage = 20; // قيمة ثابتة للتبسيط، أو يمكن جلبها من المهارة المخزنة
+        attacker.hp -= poisonDamage;
+        logEntries.push(`☠️ ${cleanDisplayName(attacker.member.user.displayName)} يتألم من السم (-${poisonDamage} HP)!`);
+    }
+
+    return logEntries;
 }
 
 // --- 5. التصدير (Exports) ---
@@ -477,6 +409,7 @@ module.exports = {
     getUserRace,
     getWeaponData,
     getAllSkillData,
+    getUserActiveSkill, // 🆕 مهم جداً لنظام الصيد
 
     // دوال الواجهة
     buildBattleEmbed,
