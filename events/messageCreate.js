@@ -5,8 +5,28 @@ const { processReportLogic, sendReportError } = require("../handlers/report-hand
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
+// Auto-Responder & Tree Cooldowns
 const autoResponderCooldowns = new Collection();
 const treeCooldowns = new Set();
+
+// ( 🌟 Restored Alias Map for compatibility 🌟 )
+const COMMAND_ALIASES_MAP = {
+    'balance': 'mora', 'bal': 'mora', 'b': 'mora', 'credits': 'mora', 'c': 'mora', 
+    'رصيد': 'mora', 'فلوس': 'mora', 'مورا': 'mora', '0': 'mora',
+    'rank': 'rank', 'r': 'rank', 'level': 'rank', 'lvl': 'rank', 'l': 'rank',
+    'رانك': 'rank', 'لفل': 'rank', 'مستوى': 'rank', 'خبرة': 'rank',
+    'top': 'top', 't': 'top', 'leaderboard': 'top', 'lb': 'top',
+    'توب': 'top', 'الاوائل': 'top', 'المتصدرين': 'top', 'ترتيب': 'top',
+    'daily': 'daily', 'd': 'daily', 'day': 'daily',
+    'يومي': 'daily', 'راتب': 'daily', 'يومية': 'daily', 'هدية': 'daily',
+    'profile': 'profile', 'p': 'profile', 'user': 'profile',
+    'بروفايل': 'profile', 'شخصية': 'profile', 'حسابي': 'profile', 'هويتي': 'profile',
+    'transfer': 'trans', 'trans': 'trans', 'pay': 'trans', 'give': 'trans',
+    'تحويل': 'trans', 'حول': 'trans',
+    'bank': 'bank', 'bnk': 'bank', 'dep': 'deposit', 'wd': 'withdraw',
+    'بنك': 'bank', 'ايداع': 'deposit', 'سحب': 'withdraw',
+    'fish': 'fish', 'صيد': 'fish', 'ص': 'fish', 'fishing': 'fish'
+};
 
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
@@ -98,50 +118,46 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
 
         // ============================================================
-        // 3. Shortcut Handler
+        // 🌟 3. Shortcut Handler (With Global Fallback & Alias Map) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
+            // A) Check Channel Specific Shortcut
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
+            // B) Global Fallback (If strict mode is NOT required)
+            // ( 🌟 Restored this part as per your request 🌟 )
+            if (!shortcut) {
+                shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND shortcutWord = ? LIMIT 1")
+                    .get(message.guild.id, shortcutWord);
+            }
+            
             if (shortcut) {
-                const targetName = shortcut.commandName.toLowerCase();
+                let targetName = shortcut.commandName.toLowerCase();
+                
+                // Use Alias Map to normalize names
+                if (COMMAND_ALIASES_MAP[targetName]) {
+                    targetName = COMMAND_ALIASES_MAP[targetName];
+                }
+
                 const cmd = client.commands.get(targetName) || 
                             client.commands.find(c => c.aliases && c.aliases.includes(targetName));
 
                 if (cmd) {
-                    // ( 🌟 التحقق من الصلاحيات - تم إعادتها 🌟 )
-                    let isAllowed = false;
-                    if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
-                    else {
-                        try {
-                            const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, cmd.name, message.channel.id);
-                            const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, cmd.name, message.channel.parentId);
-                            if (channelPerm || categoryPerm) isAllowed = true;
-                            else { 
-                                // إذا لم يكن هناك إذن صريح، نتحقق هل الأمر مسموح افتراضياً أم ممنوع
-                                const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ?").get(message.guild.id, cmd.name); 
-                                if (!hasRestrictions) isAllowed = true; // إذا لم يقيد في أي مكان، فهو مسموح للكل
-                            }
-                        } catch (err) { isAllowed = true; }
-                    }
-
-                    if (isAllowed) {
-                        if (checkPermissions(message, cmd)) {
-                            const cooldownMsg = checkCooldown(message, cmd);
-                            if (cooldownMsg) {
-                                if (typeof cooldownMsg === 'string') message.reply(cooldownMsg);
-                                return;
-                            }
-                            try {
-                                const finalArgs = argsRaw.slice(1);
-                                finalArgs.prefix = ""; 
-                                await cmd.execute(message, finalArgs); 
-                            } catch (e) { console.error(`[Shortcut Error]`, e); }
+                    if (checkPermissions(message, cmd)) {
+                        const cooldownMsg = checkCooldown(message, cmd);
+                        if (cooldownMsg) {
+                             if (typeof cooldownMsg === 'string') message.reply(cooldownMsg);
+                             return;
                         }
+                        try {
+                            const finalArgs = argsRaw.slice(1);
+                            finalArgs.prefix = ""; 
+                            await cmd.execute(message, finalArgs); 
+                        } catch (e) { console.error(e); }
                     }
                     return; 
                 }
@@ -160,8 +176,6 @@ module.exports = {
             
             if (command) {
                 args.prefix = Prefix;
-                
-                // ( 🌟 التحقق الصارم من الصلاحيات للأوامر العادية 🌟 )
                 let isAllowed = false;
                 if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
                 else {
@@ -169,13 +183,9 @@ module.exports = {
                         const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.id);
                         const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.parentId);
                         if (channelPerm || categoryPerm) isAllowed = true;
-                        else { 
-                            const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ?").get(message.guild.id, command.name); 
-                            if (!hasRestrictions) isAllowed = true; 
-                        }
+                        else { const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ?").get(message.guild.id, command.name); if (!hasRestrictions) isAllowed = true; }
                     } catch (err) { isAllowed = true; }
                 }
-
                 if (isAllowed) {
                     if (checkPermissions(message, command)) {
                         const cooldownMsg = checkCooldown(message, command);
@@ -272,6 +282,7 @@ module.exports = {
                 await client.incrementQuestStats(userID, guildID, 'messages', 1);
                 if (message.attachments.size > 0) await client.incrementQuestStats(userID, guildID, 'images', 1);
                 if (message.stickers.size > 0) await client.incrementQuestStats(userID, guildID, 'stickers', message.stickers.size);
+                
                 const emojiRegex = /<a?:\w+:\d+>|[\u{1F300}-\u{1F9FF}]/gu;
                 const emojis = message.content.match(emojiRegex);
                 if (emojis) {
