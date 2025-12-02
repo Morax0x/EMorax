@@ -1,0 +1,153 @@
+const { SlashCommandBuilder } = require("discord.js");
+
+// 🔒 ضع الآيدي الخاص بك هنا (للحماية القصوى)
+const OWNER_ID = "1145327691772481577";
+
+// 💰 قائمة أسعار الأسماك (للتعويض)
+// أي شيء غير موجود هنا سيتم تعويضه بالسعر الافتراضي (5 مورا)
+const FISH_PRICES = {
+    "fish_trash": 1,
+    "fish_boot": 2,
+    "fish_seaweed": 5,
+    "fish_branch": 3,
+    "fish_sock": 4,
+    "fish_sardine": 10,
+    "fish_shrimp": 15,
+    "fish_goldfish": 25,
+    "fish_tuna": 30,
+    "fish_squid": 35,
+    "fish_mackerel": 40,
+    "fish_salmon": 60,
+    "fish_lobster": 70,
+    "fish_clown": 80,
+    "fish_octopus": 90,
+    "fish_puffer": 120,
+    "fish_turtle": 150,
+    "fish_ray": 180,
+    "fish_shark": 300,
+    "fish_dolphin": 350,
+    "fish_whale": 400,
+    "fish_treasure": 600,
+    "fish_kraken": 800,
+    "fish_golden_whale": 950,
+    
+    // احتياط للوحوش والأنواع الأخرى
+    "fish_bottle": 20,
+    "fish_anchovy": 15,
+    "fish_crab": 20,
+    "fish_seahorse": 45,
+    "fish_swordfish": 500,
+    "fish_catfish": 320,
+    "fish_piranha": 380,
+    "fish_angler": 1200,
+    "fish_marlin": 1300,
+    "fish_hammerhead": 1500,
+    "fish_koi": 3200,
+    "fish_orca": 450,
+    "fish_megalodon": 700,
+    "fish_leviathan": 1000
+};
+
+module.exports = {
+    data: new SlashCommandBuilder()
+        .setName('تعويض-السمك')
+        .setDescription('بيع جميع أسماك اللاعبين تلقائياً وحذفها من الحقيبة (للمالك فقط).'),
+
+    name: 'sellallfish',
+    aliases: ['تعويض_سمك', 'fixfish', 'sellfish'],
+    category: "Admin",
+    description: "تحويل الأسماك إلى مورا وحذفها.",
+
+    async execute(interactionOrMessage, args) {
+        const isSlash = !!interactionOrMessage.isChatInputCommand;
+        const authorId = isSlash ? interactionOrMessage.user.id : interactionOrMessage.author.id;
+        const client = interactionOrMessage.client;
+        const sql = client.sql;
+
+        // حماية: للمالك فقط
+        if (authorId !== OWNER_ID) {
+            const msg = "❌ هذا الأمر للمالك فقط.";
+            return isSlash ? interactionOrMessage.reply({ content: msg, ephemeral: true }) : interactionOrMessage.reply(msg);
+        }
+
+        const reply = async (content) => {
+            if (isSlash) {
+                if (interactionOrMessage.deferred || interactionOrMessage.replied) return interactionOrMessage.editReply(content);
+                return interactionOrMessage.reply({ content, ephemeral: true });
+            } else {
+                return interactionOrMessage.reply(content);
+            }
+        };
+
+        try {
+            if (isSlash) await interactionOrMessage.deferReply({ ephemeral: true });
+            else await interactionOrMessage.channel.send("⏳ جاري فحص الحقائب وحساب التعويضات...");
+
+            // 1. جلب كل الأسماك الموجودة (التي تبدأ بـ fish_)
+            const allFishItems = sql.prepare("SELECT * FROM user_portfolio WHERE itemID LIKE 'fish_%'").all();
+
+            if (allFishItems.length === 0) {
+                return reply("✅ لا يوجد أي أسماك في قاعدة البيانات لتعويضها.");
+            }
+
+            // 2. حساب التعويضات لكل لاعب
+            // الهيكل: { "userID-guildID": المبلغ_الكلي }
+            const refunds = {};
+            let totalItemsCount = 0;
+
+            for (const item of allFishItems) {
+                const price = FISH_PRICES[item.itemID] || 5; // 5 مورا كسعر افتراضي
+                const totalValue = price * item.quantity;
+                const key = `${item.userID}-${item.guildID}`;
+
+                if (!refunds[key]) refunds[key] = 0;
+                refunds[key] += totalValue;
+                totalItemsCount += item.quantity; // إحصائية فقط
+            }
+
+            // 3. توزيع المورا وتحديث الداتابيس
+            let usersCount = 0;
+            let totalMoraDistributed = 0;
+
+            const setLevel = client.setLevel;
+            const getLevel = client.getLevel;
+
+            // بدء معاملة قاعدة بيانات (Transaction) لضمان السرعة والأمان
+            const transaction = sql.transaction(() => {
+                for (const [key, amount] of Object.entries(refunds)) {
+                    const [userID, guildID] = key.split('-');
+                    
+                    let userData = getLevel.get(userID, guildID);
+                    if (!userData) {
+                        userData = { ...client.defaultData, user: userID, guild: guildID };
+                    }
+
+                    userData.mora += amount;
+                    setLevel.run(userData);
+
+                    usersCount++;
+                    totalMoraDistributed += amount;
+                }
+
+                // 4. الحذف النهائي للأسماك فقط
+                sql.prepare("DELETE FROM user_portfolio WHERE itemID LIKE 'fish_%'").run();
+            });
+
+            // تنفيذ المعاملة
+            transaction();
+
+            // 5. التقرير
+            const report = `✅ **تمت عملية التعويض بنجاح!**\n` +
+                           `💰 إجمالي المورا الموزعة: **${totalMoraDistributed.toLocaleString()}**\n` +
+                           `👥 عدد اللاعبين المستفيدين: **${usersCount}**\n` +
+                           `🐟 إجمالي الأسماك المباعة: **${totalItemsCount}**\n\n` +
+                           `⚠️ **الآن يمكنك حذف هذا الملف (` + __filename.split(/[\\/]/).pop() + `) بأمان.**`;
+
+            await reply(report);
+
+        } catch (error) {
+            console.error(error);
+            await reply("❌ حدث خطأ أثناء تنفيذ العملية. راجع الكونسول.");
+        }
+    }
+};
