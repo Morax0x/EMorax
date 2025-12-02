@@ -100,12 +100,21 @@
       "emoji": "🚀"
     },
     {
-      "id": "d_sticker_1",
-      "name": "ارسل ستيكر",
-      "description": "ارسل ملصق (Sticker) واحد",
+      "id": "d_emoji_20",
+      "name": "استخدم 20 ايموجي",
+      "description": "ارسل 20 إيموجي في الشات",
+      "stat": "emojis_sent",
+      "goal": 20,
+      "reward": { "mora": 300, "xp": 150 },
+      "emoji": "😀"
+    },
+    {
+      "id": "d_sticker_20",
+      "name": "ارسل 20 ستيكر",
+      "description": "ارسل 20 ملصق (Sticker)",
       "stat": "stickers",
-      "goal": 1,
-      "reward": { "mora": 20, "xp": 10 },
+      "goal": 20,
+      "reward": { "mora": 300, "xp": 150 },
       "emoji": "🎟️"
     }
   ],
@@ -194,10 +203,10 @@
     {
       "id": "w_emoji_100",
       "name": "استخدم 100 ايموجي",
-      "description": "استخدم 100 ايموجي في رسائلك (تلقائي مع الرسائل)",
-      "stat": "messages",
+      "description": "استخدم 100 ايموجي في رسائلك",
+      "stat": "emojis_sent",
       "goal": 100,
-      "reward": { "mora": 300, "xp": 100 },
+      "reward": { "mora": 1500, "xp": 500 },
       "emoji": "😀"
     },
     {
@@ -206,7 +215,7 @@
       "description": "ارسل 50 ملصق",
       "stat": "stickers",
       "goal": 50,
-      "reward": { "mora": 500, "xp": 200 },
+      "reward": { "mora": 1000, "xp": 400 },
       "emoji": "🎟️"
     }
   ],
