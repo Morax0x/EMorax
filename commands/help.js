@@ -60,7 +60,8 @@ const MANUAL_ARABIC_NAMES = new Map([
     ['pvp', 'تحدي'],
     ['my-skills', 'عتاد'],
     ['weapon-info', 'سلاح'],
-    ['shop', 'متجر']
+    ['shop', 'متجر'],
+    ['fish', 'صيد'] // ( 🌟 تمت الإضافة هنا 🌟 )
 ]);
 
 function getArabicDescription(cmd) {
@@ -125,6 +126,7 @@ function buildCasinoEmbed(client) {
 ✶** ${getCmdName(commands, 'rob')}: ** \`لسرقة ونهب رصيد مستخدم آخر\`
 ✶** ${getCmdName(commands, 'guess')}: ** \`لعبة تخمين الرقم فردي او جماعي\`
 ✶** ${getCmdName(commands, 'gametime')}: ** \`لاظهار فترة التهدئة لأوامر الكازينو\`
+✶** ${getCmdName(commands, 'fish')}: ** \`صيد السمك وكسب المورا\`
 
 **❖ اوامـر الـقـتـال**
 ✶** ${getCmdName(commands, 'pvp')}: ** \`قتال وتحدي شخص آخر والمراهنة\`
@@ -370,8 +372,6 @@ module.exports = {
         const helpMessage = await reply({ embeds: [initialEmbed], components: [row] });
 
         // 8. التعامل مع التفاعلات (Collector)
-        // ملاحظة: إذا كانت رسالة عادية، helpMessage هي الرسالة. إذا كانت سلاش، نحتاج لجلبها أحياناً، لكن editReply يرجع الرسالة في djs v14.
-        
         const filter = (i) => i.user.id === user.id && i.customId === 'help_menu';
         const collector = helpMessage.createMessageComponentCollector({ filter, componentType: ComponentType.StringSelect, time: 60000 });
 
