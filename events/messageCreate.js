@@ -75,7 +75,6 @@ module.exports = {
                 const fullContent = (message.content || "") + " " + (message.embeds[0]?.description || "") + " " + (message.embeds[0]?.title || "");
                 const lowerContent = fullContent.toLowerCase();
                 const validPhrases = ["watered the tree", "سقى الشجرة", "has watered", "قام بسقاية"];
-                
                 if (validPhrases.some(p => lowerContent.includes(p))) {
                     const match = fullContent.match(/<@!?(\d+)>/);
                     if (match && match[1]) {
@@ -98,24 +97,29 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
 
         // ============================================================
-        // 🌟 3. معالج الاختصارات (بدون قاموس + صارم للقناة) 🌟
+        // 🌟 3. معالج الاختصارات (البحث الذكي والدقيق) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
-            // 1. ابحث عن الاختصار المرتبط بهذه القناة تحديداً
+            // 1. البحث في قاعدة البيانات (حصرياً للقناة الحالية)
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
             if (shortcut) {
+                // الاسم الموجود في الداتابيس (مثلاً: "mora" أو "رصيد")
                 const targetName = shortcut.commandName.toLowerCase();
-                // ابحث عن الأمر في الملفات (بالاسم أو الـ Aliases)
-                const cmd = client.commands.get(targetName) || 
-                            client.commands.find(c => c.aliases && c.aliases.includes(targetName));
+
+                // 2. البحث عن الملف المطابق (بحث شامل: الاسم أو الـ Aliases)
+                // هذا الجزء هو الذي يحل مشكلة "بعض الاختصارات ما تشتغل"
+                const cmd = client.commands.find(c => 
+                    (c.name && c.name.toLowerCase() === targetName) || 
+                    (c.aliases && c.aliases.includes(targetName))
+                );
 
                 if (cmd) {
-                    // بما أن الاختصار مسجل لهذه القناة خصيصاً، فهو مسموح تلقائياً
+                    // التحقق من الصلاحيات والكولداون
                     if (checkPermissions(message, cmd)) {
                         const cooldownMsg = checkCooldown(message, cmd);
                         if (cooldownMsg) {
@@ -123,18 +127,22 @@ module.exports = {
                              return;
                         }
                         try {
+                            // تشغيل الأمر (بدون بريفكس)
                             const finalArgs = argsRaw.slice(1);
                             finalArgs.prefix = ""; 
                             await cmd.execute(message, finalArgs); 
                         } catch (e) { console.error(`[Shortcut Exec Error]`, e); }
                     }
-                    return; 
+                    return; // ✅ تم التنفيذ، توقف هنا ولا تكمل للبريفكس
+                } else {
+                    // للتصحيح: إذا وجد الاختصار في الداتابيس لكن لم يجد الملف
+                    console.log(`⚠️ [Shortcut] وجدنا الاختصار '${shortcutWord}' يشير لـ '${targetName}' لكن لم نجد ملف أمر مطابق.`);
                 }
             }
         } catch (err) { console.error("[Shortcut Handler Error]", err); }
         // ============================================================
 
-        // 4. معالج البريفكس (التحقق الصارم)
+        // 4. معالج البريفكس العادي
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
@@ -142,41 +150,27 @@ module.exports = {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             
-            // البحث عن الأمر (بدون قواميس)
             const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
             
             if (command) {
                 args.prefix = Prefix;
                 
+                // التحقق من الصلاحيات (Command Permissions)
                 let isAllowed = false;
-                
-                // 1. الإدارة العليا دائماً مسموح لهم
-                if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-                    isAllowed = true;
-                } else {
-                    // 2. التحقق من جدول الصلاحيات (command_permissions)
+                if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
+                else {
                     try {
-                        // هل الأمر مسموح في هذه القناة بالتحديد؟
+                        // هل مسموح في هذه القناة؟
                         const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.id);
-                        
-                        // هل الأمر مسموح في الكاتاغوري؟
+                        // هل مسموح في هذا الكاتاغوري؟
                         const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.parentId);
                         
-                        if (channelPerm || categoryPerm) {
-                            isAllowed = true;
-                        } else {
-                            // ( 🛑 المنطق الصارم: إذا لم يكن مسموحاً في القناة، هل هو ممنوع كلياً؟ )
-                            // في نظامك القديم، إذا لم يوجد قيد، فهو مسموح. لكن إذا أردت منع الرد إلا في القنوات المحددة:
-                            // نتحقق هل تم تقييد الأمر في أي مكان في السيرفر؟
-                            const isRestrictedAnywhere = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? LIMIT 1").get(message.guild.id, command.name);
-                            
-                            if (!isRestrictedAnywhere) {
-                                // الأمر غير مقيد بأي قناة، إذن هو متاح للجميع (السلوك الافتراضي)
-                                isAllowed = true;
-                            } else {
-                                // الأمر مقيد في قنوات معينة، وهذه القناة ليست منها -> ممنوع
-                                isAllowed = false;
-                            }
+                        if (channelPerm || categoryPerm) isAllowed = true;
+                        else { 
+                            // هل الأمر مقيد في أي مكان؟ (المنطق الصارم)
+                            const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? LIMIT 1").get(message.guild.id, command.name);
+                            // إذا لم يكن مقيداً أبداً، فهو مسموح للكل. إذا مقيد، فهو ممنوع هنا.
+                            if (!hasRestrictions) isAllowed = true; 
                         }
                     } catch (err) { isAllowed = true; }
                 }
@@ -185,17 +179,14 @@ module.exports = {
                     if (checkPermissions(message, command)) {
                         const cooldownMsg = checkCooldown(message, command);
                         if (cooldownMsg) { if (typeof cooldownMsg === 'string') message.reply(cooldownMsg); } 
-                        else { try { await command.execute(message, args); } catch (error) { console.error(error); message.reply("❌ حدث خطأ أثناء تنفيذ الأمر."); } }
+                        else { try { await command.execute(message, args); } catch (error) { console.error(error); message.reply("Error"); } }
                     }
-                } else {
-                    // (اختياري: يمكنك حذف هذا السطر إذا كنت لا تريد أن يرد البوت بـ "غير مسموح")
-                    // console.log(`[Command Blocked] ${command.name} tried in ${message.channel.name}`);
                 }
                 return;
             }
         }
 
-        // 5. القنوات الخاصة
+        // 5. القنوات الخاصة (بلاغ / كازينو)
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             if (message.content.trim().startsWith("بلاغ")) {
                 const args = message.content.trim().split(/ +/); args.shift(); await message.delete().catch(() => {});
@@ -271,7 +262,7 @@ module.exports = {
             }
         } catch (err) { console.error("[Auto Responder Error]", err); }
 
-        // 7. تتبع الإحصائيات
+        // 7. تتبع الإحصائيات (كاملة)
         try {
             const userID = message.author.id;
             const guildID = message.guild.id;
