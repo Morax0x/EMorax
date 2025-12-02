@@ -31,8 +31,8 @@ function formatTime(ms) {
     if (ms < 0) ms = 0;
     const hours = Math.floor(ms / 3600000);
     const minutes = Math.floor((ms % 3600000) / 60000);
-    if (hours > 0) return `~${hours} ساعة و ${minutes} دقيقة`;
-    if (minutes > 0) return `~${minutes} دقيقة`;
+    if (hours > 0) return `${hours} ساعة و ${minutes} دقيقة`;
+    if (minutes > 0) return `${minutes} دقيقة`;
     return "أقل من دقيقة";
 }
 
@@ -101,7 +101,6 @@ function calculateMoraBuff(member, sql) {
     return finalMultiplier;
 }
 
-// ( 🌟 Nickname Update Logic - Fixed to remove old streaks correctly 🌟 )
 async function updateNickname(member, sql) {
     if (!member) return;
     if (!sql || typeof sql.prepare !== 'function') return;
@@ -122,13 +121,10 @@ async function updateNickname(member, sql) {
 
     let baseName = member.displayName;
 
-    // ( 🌟 Regex to remove ANY previous streak format (Separator + Number + Any Emoji/Text) 🌟 )
-    // This regex looks for: [Space] [Separator] [Space] [Number] [Space] [Anything until end]
+    // ( 🌟 Regex to remove ANY previous streak format 🌟 )
     const separatorsPattern = ALLOWED_SEPARATORS_REGEX.join('|');
-    // Matches: "Name | 50 🔥", "Name » 50 🔥", "Name • 50 ⚡"
     const regex = new RegExp(`\\s*(${separatorsPattern})\\s*\\d+\\s*.*$`, 'g');
 
-    // Clean the name
     baseName = baseName.replace(regex, '').trim();
 
     let newName;
@@ -665,7 +661,8 @@ async function sendStreakWarnings(client, sql) {
 
         const embed = new EmbedBuilder().setTitle('✶ تـحـذيـر الـستريـك').setColor(Colors.Yellow)
             .setImage('https://i.postimg.cc/8z0Xw04N/attention.png') 
-            .setDescription(`- لـقـد مـضـى أكـثـر مـن 12 سـاعـة عـلـى آخـر رسـالـة لـك\n- سـتريـكك الـحـالي: ${streakData.streakCount} ${streakEmoji}\n- أمـامـك أقـل مـن 12 سـاعـة (تقريباً ${formatTime(timeLeft)}) لإرسـال رسـالـة جـديـدة قـبـل أن يـضـيـع!`);
+            // ( 🌟 Removed parentheses around the time 🌟 )
+            .setDescription(`- لـقـد مـضـى أكـثـر مـن 12 سـاعـة عـلـى آخـر رسـالـة لـك\n- سـتريـكك الـحـالي: ${streakData.streakCount} ${streakEmoji}\n- أمـامـك أقـل مـن 12 سـاعـة تقريباً ${formatTime(timeLeft)} لإرسـال رسـالـة جـديـدة قـبـل أن يـضـيـع!`);
 
         await member.send({ embeds: [embed], components: [row] }).then(() => {
             updateWarning.run(streakData.id);
