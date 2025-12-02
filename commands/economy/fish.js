@@ -22,8 +22,22 @@ const boatsConfig = fishingConfig.boats;
 const locationsConfig = fishingConfig.locations;
 const monstersConfig = fishingConfig.monsters || [];
 
+// 🔒 آيدي المالك
 const OWNER_ID = "1145327691772481577";
 const EMOJI_MORA = '<:mora:1435647151349698621>';
+
+// 🎨 قائمة الألوان المتاحة للعبة المصغرة
+const COLOR_GAME_OPTIONS = [
+    { id: 'red', emoji: '🔴', label: 'أحمر' },
+    { id: 'blue', emoji: '🔵', label: 'أزرق' },
+    { id: 'green', emoji: '🟢', label: 'أخضر' },
+    { id: 'yellow', emoji: '🟡', label: 'أصفر' },
+    { id: 'purple', emoji: '🟣', label: 'بنفسجي' },
+    { id: 'white', emoji: '⚪', label: 'أبيض' },
+    { id: 'black', emoji: '⚫', label: 'أسود' },
+    { id: 'orange', emoji: '🟠', label: 'برتقالي' },
+    { id: 'brown', emoji: '🟤', label: 'بني' }
+];
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -54,6 +68,7 @@ module.exports = {
             return interactionOrMessage.reply(payload);
         };
 
+        // 1. جلب بيانات المستخدم
         let userData = client.getLevel.get(user.id, guild.id);
         if (!userData) {
             userData = { 
@@ -68,6 +83,7 @@ module.exports = {
             client.setLevel.run(userData);
         }
 
+        // التحقق من الجرح
         const now = Date.now();
         const woundedDebuff = sql.prepare("SELECT * FROM user_buffs WHERE userID = ? AND guildID = ? AND buffType = 'pvp_wounded' AND expiresAt > ?").get(user.id, guild.id, now);
         if (woundedDebuff) {
@@ -78,11 +94,13 @@ module.exports = {
             });
         }
 
+        // تجهيز العدة
         const currentRod = rodsConfig.find(r => r.level === (userData.rodLevel || 1)) || rodsConfig[0];
         const currentBoat = boatsConfig.find(b => b.level === (userData.boatLevel || 1)) || boatsConfig[0];
         const locationId = userData.currentLocation || 'beach';
         const currentLocation = locationsConfig.find(l => l.id === locationId) || locationsConfig[0];
 
+        // الكولداون
         let cooldown = currentRod.cooldown - (currentBoat.speed_bonus || 0);
         if (cooldown < 10000) cooldown = 10000; 
 
@@ -99,6 +117,7 @@ module.exports = {
 
         if (isSlash) await interactionOrMessage.deferReply();
 
+        // 3. واجهة الانتظار
         const startEmbed = new EmbedBuilder()
             .setTitle(`🎣 رحلة صيد: ${currentLocation.name}`)
             .setColor(Colors.Blue)
@@ -132,33 +151,75 @@ module.exports = {
             const waitTime = Math.floor(Math.random() * 3000) + 2000;
 
             setTimeout(async () => {
+                // 🎲 إعداد لعبة الألوان
+                // 1. نختار لون الهدف (الصحيح)
+                const targetColor = COLOR_GAME_OPTIONS[Math.floor(Math.random() * COLOR_GAME_OPTIONS.length)];
+                
+                // 2. نختار 3 ألوان أخرى عشوائية (مموهة)
+                let distractors = COLOR_GAME_OPTIONS.filter(c => c.id !== targetColor.id);
+                // خلط المموهات واختيار 2 أو 3 منها
+                distractors = distractors.sort(() => 0.5 - Math.random()).slice(0, 3);
+                
+                // 3. ندمج الهدف مع المموهات ونخلطهم
+                let gameButtons = [targetColor, ...distractors];
+                gameButtons = gameButtons.sort(() => 0.5 - Math.random());
+
+                // 4. بناء الأزرار
+                const gameRow = new ActionRowBuilder();
+                gameButtons.forEach(btn => {
+                    gameRow.addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`fish_click_${btn.id}`) // الآيدي يحمل اسم اللون
+                            .setEmoji(btn.emoji)
+                            .setStyle(ButtonStyle.Secondary)
+                    );
+                });
+
                 const biteEmbed = new EmbedBuilder()
-                    .setTitle("‼️ سمكة! اسحب الآن!")
-                    .setDescription("اضغط الزر بسرعة قبل أن تهرب!")
+                    .setTitle("🎣 الـسنـارة تهـتز اسحـب الان !")
+                    .setDescription(`**اسحـب السنـارة بسـرعة اضغـط على** ${targetColor.emoji}`)
                     .setColor(Colors.Green);
 
-                const pullRow = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('pull_rod_now').setLabel('اسحب السنارة!').setStyle(ButtonStyle.Success).setEmoji('🦈')
-                );
+                await i.editReply({ embeds: [biteEmbed], components: [gameRow] });
 
-                await i.editReply({ embeds: [biteEmbed], components: [pullRow] });
-
-                const pullFilter = j => j.user.id === user.id && j.customId === 'pull_rod_now';
-                const pullCollector = msg.createMessageComponentCollector({ filter: pullFilter, time: 2000, max: 1 }); 
+                // 5. كوليكتور الاستجابة (3 ثواني)
+                // الفلتر يتأكد أن الزر المضغوط هو نفس لون الهدف
+                const pullFilter = j => j.user.id === user.id && j.customId.startsWith('fish_click_');
+                const pullCollector = msg.createMessageComponentCollector({ filter: pullFilter, time: 3000, max: 1 }); 
 
                 pullCollector.on('collect', async j => {
                     await j.deferUpdate();
+                    
+                    const clickedColorId = j.customId.replace('fish_click_', '');
+
+                    // ❌ إذا ضغط اللون الخطأ
+                    if (clickedColorId !== targetColor.id) {
+                        pullCollector.stop('wrong_color');
+                        const failEmbed = new EmbedBuilder()
+                            .setTitle("❌ أفلتت السنارة!")
+                            .setDescription(`طلبت منك ضغط ${targetColor.emoji} لكنك ضغطت زرًا خاطئًا!`)
+                            .setColor(Colors.Red);
+                        userData.lastFish = Date.now();
+                        client.setLevel.run(userData);
+                        await j.editReply({ embeds: [failEmbed], components: [] });
+                        return;
+                    }
+
+                    pullCollector.stop('success'); // إيقاف الكوليكتور بنجاح
 
                     // ========================================================
-                    // 🦑 منطق الوحوش (Monster Encounter Logic)
+                    // 🦑 منطق الوحوش (مع الغش للمالك للتجربة)
                     // ========================================================
-                    const monsterChance = Math.random();
+                    // 🚨 هنا التعديل: إذا كنت المالك النسبة 50%، للغير 10%
+                    const monsterChanceBase = Math.random();
+                    const isOwner = user.id === OWNER_ID;
+                    const monsterTriggered = isOwner ? (monsterChanceBase < 0.50) : (monsterChanceBase < 0.10);
+
                     const possibleMonsters = monstersConfig.filter(m => m.locations.includes(locationId));
                     
-                    if (possibleMonsters.length > 0 && monsterChance < 0.10) {
+                    if (possibleMonsters.length > 0 && monsterTriggered) {
                         const monster = possibleMonsters[Math.floor(Math.random() * possibleMonsters.length)];
                         
-                        // 🛠️ التصحيح هنا: نمرر j.member بدلاً من user لضمان وجود الرتب والسيرفر
                         let playerWeapon = pvpCore.getWeaponData(sql, j.member);
                         if (!playerWeapon || playerWeapon.currentLevel === 0) {
                             playerWeapon = { name: "سكين صيد صدئة", currentStats: { damage: 15 } };
@@ -274,11 +335,11 @@ module.exports = {
                     await j.editReply({ embeds: [resultEmbed], components: [] });
                 });
 
-                pullCollector.on('end', async (collected) => {
-                    if (collected.size === 0) {
+                pullCollector.on('end', async (collected, reason) => {
+                    if (reason === 'time' || (reason !== 'success' && reason !== 'wrong_color' && collected.size === 0)) {
                         const failEmbed = new EmbedBuilder()
                             .setTitle("💨 هربت السمكة!")
-                            .setDescription("يـا فـاشـل هـربـت السمـكـة منـك <:mirkk:1435648219488190525>")
+                            .setDescription("تأخرت في الاستجابة! السمكة سريعة جدًا.")
                             .setColor(Colors.Red);
                         
                         userData.lastFish = Date.now();
