@@ -53,7 +53,7 @@ module.exports = {
             .setRequired(true)),
 
     name: 'rob',
-    aliases: ['سرقة', 'نهب'],
+    aliases: ['سرقة', 'نهب','سرقه'],
     category: "Economy",
     description: 'محاولة سرقة المورا (الكاش أو البنك) من عضو آخر.',
 
