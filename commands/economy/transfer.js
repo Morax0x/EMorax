@@ -24,13 +24,14 @@ module.exports = {
     async execute(interactionOrMessage, args) {
 
         const isSlash = !!interactionOrMessage.isChatInputCommand;
-        let interaction, message, guild, client, sender, senderMember;
+        let interaction, message, guild, client, sender, senderMember, sql;
         let receiver, amount;
 
         if (isSlash) {
             interaction = interactionOrMessage;
             guild = interaction.guild;
             client = interaction.client;
+            sql = client.sql; // جلب sql
             sender = interaction.user;
             senderMember = interaction.member;
             receiver = interaction.options.getMember('المستلم');
@@ -40,6 +41,7 @@ module.exports = {
             message = interactionOrMessage;
             guild = message.guild;
             client = message.client;
+            sql = client.sql; // جلب sql
             sender = message.author;
             senderMember = message.member;
             receiver = message.mentions.members.first();
@@ -69,6 +71,16 @@ module.exports = {
 
         if (receiver.id === sender.id) {
             return replyError("لا يمكنك التحويل لنفسك!");
+        }
+
+        // ( 🌟 الشرط الجديد: التحقق من وجود قرض على المرسل 🌟 )
+        try {
+            const userLoan = sql.prepare("SELECT 1 FROM user_loans WHERE userID = ? AND guildID = ? AND remainingAmount > 0").get(sender.id, guild.id);
+            if (userLoan) {
+                return replyError(`❌ لا يمكنك إجراء تحويلات مالية لأن لديك **قرضاً نشطاً**. يرجى سداد القرض أولاً!`);
+            }
+        } catch (err) {
+            console.error("Loan Check Error:", err);
         }
 
         const getScore = client.getLevel;
