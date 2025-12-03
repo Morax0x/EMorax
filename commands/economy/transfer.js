@@ -31,7 +31,7 @@ module.exports = {
             interaction = interactionOrMessage;
             guild = interaction.guild;
             client = interaction.client;
-            sql = client.sql; // جلب sql
+            sql = client.sql; 
             sender = interaction.user;
             senderMember = interaction.member;
             receiver = interaction.options.getMember('المستلم');
@@ -41,7 +41,7 @@ module.exports = {
             message = interactionOrMessage;
             guild = message.guild;
             client = message.client;
-            sql = client.sql; // جلب sql
+            sql = client.sql; 
             sender = message.author;
             senderMember = message.member;
             receiver = message.mentions.members.first();
@@ -73,11 +73,13 @@ module.exports = {
             return replyError("لا يمكنك التحويل لنفسك!");
         }
 
-        // ( 🌟 الشرط الجديد: التحقق من وجود قرض على المرسل 🌟 )
+        // ( 🌟 التصحيح: فحص القرض بدقة 🌟 )
         try {
-            const userLoan = sql.prepare("SELECT 1 FROM user_loans WHERE userID = ? AND guildID = ? AND remainingAmount > 0").get(sender.id, guild.id);
-            if (userLoan) {
-                return replyError(`❌ لا يمكنك إجراء تحويلات مالية لأن لديك **قرضاً نشطاً**. يرجى سداد القرض أولاً!`);
+            const userLoan = sql.prepare("SELECT remainingAmount FROM user_loans WHERE userID = ? AND guildID = ?").get(sender.id, guild.id);
+            
+            // إذا وجدنا قرضاً والمبلغ المتبقي أكبر من 0
+            if (userLoan && userLoan.remainingAmount > 0) {
+                return replyError(`❌ **عملية مرفوضة!**\nعليك قرض بقيمة **${userLoan.remainingAmount.toLocaleString()}** مورا.\nيجب سداد القرض أولاً باستخدام \`/سداد\` قبل أن تتمكن من تحويل الأموال.`);
             }
         } catch (err) {
             console.error("Loan Check Error:", err);
