@@ -33,7 +33,6 @@ if (typeof pvpCore.startPveBattle !== 'function') {
 const fishItems = fishingConfig.fishItems;
 const rodsConfig = fishingConfig.rods;
 const boatsConfig = fishingConfig.boats;
-const baitsConfig = fishingConfig.baits; 
 const locationsConfig = fishingConfig.locations;
 const monstersConfig = fishingConfig.monsters || [];
 
@@ -108,19 +107,6 @@ module.exports = {
         const locationId = userData.currentLocation || 'beach';
         const currentLocation = locationsConfig.find(l => l.id === locationId) || locationsConfig[0];
 
-        // البحث عن الطعم
-        const userPortfolio = sql.prepare("SELECT itemID, quantity FROM user_portfolio WHERE userID = ? AND guildID = ?").all(user.id, guild.id);
-        const availableBaits = userPortfolio
-            .map(item => {
-                const config = baitsConfig.find(b => b.id === item.itemID);
-                return config ? { ...config, qty: item.quantity } : null;
-            })
-            .filter(b => b !== null)
-            .sort((a, b) => b.luck - a.luck); 
-
-        const currentBait = availableBaits.length > 0 ? availableBaits[0] : null;
-        const baitText = currentBait ? `\n🪱 **الطعم:** ${currentBait.name} (x${currentBait.qty})` : "";
-
         // الكولداون
         let cooldown = currentRod.cooldown - (currentBoat.speed_bonus || 0);
         if (cooldown < 10000) cooldown = 10000; 
@@ -142,7 +128,7 @@ module.exports = {
         const startEmbed = new EmbedBuilder()
             .setTitle(`🎣 رحلة صيد: ${currentLocation.name}`)
             .setColor(Colors.Blue)
-            .setDescription(`**عدتك الحالية:**\n🎣 **السنارة:** ${currentRod.name}\n🚤 **القارب:** ${currentBoat.name}\n🌊 **المنطقة:** ${currentLocation.name}${baitText}`)
+            .setDescription(`**عدتك الحالية:**\n🎣 **السنارة:** ${currentRod.name}\n🚤 **القارب:** ${currentBoat.name}\n🌊 **المنطقة:** ${currentLocation.name}`)
             .setFooter({ text: "اضغط الزر أدناه لرمي السنارة..." });
 
         const startRow = new ActionRowBuilder().addComponents(
@@ -157,18 +143,9 @@ module.exports = {
         collector.on('collect', async i => {
             await i.deferUpdate();
 
-            // خصم الطعم
-            if (currentBait) {
-                if (currentBait.qty > 1) {
-                    sql.prepare("UPDATE user_portfolio SET quantity = quantity - 1 WHERE userID = ? AND guildID = ? AND itemID = ?").run(user.id, guild.id, currentBait.id);
-                } else {
-                    sql.prepare("DELETE FROM user_portfolio WHERE userID = ? AND guildID = ? AND itemID = ?").run(user.id, guild.id, currentBait.id);
-                }
-            }
-
             const waitingEmbed = new EmbedBuilder()
                 .setTitle("🌊 السنارة في الماء...")
-                .setDescription("انتـظـر حتـى تهتـز السنـارة واضغط الزر المنـاسـب ...")
+                .setDescription("انتظر... لا تسحب السنارة حتى تشعر بالاهتزاز!")
                 .setColor(Colors.Grey)
                 .setImage("https://i.postimg.cc/Wz0g0Zg0/fishing.png");
 
@@ -181,6 +158,7 @@ module.exports = {
             const waitTime = Math.floor(Math.random() * 3000) + 2000;
 
             setTimeout(async () => {
+                // 🎲 لعبة الألوان
                 const targetColor = COLOR_GAME_OPTIONS[Math.floor(Math.random() * COLOR_GAME_OPTIONS.length)];
                 
                 let distractors = COLOR_GAME_OPTIONS.filter(c => c.id !== targetColor.id);
@@ -203,7 +181,7 @@ module.exports = {
                 await i.editReply({ embeds: [biteEmbed], components: [gameRow] });
 
                 const pullFilter = j => j.user.id === user.id && j.customId.startsWith('fish_click_');
-                const pullCollector = msg.createMessageComponentCollector({ filter: pullFilter, time: 3000, max: 1 }); 
+                const pullCollector = msg.createMessageComponentCollector({ filter: pullFilter, time: 2000, max: 1 }); 
 
                 pullCollector.on('collect', async j => {
                     await j.deferUpdate();
@@ -224,7 +202,7 @@ module.exports = {
                     pullCollector.stop('success');
 
                     // ========================================================
-                    // 🦑 Monster Logic (PvE)
+                    // 🦑 منطق الوحوش (PvE)
                     // ========================================================
                     const monsterChanceBase = Math.random();
                     const isOwner = user.id === OWNER_ID;
@@ -249,15 +227,13 @@ module.exports = {
                         }
                     }
 
-                    // --- Normal Fishing ---
+                    // --- الصيد الطبيعي (بدون وحوش) ---
                     const fishCount = Math.floor(Math.random() * currentRod.max_fish) + 1;
                     let caughtFish = [];
                     let totalValue = 0;
-                    
-                    const baitLuckBonus = currentBait ? (currentBait.luck || 0) : 0;
 
                     for (let k = 0; k < fishCount; k++) {
-                        const roll = Math.random() * 100 + (currentRod.luck_bonus || 0) + baitLuckBonus;
+                        const roll = Math.random() * 100 + (currentRod.luck_bonus || 0);
                         let rarity = 1;
                         if (roll > 95) rarity = 6;        
                         else if (roll > 85) rarity = 5;   
@@ -275,13 +251,9 @@ module.exports = {
                         if (possibleFish.length > 0) {
                             const fish = possibleFish[Math.floor(Math.random() * possibleFish.length)];
                             
-                            // ✅ ( تم إعادة تفعيل الحفظ في الحقيبة ) ✅
-                            sql.prepare(`
-                                INSERT INTO user_portfolio (guildID, userID, itemID, quantity) 
-                                VALUES (?, ?, ?, 1) 
-                                ON CONFLICT(guildID, userID, itemID) 
-                                DO UPDATE SET quantity = quantity + 1
-                            `).run(guild.id, user.id, fish.id);
+                            // ❌❌ تم إزالة كود الحفظ في قاعدة البيانات ❌❌
+                            // sql.prepare(`INSERT INTO user_portfolio ...`).run(...); 
+                            // (الآن السمك لا يُخزن كـ item)
 
                             caughtFish.push(fish);
                             totalValue += fish.price;
@@ -302,6 +274,7 @@ module.exports = {
                         let rarityStar = "";
                         if (info.rarity >= 5) rarityStar = "🌟"; else if (info.rarity === 4) rarityStar = "✨";
                         
+                        // ( 🌟 التعديل هنا: نقل العدد للنهاية 🌟 )
                         description += `✶ ${info.emoji} ${name} ${rarityStar} **x${info.count}**\n`;
                     }
                     description += `\n✶ قيـمـة الصيد: \`${totalValue.toLocaleString()}\` ${EMOJI_MORA}`;
@@ -318,10 +291,13 @@ module.exports = {
 
                 pullCollector.on('end', async (collected) => {
                     if (collected.size === 0) {
-                        const failEmbed = new EmbedBuilder().setTitle("💨 هربت السمـكـة!")
+                        // انتهى الوقت ولم يضغط
+                        const failEmbed = new EmbedBuilder()
+                            .setTitle("💨 هربت السمكة!")
                             .setDescription("تأخرت في السحب! حاول مرة أخرى لاحقاً.")
                             .setColor(Colors.Red);
                         
+                        // نحدث الوقت حتى لو فشل (عشان الكولداون)
                         userData.lastFish = Date.now();
                         client.setLevel.run(userData);
 
