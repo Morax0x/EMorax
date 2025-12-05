@@ -8,25 +8,6 @@ const DISBOARD_BOT_ID = '302050872383242240';
 const autoResponderCooldowns = new Collection();
 const treeCooldowns = new Set();
 
-// ( 🌟 قاموس الترجمة الداخلي لضمان عمل الاختصارات القديمة 🌟 )
-const COMMAND_ALIASES_MAP = {
-    'balance': 'balance', 'bal': 'balance', 'b': 'balance', 'credits': 'balance', 'c': 'balance', 
-    'رصيد': 'balance', 'فلوس': 'balance', 'مورا': 'balance', '0': 'balance', 'mora': 'balance',
-    'rank': 'rank', 'r': 'rank', 'level': 'rank', 'lvl': 'rank', 'l': 'rank',
-    'رانك': 'rank', 'لفل': 'rank', 'مستوى': 'rank', 'خبرة': 'rank',
-    'top': 'top', 't': 'top', 'leaderboard': 'top', 'lb': 'top',
-    'توب': 'top', 'الاوائل': 'top', 'المتصدرين': 'top', 'ترتيب': 'top',
-    'daily': 'daily', 'd': 'daily', 'day': 'daily',
-    'يومي': 'daily', 'راتب': 'daily', 'يومية': 'daily', 'هدية': 'daily',
-    'profile': 'profile', 'p': 'profile', 'user': 'profile',
-    'بروفايل': 'profile', 'شخصية': 'profile', 'حسابي': 'profile', 'هويتي': 'profile',
-    'transfer': 'transfer', 'trans': 'transfer', 'pay': 'transfer', 'give': 'transfer',
-    'تحويل': 'transfer', 'حول': 'transfer',
-    'bank': 'bank', 'bnk': 'bank', 'dep': 'deposit', 'wd': 'withdraw',
-    'بنك': 'bank', 'ايداع': 'deposit', 'سحب': 'withdraw',
-    'fish': 'fish', 'صيد': 'fish', 'ص': 'fish', 'fishing': 'fish'
-};
-
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
     const now = new Date(); const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7; 
@@ -117,25 +98,31 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
 
         // ============================================================
-        // 3. معالج الاختصارات (يعمل فقط في القنوات المحددة)
+        // 🌟 3. معالج الاختصارات (بدون قاموس - ديناميكي) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
-            // البحث في القناة الحالية
+            // البحث في الداتابيس (للقناة الحالية)
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
-            if (shortcut) {
-                let targetName = shortcut.commandName.toLowerCase();
-                // تصحيح الاسم عبر القاموس
-                if (COMMAND_ALIASES_MAP[targetName]) targetName = COMMAND_ALIASES_MAP[targetName];
+            // Fallback: البحث العام (إذا كنت تريد الاختصارات تعمل في كل مكان إذا لم تخصص لقناة)
+            if (!shortcut) {
+                 shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND shortcutWord = ? AND (channelID IS NULL OR channelID = 'null' OR channelID = '')")
+                .get(message.guild.id, shortcutWord);
+            }
 
+            if (shortcut) {
+                const targetName = shortcut.commandName.toLowerCase();
+
+                // البحث الديناميكي في الأوامر المحملة
                 const cmd = client.commands.get(targetName) || 
                             client.commands.find(c => c.aliases && c.aliases.includes(targetName));
 
                 if (cmd) {
+                    // بما أن الاختصار مسجل، نتحقق فقط من الكولداون (الاختصار يعتبر "سماح" ضمني)
                     if (checkPermissions(message, cmd)) {
                         const cooldownMsg = checkCooldown(message, cmd);
                         if (cooldownMsg) {
@@ -146,16 +133,15 @@ module.exports = {
                             const finalArgs = argsRaw.slice(1);
                             finalArgs.prefix = ""; 
                             await cmd.execute(message, finalArgs); 
-                        } catch (e) { console.error(`[Shortcut Error]`, e); }
+                        } catch (e) { console.error(`[Shortcut Exec Error]`, e); }
                     }
                     return; 
                 }
             }
         } catch (err) { console.error("[Shortcut Handler Error]", err); }
+        // ============================================================
 
-        // ============================================================
-        // 4. معالج البريفكس (يعمل في كل مكان ما لم يتم تقييده)
-        // ============================================================
+        // 4. معالج البريفكس (نظام الصلاحيات الصارم)
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
@@ -163,27 +149,22 @@ module.exports = {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             
-            // 1. البحث في القاموس أولاً
-            let targetName = commandName;
-            if (COMMAND_ALIASES_MAP[commandName]) targetName = COMMAND_ALIASES_MAP[commandName];
-
-            // 2. البحث عن الأمر
-            const command = client.commands.get(targetName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(targetName));
+            const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
             
             if (command) {
                 args.prefix = Prefix;
                 
                 let isAllowed = false;
                 
-                // أ) الإدارة العليا (مسموح دائماً)
+                // أ) الإدارة العليا
                 if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
                     isAllowed = true;
-                }
-                // ب) الكازينو (مسموح لأوامر الاقتصاد)
+                } 
+                // ب) الكازينو (لأوامر الاقتصاد فقط)
                 else if (settings && settings.casinoChannelID === message.channel.id && command.category === 'Economy') {
                     isAllowed = true;
                 }
-                // ج) التحقق من القناة الحالية
+                // ج) السماح اليدوي (command_permissions)
                 else {
                     try {
                         const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.id);
@@ -191,19 +172,11 @@ module.exports = {
                         
                         if (channelPerm || categoryPerm) {
                             isAllowed = true;
-                        } else {
-                            // د) التحقق العام: هل الأمر مقيد في أي مكان آخر؟
-                            // إذا كان الأمر مقيداً في قنوات محددة، فهو ممنوع في غيرها.
-                            // إذا لم يكن مقيداً أبداً في الداتابيس، فهو مسموح للجميع (Default Allow).
-                            const isRestrictedAnywhere = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? LIMIT 1").get(message.guild.id, command.name);
-                            
-                            if (!isRestrictedAnywhere) {
-                                isAllowed = true;
-                            }
                         }
                     } catch (err) { isAllowed = true; }
                 }
 
+                // إذا لم يتحقق أي شرط، الأمر ممنوع (لن يتم تنفيذه)
                 if (isAllowed) {
                     if (checkPermissions(message, command)) {
                         const cooldownMsg = checkCooldown(message, command);
@@ -215,7 +188,7 @@ module.exports = {
             }
         }
 
-        // 5. القنوات الخاصة
+        // 5. القنوات الخاصة (بلاغ)
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             if (message.content.trim().startsWith("بلاغ")) {
                 const args = message.content.trim().split(/ +/); args.shift(); await message.delete().catch(() => {});
@@ -230,15 +203,11 @@ module.exports = {
             return; 
         }
 
-        // الكازينو بدون بريفكس (للأوامر الاقتصادية فقط)
+        // الكازينو بدون بريفكس
         if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
             const args = message.content.trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
-            
-            let targetName = commandName;
-            if (COMMAND_ALIASES_MAP[commandName]) targetName = COMMAND_ALIASES_MAP[commandName];
-
-            const command = client.commands.get(targetName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(targetName));
+            const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
             if (command && command.category === "Economy") {
                 if (!checkPermissions(message, command)) return;
                 try { await command.execute(message, args); } catch (error) {}
