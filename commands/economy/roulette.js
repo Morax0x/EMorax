@@ -426,20 +426,13 @@ async function playChallenge(interactionOrMessage, reply, author, opponents, bet
             if (winner && highestMultiplier > 1) {
                 let winnerData = getScore.get(winner.id, guild.id);
 
-                const moraMultiplier = calculateMoraBuff(winner, sql);
-                const buffedBet = Math.floor(bet * moraMultiplier);
-                const bonus = buffedBet - bet;
-                const finalWinnings = totalPot + bonus;
+                // ( 🌟 تمت إزالة المعزز نهائياً من اللعب الجماعي 🌟 )
+                const finalWinnings = totalPot;
 
                 winnerData.mora += finalWinnings;
                 setScore.run(winnerData);
 
                 let description = `لقد حقق أعلى مضاعf (${highestMultiplier}x) وربح الجائزة الكبرى **${totalPot}** ${EMOJI_MORA}!`;
-                if (bonus > 0) {
-                    description += `\n+ **${bonus}** ${EMOJI_MORA} (بونص التعزيز!)`;
-                } else if (bonus < 0) {
-                    description += `\n- **${Math.abs(bonus)}** ${EMOJI_MORA} (تأثير سلبي!)`;
-                }
                 description += `\n\n**النتائج:**\n${results.join('\n')}`;
 
                 finalEmbed.setTitle(`🏆 الفائز هو ${winner.displayName}!`)
