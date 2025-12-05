@@ -18,15 +18,7 @@ try {
     process.exit(1);
 }
 
-// (Ensure columns exist)
-try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastFish INTEGER DEFAULT 0").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN rodLevel INTEGER DEFAULT 1").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN boatLevel INTEGER DEFAULT 1").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN currentLocation TEXT DEFAULT 'beach'").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE user_total_stats ADD COLUMN total_emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE user_daily_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE user_weekly_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
-
+// Ensure critical columns exist
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN chatChannelID TEXT").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN treeBotID TEXT").run(); } catch (e) {}
@@ -78,9 +70,6 @@ const client = new Client({
     partials: [Partials.Message, Partials.Channel, Partials.Reaction] 
 });
 
-// Initialize cache immediately
-client.antiRolesCache = new Map();
-
 client.commands = new Collection();
 client.cooldowns = new Collection();
 client.talkedRecently = new Map();
@@ -104,7 +93,6 @@ client.generateQuestAlert = generateQuestAlert;
 
 if (sql.open) {
     client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
-    
     client.setLevel = sql.prepare("INSERT OR REPLACE INTO levels (user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, lastRob, lastGuess, lastRPS, lastRoulette, lastTransfer, lastDeposit, shop_purchases, total_meow_count, boost_count, lastPVP, lastFarmYield, lastFish, rodLevel, boatLevel, currentLocation) VALUES (@user, @guild, @xp, @level, @totalXP, @mora, @lastWork, @lastDaily, @dailyStreak, @bank, @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @lastCollected, @totalVCTime, @lastRob, @lastGuess, @lastRPS, @lastRoulette, @lastTransfer, @lastDeposit, @shop_purchases, @total_meow_count, @boost_count, @lastPVP, @lastFarmYield, @lastFish, @rodLevel, @boatLevel, @currentLocation);");
     
     client.defaultData = { 
@@ -116,7 +104,6 @@ if (sql.open) {
     };
 
     client.getDailyStats = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?");
-    // Ensure emojis_sent is included in the insert
     client.setDailyStats = sql.prepare("INSERT OR REPLACE INTO user_daily_stats (id, userID, guildID, date, messages, images, stickers, emojis_sent, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @date, @messages, @images, @stickers, @emojis_sent, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
     
     client.getWeeklyStats = sql.prepare("SELECT * FROM user_weekly_stats WHERE id = ?");
@@ -131,7 +118,7 @@ if (sql.open) {
 
 try { require('./handlers/backup-scheduler.js')(client, sql); } catch(e) {}
 
-// Initialize defaults with 0 for all tracked stats
+// Default stats
 const defaultDailyStats = { messages: 0, images: 0, stickers: 0, emojis_sent: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
 const defaultTotalStats = { total_messages: 0, total_images: 0, total_stickers: 0, total_emojis_sent: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
 
@@ -152,9 +139,11 @@ function getWeekStartDateString() {
     return friday.toISOString().split('T')[0];
 }
 
+// --- Helper Functions ---
 client.checkAndAwardLevelRoles = async function(member, newLevel) { if (!client.sql.open) return; try { const guild = member.guild; const allLevelRoles = sql.prepare("SELECT level, roleID FROM level_roles WHERE guildID = ? ORDER BY level DESC").all(guild.id); if (allLevelRoles.length === 0) return; const botMember = guild.members.me; if (!botMember.permissions.has(PermissionsBitField.Flags.ManageRoles)) return; let roleToAdd = null; const rolesToRemove = []; let highestRoleFound = false; for (const row of allLevelRoles) { const role = guild.roles.cache.get(row.roleID); if (!role) continue; if (row.level <= newLevel && !highestRoleFound) { highestRoleFound = true; if (!member.roles.cache.has(role.id)) roleToAdd = role; } else { if (member.roles.cache.has(role.id)) rolesToRemove.push(role); } } if (roleToAdd && roleToAdd.position < botMember.roles.highest.position) { await member.roles.add(roleToAdd); } if (rolesToRemove.length > 0) { try { await member.roles.remove(rolesToRemove); } catch (e) {} } } catch (err) { console.error("[Level Roles] Error:", err.message); } }
 client.sendLevelUpMessage = async function(messageOrInteraction, member, newLevel, oldLevel, xpData) { if (!client.sql.open) return; try { await client.checkAndAwardLevelRoles(member, newLevel); const guild = member.guild; let channelToSend = null; try { let channelData = sql.prepare("SELECT channel FROM channel WHERE guild = ?").get(guild.id); if (channelData && channelData.channel && channelData.channel !== 'Default') { const fetchedChannel = guild.channels.cache.get(channelData.channel); if (fetchedChannel) channelToSend = fetchedChannel; } } catch(e) {} if (!channelToSend) { if (messageOrInteraction && messageOrInteraction.channel) { channelToSend = messageOrInteraction.channel; } else { return; } } let customSettings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(guild.id); let levelUpContent = null; let embed; if (customSettings && customSettings.lvlUpTitle) { function antonymsLevelUp(string) { return string.replace(/{member}/gi, `${member}`).replace(/{level}/gi, `${newLevel}`).replace(/{level_old}/gi, `${oldLevel}`).replace(/{xp}/gi, `${xpData.xp}`).replace(/{totalXP}/gi, `${xpData.totalXP}`); } embed = new EmbedBuilder().setTitle(antonymsLevelUp(customSettings.lvlUpTitle)).setDescription(antonymsLevelUp(customSettings.lvlUpDesc.replace(/\\n/g, '\n'))).setColor(customSettings.lvlUpColor || "Random").setTimestamp(); if (customSettings.lvlUpImage) { embed.setImage(antonymsLevelUp(customSettings.lvlUpImage)); } if (customSettings.lvlUpMention == 1) { levelUpContent = `${member}`; } } else { embed = new EmbedBuilder().setAuthor({ name: member.user.tag, iconURL: member.user.displayAvatarURL({ dynamic: true }) }).setColor("Random").setDescription(`**Congratulations** ${member}! You have now leveled up to **level ${newLevel}**`); } const perms = channelToSend.permissionsFor(guild.members.me); if (perms.has(PermissionsBitField.Flags.SendMessages) && perms.has(PermissionsBitField.Flags.ViewChannel)) { await channelToSend.send({ content: levelUpContent, embeds: [embed] }).catch(() => {}); } } catch (err) { console.error(`[LevelUp Error]: ${err.message}`); } }
 client.sendQuestAnnouncement = async function(guild, member, quest, questType = 'achievement') { if (!client.sql.open) return; try { const id = `${member.id}-${guild.id}`; let notifSettings = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?").get(id); if (!notifSettings) { notifSettings = { id: id, userID: member.id, guildID: guild.id, dailyNotif: 1, weeklyNotif: 1, achievementsNotif: 1, levelNotif: 1 }; client.setQuestNotif.run(notifSettings); } let sendMention = false; if (questType === 'daily' && notifSettings.dailyNotif === 1) sendMention = true; if (questType === 'weekly' && notifSettings.weeklyNotif === 1) sendMention = true; if (questType === 'achievement' && notifSettings.achievementsNotif === 1) sendMention = true; const userIdentifier = sendMention ? `${member}` : `**${member.displayName}**`; const settings = sql.prepare("SELECT questChannelID, lastQuestPanelChannelID FROM settings WHERE guild = ?").get(guild.id); if (!settings || !settings.questChannelID) return; const channel = guild.channels.cache.get(settings.questChannelID); if (!channel) return; const perms = channel.permissionsFor(guild.members.me); if (!perms || !perms.has(PermissionsBitField.Flags.SendMessages)) return; const canAttachFiles = perms.has(PermissionsBitField.Flags.AttachFiles); const questName = quest.name; const reward = quest.reward; let message = ''; let files = []; const rewardDetails = `\n- **حصـلـت عـلـى:**\nMora: \`${reward.mora.toLocaleString()}\` ${client.EMOJI_MORA} | XP: \`${reward.xp.toLocaleString()}\` ${EMOJI_XP_ANIM}`; const panelChannelLink = settings.lastQuestPanelChannelID ? `\n\n✶ قـاعـة الانجـازات والمـهام والاشعـارات:\n<#${settings.lastQuestPanelChannelID}>` : ""; if (canAttachFiles) { try { let attachment; if (questType === 'achievement') { attachment = await client.generateSingleAchievementAlert(member, quest); } else { const typeForAlert = questType === 'weekly' ? 'rare' : 'daily'; attachment = await client.generateQuestAlert(member, quest, typeForAlert); } if(attachment) files.push(attachment); } catch (imgErr) { console.error("[Image Gen Fail]", imgErr); } } if (questType === 'achievement') { message = [ `╭⭒★︰ ${client.EMOJI_WI} ${userIdentifier} ${client.EMOJI_WII}`, `✶ انـرت سمـاء الامـبراطـوريـة بإنجـازك ${client.EMOJI_FASTER}`, `✥ انـجـاز: **${questName}**`, ``, `- فـالتسـجل امبراطوريتـنـا اسمـك بيـن العضـمـاء ${client.EMOJI_PRAY}`, rewardDetails, panelChannelLink ].join('\n'); } else { const typeText = questType === 'daily' ? 'يوميـة' : 'اسبوعيـة'; message = [ `╭⭒★︰ ${client.EMOJI_WI} ${userIdentifier} ${client.EMOJI_WII}`, `✶ اتـممـت مهمـة ${typeText}`, `✥ الـمهـمـة: **${questName}**`, ``, `- لقـد أثبـت انـك احـد اركـان الامبراطـورية ${client.EMOJI_PRAY}`, `- لا يُكلـف مثـلك الا بالمستحيـل ${client.EMOJI_COOL} ~`, rewardDetails, panelChannelLink ].join('\n'); } await channel.send({ content: message, files: files, allowedMentions: { users: sendMention ? [member.id] : [] } }); } catch (err) { console.error("Error sending quest announcement:", err.message); } }
+
 client.checkQuests = async function(client, member, stats, questType, dateKey) {
     if (!client.sql.open) return;
     const questsToCheck = questsConfig[questType] || [];
@@ -182,6 +171,7 @@ client.checkQuests = async function(client, member, stats, questType, dateKey) {
         }
     }
 }
+
 client.checkAchievements = async function(client, member, levelData, totalStatsData) {
     if (!client.sql.open) return;
     for (const ach of questsConfig.achievements) {
@@ -242,7 +232,7 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
     }
 }
 
-// Increment Stats - FIXED to correctly merge default stats for the SQL insert
+// Increment Stats
 client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
     if (!client.sql.open) return;
 
@@ -264,7 +254,6 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         let weeklyStats = client.getWeeklyStats.get(weeklyStatsId) || { id: weeklyStatsId, userID, guildID, weekStartDate: weekStartDateStr };
         let totalStats = client.getTotalStats.get(totalStatsId) || { id: totalStatsId, userID, guildID };
 
-        // 🔥 FIX: Ensure ALL properties are present before running SQL
         dailyStats = client.safeMerge(dailyStats, defaultDailyStats);
         weeklyStats = client.safeMerge(weeklyStats, defaultDailyStats);
         totalStats = client.safeMerge(totalStats, defaultTotalStats);
@@ -272,20 +261,18 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         if (dailyStats.hasOwnProperty(stat)) dailyStats[stat] = (dailyStats[stat] || 0) + amount;
         if (weeklyStats.hasOwnProperty(stat)) weeklyStats[stat] = (weeklyStats[stat] || 0) + amount;
         
-        // Update specific total stats
         if (stat === 'disboard_bumps') totalStats.total_disboard_bumps = (totalStats.total_disboard_bumps || 0) + amount;
         if (stat === 'messages') totalStats.total_messages = (totalStats.total_messages || 0) + amount;
         if (stat === 'images') totalStats.total_images = (totalStats.total_images || 0) + amount;
         if (stat === 'stickers') totalStats.total_stickers = (totalStats.total_stickers || 0) + amount;
         if (stat === 'emojis_sent') totalStats.total_emojis_sent = (totalStats.total_emojis_sent || 0) + amount;
-        if (stat === 'reactions_added') totalStats.total_reactions_added = (totalStats.total_reactions_added || 0) + amount;
+
         if (stat === 'replies_sent') totalStats.total_replies_sent = (totalStats.total_replies_sent || 0) + amount;
         if (stat === 'mentions_received') totalStats.total_mentions_received = (totalStats.total_mentions_received || 0) + amount;
         if (stat === 'vc_minutes') totalStats.total_vc_minutes = (totalStats.total_vc_minutes || 0) + amount;
           
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
-        // Ensure all named parameters for total stats are present
         client.setTotalStats.run({
             id: totalStatsId, userID, guildID,
             total_messages: totalStats.total_messages, total_images: totalStats.total_images, total_stickers: totalStats.total_stickers,
@@ -544,11 +531,12 @@ async function updateRainbowRoles(client) {
 }
 
 // ==================================================================
-// 6. تشغيل البوت
+// 6. Start Bot
 // ==================================================================
 client.on(Events.ClientReady, async () => { 
     console.log(`✅ Logged in as ${client.user.username}`);
     
+    client.antiRolesCache = new Map();
     await loadRoleSettings(sql, client.antiRolesCache);
 
     const rest = new REST({ version: '10' }).setToken(botToken);
@@ -618,6 +606,7 @@ client.on(Events.ClientReady, async () => {
     sendDailyMediaUpdate(client, sql);
 }); 
 
+// ( 🌟 Pass Cache to Interaction Handler 🌟 )
 require('./interaction-handler.js')(client, sql, client.antiRolesCache);
 
 const eventsPath = path.join(__dirname, 'events');
