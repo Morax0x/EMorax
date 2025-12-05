@@ -1,7 +1,7 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, SlashCommandBuilder } = require("discord.js");
 const { activePvpChallenges, getUserRace, getWeaponData, cleanDisplayName } = require('../../handlers/pvp-core.js');
 const weaponsConfig = require('../../json/weapons-config.json');
-const { calculateMoraBuff } = require('../../streak-handler.js');
+// ( 🌟 تم حذف calculateMoraBuff 🌟 )
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const PVP_COOLDOWN_MS = 5 * 60 * 1000;
