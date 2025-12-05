@@ -197,7 +197,10 @@ async function _handleBaitBuy(i, client, sql) {
     let userData = client.getLevel.get(i.user.id, i.guild.id);
     if (userData.mora < cost) return i.editReply(`❌ رصيدك غير كافي.`);
     userData.mora -= cost; client.setLevel.run(userData);
+    
+    // ( 🌟 الطعوم فقط تُحفظ في الحقيبة، السنارة والقوارب لا 🌟 )
     sql.prepare("INSERT INTO user_portfolio (guildID, userID, itemID, quantity) VALUES (?, ?, ?, ?) ON CONFLICT(guildID, userID, itemID) DO UPDATE SET quantity = quantity + ?").run(i.guild.id, i.user.id, baitId, qty, qty);
+    
     await i.editReply(`✅ تم شراء **${qty}x ${bait.name}** بنجاح!`);
 }
 
@@ -308,7 +311,7 @@ async function _handleShopButton(i, client, sql) {
                 successMessage = `✅ تم شراء **${item.name}**!`; break;
             case 'discord_effect_5': case 'discord_effect_10': case 'nitro_basic': case 'nitro_gaming':
                 const owner = await client.users.fetch(OWNER_ID);
-                if (owner) { owner.send(`🔔 تنبيه شراء!\n\nالعضو: ${i.user.tag} (${i.user.id})\nاشترى: **${item.name}**`).catch(console.error); }
+                if (owner) { owner.send(`🔔 تنبيه شراء!\n\nالعضو: ${i.user.tag} (${i.user.id})\nاشترى: **${item.name}**\nالمبلغ: ${item.price.toLocaleString()} ${EMOJI_MORA}`).catch(console.error); }
                 successMessage = `✅ تمت عملية الشراء! فضلاً، قم بفتح "مجلس خاص" (تكت) لاستلام طلبك.`; break;
             case 'change_race': {
                 let removedRoleName = "لا يوجد";
@@ -351,7 +354,7 @@ async function _handleReplaceBuffButton(i, client, sql) {
         sql.prepare("INSERT INTO user_buffs (userID, guildID, buffType, multiplier, expiresAt, buffPercent) VALUES (?, ?, ?, ?, ?, ?)").run(userId, guildId, 'xp', multiplier, expiresAt, buffPercent);
         userData.shop_purchases = (userData.shop_purchases || 0) + 1;
         client.setLevel.run(userData);
-        await i.editReply({ content: `✅ تم استبدال المعزز وشراء **${item.name}** بنجاح!`, components: [], embeds: [] });
+        await i.editReply({ content: `✅ تم استبدال المعزز وشراء **${item.name}** بنجاح!\nرصيدك المتبقي: **${userData.mora.toLocaleString()}** ${EMOJI_MORA}`, components: [], embeds: [] });
     } catch (error) { console.error("خطأ في زر استبدال المعزز:", error); if (i.replied || i.deferred) await i.followUp({ content: '❌ حدث خطأ.', flags: MessageFlags.Ephemeral }); }
 }
 
@@ -360,7 +363,6 @@ async function handleShopModal(i, client, sql) {
         await _handleXpExchangeModal(i, client, sql);
         return true;
     }
-    
     const isBuyMarket = i.customId.startsWith('buy_modal_');
     const isSellMarket = i.customId.startsWith('sell_modal_');
     const isBuyFarm = i.customId.startsWith('buy_animal_');
@@ -370,13 +372,13 @@ async function handleShopModal(i, client, sql) {
         await _handleBuySellModal(i, client, sql, { isBuyMarket, isSellMarket, isBuyFarm, isSellFarm });
         return true;
     }
-
     return false;
 }
 
+// 🌟 دالة الشراء والبيع (علنية: ephemeral = false) 🌟
 async function _handleBuySellModal(i, client, sql, types) {
     const { isBuyMarket, isSellMarket, isBuyFarm, isSellFarm } = types;
-    // 🌟 الرد علني كما طلبت 🌟
+    // ✅ الرد علني (ظاهر للكل)
     await i.deferReply({ ephemeral: false });
     try {
         const quantityString = i.fields.getTextInputValue('quantity_input');
@@ -553,6 +555,7 @@ async function handleShopInteractions(i, client, sql) {
         xpModal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('xp_amount_input').setLabel('الكمية').setStyle(TextInputStyle.Short).setRequired(true)));
         await i.showModal(xpModal);
     }
+    // (فتح مودال الشراء/البيع للمزرعة والسوق)
     else if (i.customId.startsWith('buy_market_') || i.customId.startsWith('sell_market_') || i.customId.startsWith('buy_animal_') || i.customId.startsWith('sell_animal_')) {
         const action = i.customId.split('_')[0]; // buy or sell
         const modalId = action === 'buy' ? (i.customId.includes('market') ? 'buy_modal_' : 'buy_animal_') : (i.customId.includes('market') ? 'sell_modal_' : 'sell_animal_');
