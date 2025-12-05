@@ -128,7 +128,7 @@ async function checkLoanPayments(client, sql) {
 
             if (loan.remainingAmount <= 0) {
                 sql.prepare("DELETE FROM user_loans WHERE userID = ? AND guildID = ?").run(loan.userID, loan.guildID);
-                msgContent += `\n🎉 **مبروك!** لقد تم سداد القرض بالكامل.`;
+                msgContent += `\n🎉 **مبروك!** لقد تـم سداد القرض بالكامل.`;
             } else {
                 sql.prepare("UPDATE user_loans SET remainingAmount = ?, lastPaymentDate = ? WHERE userID = ? AND guildID = ?").run(loan.remainingAmount, now, loan.userID, loan.guildID);
             }
