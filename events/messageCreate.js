@@ -75,7 +75,6 @@ module.exports = {
                 const fullContent = (message.content || "") + " " + (message.embeds[0]?.description || "") + " " + (message.embeds[0]?.title || "");
                 const lowerContent = fullContent.toLowerCase();
                 const validPhrases = ["watered the tree", "سقى الشجرة", "has watered", "قام بسقاية"];
-                
                 if (validPhrases.some(p => lowerContent.includes(p))) {
                     const match = fullContent.match(/<@!?(\d+)>/);
                     if (match && match[1]) {
@@ -98,17 +97,17 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
 
         // ============================================================
-        // 🌟 3. معالج الاختصارات (بدون قاموس - ديناميكي) 🌟
+        // 🌟 3. معالج الاختصارات (البحث الشامل والدقيق) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
-            // البحث في الداتابيس (للقناة الحالية)
+            // 1. البحث في قاعدة البيانات (للقناة الحالية)
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
-            // Fallback: البحث العام (إذا كنت تريد الاختصارات تعمل في كل مكان إذا لم تخصص لقناة)
+            // 2. البحث العام (Fallback) إذا لم يجد في القناة الحالية
             if (!shortcut) {
                  shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND shortcutWord = ? AND (channelID IS NULL OR channelID = 'null' OR channelID = '')")
                 .get(message.guild.id, shortcutWord);
@@ -117,12 +116,14 @@ module.exports = {
             if (shortcut) {
                 const targetName = shortcut.commandName.toLowerCase();
 
-                // البحث الديناميكي في الأوامر المحملة
-                const cmd = client.commands.get(targetName) || 
-                            client.commands.find(c => c.aliases && c.aliases.includes(targetName));
+                // 🔍 البحث الشامل في الأوامر المحملة (بالاسم أو الـ Aliases)
+                const cmd = client.commands.find(c => 
+                    (c.name && c.name.toLowerCase() === targetName) || 
+                    (c.aliases && c.aliases.includes(targetName))
+                );
 
                 if (cmd) {
-                    // بما أن الاختصار مسجل، نتحقق فقط من الكولداون (الاختصار يعتبر "سماح" ضمني)
+                    // الاختصار يعتبر "سماح" ضمني لأنه مسجل يدوياً
                     if (checkPermissions(message, cmd)) {
                         const cooldownMsg = checkCooldown(message, cmd);
                         if (cooldownMsg) {
@@ -141,7 +142,7 @@ module.exports = {
         } catch (err) { console.error("[Shortcut Handler Error]", err); }
         // ============================================================
 
-        // 4. معالج البريفكس (نظام الصلاحيات الصارم)
+        // 4. معالج البريفكس (الصارم - Whitelist)
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
@@ -149,7 +150,11 @@ module.exports = {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             
-            const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
+            // البحث الشامل عن الأمر (بالاسم أو الـ Aliases)
+            const command = client.commands.find(cmd => 
+                (cmd.name && cmd.name.toLowerCase() === commandName) || 
+                (cmd.aliases && cmd.aliases.includes(commandName))
+            );
             
             if (command) {
                 args.prefix = Prefix;
@@ -207,7 +212,10 @@ module.exports = {
         if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
             const args = message.content.trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
-            const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
+            const command = client.commands.find(cmd => 
+                (cmd.name && cmd.name.toLowerCase() === commandName) || 
+                (cmd.aliases && cmd.aliases.includes(commandName))
+            );
             if (command && command.category === "Economy") {
                 if (!checkPermissions(message, command)) return;
                 try { await command.execute(message, args); } catch (error) {}
