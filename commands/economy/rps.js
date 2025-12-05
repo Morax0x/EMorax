@@ -16,7 +16,7 @@ module.exports = {
         .setDescription('لعبة حجرة ورقة مقص (فردي أو ضد شخص آخر).')
         .addIntegerOption(option => 
             option.setName('الرهان')
-                .setDescription('مبلغ الرهان (اختياري)')
+                .setDescription('مبلغ الرهان')
                 .setMinValue(MIN_BET)
                 .setRequired(false))
         .addUserOption(option => 
