@@ -1,5 +1,4 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, Colors, SlashCommandBuilder, Collection } = require("discord.js");
-// ( 🌟 تم إعادة استدعاء دالة البفات للعب الفردي 🌟 )
 const { calculateMoraBuff } = require('../../streak-handler.js');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
@@ -35,8 +34,8 @@ module.exports = {
         .setDescription('تحدي البوت (فردي) أو أصدقائك (جماعي) في لعبة تخمين الرقم.')
         .addIntegerOption(option =>
             option.setName('الرهان')
-                .setDescription(`المبلغ الذي تريد المراهنة به`)
-                .setRequired(true)
+                .setDescription(`المبلغ الذي تريد المراهنة به (اختياري)`)
+                .setRequired(false) // (صار اختياري عشان المراهنة التلقائية)
                 .setMinValue(MIN_BET)
         )
         .addUserOption(option => option.setName('الخصم1').setDescription('الخصم الأول (لعبة جماعية)').setRequired(false))
@@ -54,7 +53,7 @@ module.exports = {
 
         const isSlash = !!interactionOrMessage.isChatInputCommand;
         let interaction, message, author, client, guild, sql, channel, channelId;
-        let bet, opponents = new Collection();
+        let betInput, opponents = new Collection();
 
         try {
             if (isSlash) {
@@ -66,7 +65,7 @@ module.exports = {
                 channel = interaction.channel;
                 channelId = interaction.channel.id;
 
-                bet = interaction.options.getInteger('الرهان');
+                betInput = interaction.options.getInteger('الرهان');
 
                 // جمع الخصوم
                 for (let i = 1; i <= 5; i++) {
@@ -89,90 +88,134 @@ module.exports = {
                 channel = message.channel;
                 channelId = message.channel.id;
 
-                bet = parseInt(args[0]);
-                opponents = message.mentions.members;
+                // تحليل المدخلات (مبلغ أو منشن)
+                if (args[0] && !isNaN(parseInt(args[0]))) {
+                    betInput = parseInt(args[0]);
+                    opponents = message.mentions.members;
+                } else if (message.mentions.members.size > 0) {
+                    // إذا بدأ بالمنشن، نبحث عن الرقم في الخانة الثانية
+                    opponents = message.mentions.members;
+                    if (args[1] && !isNaN(parseInt(args[1]))) betInput = parseInt(args[1]);
+                }
             }
 
             const reply = async (payload) => {
-                if (isSlash) {
-                    return interaction.editReply(payload);
-                } else {
-                    return message.channel.send(payload);
-                }
+                if (isSlash) return interaction.editReply(payload);
+                return message.channel.send(payload);
             };
 
             const replyError = async (content) => {
                 const payload = { content, ephemeral: true };
-                if (isSlash) {
-                    return interaction.editReply(payload);
-                } else {
-                    return message.reply(payload);
-                }
+                if (isSlash) return interaction.editReply(payload);
+                return message.reply(payload);
             };
 
-            if (activeGames.has(channelId)) {
-                return replyError("هناك لعبة نشطة بالفعل في هذه القناة!");
-            }
+            let userData = client.getLevel.get(author.id, guild.id);
+            if (!userData) userData = { ...client.defaultData, user: author.id, guild: guild.id };
 
-            if (isNaN(bet)) {
-                return replyError(`الاستخدام: \`/تخمين الرهان: <المبلغ> [الخصوم...]\``);
-            }
-            
-            // 1. التحقق من الحد الأدنى (للجميع)
-            if (bet < MIN_BET) {
-                return replyError(`الحد الأدنى للرهان هو **${MIN_BET}** ${EMOJI_MORA} !`);
-            }
+            // --- منطق المراهنة التلقائية ---
+            if (!betInput) {
+                let proposedBet = 100;
+                const userBalance = userData.mora;
 
-            // 2. 🔒 التحقق من الحد الأقصى (للبوت فقط)
-            if (opponents.size === 0 && bet > MAX_BET_SOLO) {
-                return replyError(`🚫 **تنبيه:** الحد الأقصى للرهان في اللعب الفردي (ضد البوت) هو **${MAX_BET_SOLO}** ${EMOJI_MORA}!\n(للعب بمبالغ أكبر، تحدى لاعبين آخرين).`);
-            }
+                if (userBalance <= 0) {
+                    return replyError(`❌ لا تملك أي مورا للعب!`);
+                }
 
-            const getScore = client.getLevel;
-            const setScore = client.setLevel;
-            let authorData = getScore.get(author.id, guild.id);
+                if (userBalance < 100) {
+                    proposedBet = userBalance;
+                }
 
-            if (!authorData) {
-                authorData = { ...client.defaultData, user: author.id, guild: guild.id };
-            }
+                const autoBetEmbed = new EmbedBuilder()
+                    .setColor(Colors.Blue)
+                    .setDescription(
+                        `✥ المـراهـنـة التلقائية بـ **${proposedBet}** ${EMOJI_MORA} ؟\n` +
+                        `✥ طريقة الاستخدام لتحديد المبلغ:\n` +
+                        `\`خمن <مبلغ الرهان> [@لاعب اختياري]\``
+                    );
 
-            const now = Date.now();
-            const timeLeft = (authorData.lastGuess || 0) + COOLDOWN_MS - now;
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId('guess_auto_confirm').setLabel('مـراهـنـة').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId('guess_auto_cancel').setLabel('رفـض').setStyle(ButtonStyle.Danger)
+                );
 
-            if (timeLeft > 0) {
-                const timeString = formatTime(timeLeft);
-                return replyError(`🕐 يمكنك لعب تخمين الرقم مرة واحدة كل ساعة. يرجى الانتظار **\`${timeString}\`**.`);
-            }
+                const confirmMsg = await reply({ embeds: [autoBetEmbed], components: [row], fetchReply: true });
+                
+                const filter = i => i.user.id === author.id && (i.customId === 'guess_auto_confirm' || i.customId === 'guess_auto_cancel');
+                
+                try {
+                    const confirmation = await confirmMsg.awaitMessageComponent({ filter, time: 15000 });
+                    
+                    if (confirmation.customId === 'guess_auto_cancel') {
+                        await confirmation.update({ content: '❌ تم الإلغاء.', embeds: [], components: [] });
+                        return;
+                    }
 
-            if (!authorData || authorData.mora < bet) {
-                return replyError(`ليس لديك مورا كافية لهذا الرهان! (رصيدك: ${authorData.mora})`);
-            }
+                    if (confirmation.customId === 'guess_auto_confirm') {
+                        await confirmation.deferUpdate();
+                        if (!isSlash) await confirmMsg.delete().catch(() => {}); 
+                        else await confirmation.editReply({ content: '✅', embeds: [], components: [] });
 
-            activeGames.add(channelId);
-            authorData.lastGuess = now;
-
-            if (opponents.size === 0) {
-                await playSolo(channel, author, bet, authorData, getScore, setScore, sql, reply);
+                        return startGuessGame(channel, author, opponents, proposedBet, client, guild, sql, replyError, reply);
+                    }
+                } catch (e) {
+                    if (!isSlash) await confirmMsg.delete().catch(() => {});
+                    else await interaction.editReply({ content: '⏰ انتهى الوقت.', embeds: [], components: [] });
+                    return;
+                }
             } else {
-                await playChallenge(channel, author, opponents, bet, authorData, getScore, setScore, sql, reply);
+                // إذا حدد المبلغ، ابدأ مباشرة
+                return startGuessGame(channel, author, opponents, betInput, client, guild, sql, replyError, reply);
             }
 
         } catch (error) {
             console.error("Error in guess command:", error);
-            const errorPayload = { content: "حدث خطأ أثناء بدء اللعبة.", ephemeral: true };
-            if (isSlash) {
-                if (interaction.deferred || interaction.replied) {
-                    await interaction.editReply(errorPayload);
-                } else {
-                    await interaction.reply(errorPayload);
-                }
-            } else {
-                message.reply(errorPayload.content);
-            }
-            activeGames.delete(channelId);
         }
     }
 };
+
+// --- دالة بدء اللعبة الفعلية (لتوحيد المنطق) ---
+async function startGuessGame(channel, author, opponents, bet, client, guild, sql, replyError, replyFunction) {
+    const channelId = channel.id;
+
+    if (activeGames.has(channelId)) {
+        return replyError("هناك لعبة نشطة بالفعل في هذه القناة!");
+    }
+
+    if (bet < MIN_BET) {
+        return replyError(`الحد الأدنى للرهان هو **${MIN_BET}** ${EMOJI_MORA} !`);
+    }
+
+    if (opponents.size === 0 && bet > MAX_BET_SOLO) {
+        return replyError(`🚫 **تنبيه:** الحد الأقصى للرهان في اللعب الفردي (ضد البوت) هو **${MAX_BET_SOLO}** ${EMOJI_MORA}!\n(للعب بمبالغ أكبر، تحدى لاعبين آخرين).`);
+    }
+
+    const getScore = client.getLevel;
+    const setScore = client.setLevel;
+    let authorData = getScore.get(author.id, guild.id);
+    if (!authorData) authorData = { ...client.defaultData, user: author.id, guild: guild.id };
+
+    const now = Date.now();
+    const timeLeft = (authorData.lastGuess || 0) + COOLDOWN_MS - now;
+
+    if (timeLeft > 0) {
+        const timeString = formatTime(timeLeft);
+        return replyError(`🕐 يمكنك لعب تخمين الرقم مرة واحدة كل ساعة. يرجى الانتظار **\`${timeString}\`**.`);
+    }
+
+    if (authorData.mora < bet) {
+        return replyError(`ليس لديك مورا كافية لهذا الرهان! (رصيدك: ${authorData.mora})`);
+    }
+
+    activeGames.add(channelId);
+    authorData.lastGuess = now;
+
+    if (opponents.size === 0) {
+        await playSolo(channel, author, bet, authorData, getScore, setScore, sql, replyFunction);
+    } else {
+        await playChallenge(channel, author, opponents, bet, authorData, getScore, setScore, sql, replyFunction);
+    }
+}
 
 async function playSolo(channel, author, bet, authorData, getScore, setScore, sql, replyFunction) {
     const channelId = channel.id;
@@ -203,7 +246,7 @@ async function playSolo(channel, author, bet, authorData, getScore, setScore, sq
         const attemptsLeft = SOLO_ATTEMPTS - attempts;
 
         if (guess === targetNumber) {
-            // ( 🌟 هنا يتم تطبيق البفات في اللعب الفردي فقط 🌟 )
+            // ( 🌟 الفردي: تطبيق البفات 🌟 )
             const moraMultiplier = calculateMoraBuff(author, sql);
             const finalWinnings = Math.floor(currentWinnings * moraMultiplier);
 
@@ -340,7 +383,7 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
             if (guess === targetNumber) {
                 let winnerData = getScore.get(msg.author.id, channel.guild.id);
                 
-                // ( 🌟 اللعب الجماعي بدون أي بفات - صافي 🌟 )
+                // ( 🌟 الجماعي: بدون بفات - صافي 🌟 )
                 const finalWinnings = totalPot;
 
                 winnerData.mora += finalWinnings;
