@@ -1,25 +1,42 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors } = require("discord.js");
 
-// (تأكد من وجود دالة getUserWeight هنا)
 async function getUserWeight(member, sql) {
     const userRoles = member.roles.cache.map(r => r.id);
     if (userRoles.length === 0) return 1;
 
     const placeholders = userRoles.map(() => '?').join(',');
-    const weights = sql.prepare(`
-        SELECT MAX(weight) as maxWeight
-        FROM giveaway_weights
-        WHERE guildID = ? AND roleID IN (${placeholders})
-    `).get(member.guild.id, ...userRoles);
-
-    return weights?.maxWeight || 1;
+    // (ملاحظة: تأكد أن جدول giveaway_weights موجود، وإلا سيحدث خطأ هنا. إذا لم يكن موجوداً، ارجع 1)
+    try {
+        const weights = sql.prepare(`
+            SELECT MAX(weight) as maxWeight
+            FROM giveaway_weights
+            WHERE guildID = ? AND roleID IN (${placeholders})
+        `).get(member.guild.id, ...userRoles);
+        return weights?.maxWeight || 1;
+    } catch (e) {
+        return 1; // Fallback
+    }
 }
 
-// (دالة endGiveaway المعدلة - لا تغيير عن المرة السابقة)
-async function endGiveaway(client, messageID) {
+// ( 🌟 تم تعديل الدالة لتقبل معامل force للإنهاء اليدوي 🌟 )
+async function endGiveaway(client, messageID, force = false) {
     const sql = client.sql; 
-    const giveaway = sql.prepare("SELECT * FROM active_giveaways WHERE messageID = ? AND isFinished = 0").get(messageID);
-    if (!giveaway) return console.log(`[Giveaway] لم يتم العثور على قيفاواي نشط بالـ ID: ${messageID}`);
+    const giveaway = sql.prepare("SELECT * FROM active_giveaways WHERE messageID = ?").get(messageID);
+
+    if (!giveaway) {
+        if (force) throw new Error("لم يتم العثور على القيفاواي في قاعدة البيانات.");
+        return console.log(`[Giveaway] لم يتم العثور على قيفاواي نشط بالـ ID: ${messageID}`);
+    }
+
+    // إذا لم ينتهِ الوقت ولم يتم الإجبار، لا تفعل شيئاً
+    if (!force && giveaway.endsAt > Date.now() && giveaway.isFinished === 0) {
+        return;
+    }
+
+    // إذا كان منتهياً بالفعل (isFinished = 1) ولم يتم الإجبار، نتوقف
+    if (!force && giveaway.isFinished === 1) {
+        return;
+    }
 
     const entries = sql.prepare("SELECT * FROM giveaway_entries WHERE giveawayID = ?").all(messageID);
 
@@ -37,44 +54,62 @@ async function endGiveaway(client, messageID) {
     if (entries.length === 0) {
         if (originalMessage) {
             try {
-                await originalMessage.delete();
-                console.log(`[Giveaway] تم حذف القيفاواي ${messageID} لعدم وجود مشاركين.`);
-            } catch (delErr) {
-                console.error(`[Giveaway] فشل في حذف رسالة القيفاواي ${messageID}:`, delErr);
-                if (originalMessage.embeds[0]) {
-                    const originalEmbed = originalMessage.embeds[0];
-                    const newEmbed = new EmbedBuilder(originalEmbed.toJSON()); 
-                    let newTitle = originalEmbed.title;
-                    if (newTitle && !newTitle.startsWith("[انـتـهـى]")) {
-                        newTitle = `[انـتـهـى] ${newTitle}`;
-                    }
-                    newEmbed.setTitle(newTitle).setColor("Red").setFooter({ text: "انتهى (لا مشاركين)" });
-                    await originalMessage.edit({ embeds: [newEmbed], components: [] }).catch(() => {});
+                // ( 🌟 تعديل: تحديث الرسالة لتقول "انتهى بدون فائز" بدلاً من الحذف المباشر لكي يرى الناس 🌟 )
+                // لكن بناءً على كودك السابق، سأبقي خيار الحذف أو التعديل كما تفضل
+                // سأستخدم التعديل لأنه أفضل
+                const originalEmbed = originalMessage.embeds[0];
+                const newEmbed = new EmbedBuilder(originalEmbed.toJSON()); 
+                let newTitle = originalEmbed.title;
+                if (newTitle && !newTitle.startsWith("[انـتـهـى]")) {
+                    newTitle = `[انـتـهـى] ${newTitle}`;
                 }
+                newEmbed.setTitle(newTitle).setColor("Red").setFooter({ text: "انتهى (لا مشاركين)" });
+                
+                // تعطيل الزر
+                const disabledRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId('g_ended').setLabel('انتهى').setStyle(ButtonStyle.Secondary).setDisabled(true).setEmoji('🏁')
+                );
+                
+                await originalMessage.edit({ embeds: [newEmbed], components: [disabledRow] }).catch(() => {});
+            } catch (delErr) {
+                console.error(`[Giveaway] Error updating empty giveaway:`, delErr);
             }
+        } else {
+            await channel.send({ content: `⚠️ القيفاواي (${giveaway.prize}) انتهى ولم يشارك أحد.` });
         }
         sql.prepare("UPDATE active_giveaways SET isFinished = 1 WHERE messageID = ?").run(messageID);
         return; 
     }
 
-    // (باقي كود endGiveaway - لا تغيير)
+    // خوارزمية السحب
     const pool = [];
     for (const entry of entries) {
         for (let i = 0; i < entry.weight; i++) {
             pool.push(entry.userID);
         }
     }
+
+    // خلط
+    for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+
     const winners = new Set();
     let attempts = 0;
-    while (winners.size < giveaway.winnerCount && winners.size < entries.length && attempts < 50) {
+    const countToWin = Math.min(giveaway.winnerCount, entries.length); // لا يمكن أن يفوز أكثر من عدد المشاركين
+
+    while (winners.size < countToWin && attempts < 1000) {
         const randomWinnerID = pool[Math.floor(Math.random() * pool.length)];
         winners.add(randomWinnerID); 
         attempts++;
     }
+
     const winnerIDs = Array.from(winners);
     const winnerString = winnerIDs.map(id => `<@${id}>`).join(', ');
     const moraReward = giveaway.moraReward || 0;
     const xpReward = giveaway.xpReward || 0;
+
     if (moraReward > 0 || xpReward > 0) {
         for (const winnerID of winnerIDs) {
             try {
@@ -86,6 +121,7 @@ async function endGiveaway(client, messageID) {
                 levelData.mora = (levelData.mora || 0) + moraReward;
                 levelData.xp = (levelData.xp || 0) + xpReward;
                 levelData.totalXP = (levelData.totalXP || 0) + xpReward;
+                
                 let nextXP = 5 * (levelData.level ** 2) + (50 * levelData.level) + 100;
                 while (levelData.xp >= nextXP) {
                     levelData.level++;
@@ -94,11 +130,13 @@ async function endGiveaway(client, messageID) {
                 }
                 client.setLevel.run(levelData);
                 console.log(`[Giveaway] تم منح ${moraReward} مورا و ${xpReward} اكس بي للفائز ${winnerID}`);
+                
                 if (levelData.level > oldLevel) {
                     try {
                         const member = await channel.guild.members.fetch(winnerID);
+                        // محاكاة التفاعل لإرسال رسالة اللفل أب
                         const fakeInteraction = { guild: channel.guild, channel: channel, members: { me: channel.guild.members.me } };
-                        await client.sendLevelUpMessage(fakeInteraction, member, levelData.level, oldLevel, levelData);
+                        if(client.sendLevelUpMessage) await client.sendLevelUpMessage(fakeInteraction, member, levelData.level, oldLevel, levelData);
                     } catch (lvlErr) {
                         console.error(`[Giveaway LevelUp] فشل في إرسال رسالة الترقية: ${lvlErr.message}`);
                     }
@@ -108,37 +146,54 @@ async function endGiveaway(client, messageID) {
             }
         }
     }
+
     const announcementEmbed = new EmbedBuilder()
         .setTitle(`✥ انـتـهى الـقـيفـاواي`)
         .setColor("DarkGrey");
-    const winnerLabel = giveaway.winnerCount > 1 ? "الـفـائـزون:" : "الـفـائـز:";
+        
+    const winnerLabel = winnerIDs.length > 1 ? "الـفـائـزون:" : "الـفـائـز:";
     let winDescription = `✦ ${winnerLabel} ${winnerString}\n✦ الـجـائـزة: **${giveaway.prize}**`;
+    
     const fields = [];
     if (moraReward > 0) fields.push({ name: '✦ مـورا', value: `${moraReward} <:mora:1435647151349698621>`, inline: true });
     if (xpReward > 0) fields.push({ name: '✬ اكس بي', value: `${xpReward} <a:levelup:1437805366048985290>`, inline: true });
     if (fields.length > 0) announcementEmbed.setFields(fields);
+    
     announcementEmbed.setDescription(winDescription);
+    
     await channel.send({ content: winnerString, embeds: [announcementEmbed] });
+
     if (originalMessage) {
         const originalEmbed = originalMessage.embeds[0];
         const newEmbed = new EmbedBuilder(originalEmbed.toJSON()); 
         let newTitle = originalEmbed.title;
         if (newTitle && !newTitle.startsWith("[انـتـهـى]")) newTitle = `[انـتـهـى] ${newTitle}`;
+        
         let newDesc = originalEmbed.description;
+        // إزالة التوقيت القديم
         const timeRegex = /✦ ينتهي بعـد: <t:\d+:R>\n?/i;
         newDesc = newDesc.replace(timeRegex, "");
+        
+        // تحديث عدد المشاركين
         const descRegex = /✶ عـدد الـمـشاركـيـن: `\d+`/i;
         newDesc = newDesc.replace(descRegex, `✶ عـدد الـمـشاركـيـن: \`${entries.length}\``);
-        const winnerLabelEmbed = giveaway.winnerCount > 1 ? "الـفـائـزون:" : "الـفـائـز:";
+        
+        const winnerLabelEmbed = winnerIDs.length > 1 ? "الـفـائـزون:" : "الـفـائـز:";
         newDesc += `\n\n**${winnerLabelEmbed}** ${winnerString}`;
+        
         newEmbed.setTitle(newTitle).setColor("DarkGrey").setDescription(newDesc).setFooter({ text: "انتهى" });
-        await originalMessage.edit({ embeds: [newEmbed], components: [] });
+        
+        const disabledRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('g_ended').setLabel('انتهى').setStyle(ButtonStyle.Secondary).setDisabled(true).setEmoji('🏁')
+        );
+
+        await originalMessage.edit({ embeds: [newEmbed], components: [disabledRow] });
     }
+    
     sql.prepare("UPDATE active_giveaways SET isFinished = 1 WHERE messageID = ?").run(messageID);
 }
 
-
-// --- ( ⬇️ هذه هي الدالة التي تم تعديلها ⬇️ ) ---
+// --- دالة إنشاء القيفاواي العشوائي ---
 async function createRandomDropGiveaway(client, guild) {
     const sql = client.sql;
 
@@ -222,10 +277,7 @@ async function createRandomDropGiveaway(client, guild) {
 
     return true; // نجاح
 }
-// --- ( ⬆️ نهاية الدالة المعدلة ⬆️ ) ---
 
-
-// (تصدير كل الدوال)
 module.exports = {
     getUserWeight,
     endGiveaway,
