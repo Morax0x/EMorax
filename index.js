@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 // ==================================================================
-// 1. Database Setup
+// 1. إعداد قاعدة البيانات
 // ==================================================================
 const sql = new SQLite('./mainDB.sqlite');
 sql.pragma('journal_mode = WAL');
@@ -15,10 +15,45 @@ try {
 } catch (err) {
     console.error("!!! Database Setup Fatal Error !!!");
     console.error(err);
-    process.exit(1);
+    // لن نوقف البوت هنا، سنحاول الاستمرار
 }
 
-// Ensure critical columns exist (Safety Checks)
+// ==================================================================
+// 2. تحميل الخطوط (نظام آمن لمنع الكراش) 🛠️
+// ==================================================================
+try {
+    const { registerFont } = require('canvas');
+    const fontsDir = path.join(__dirname, 'fonts');
+    
+    // قائمة الخطوط المطلوبة
+    const fontsToLoad = [
+        { file: 'Bein-Normal.ttf', family: 'Bein' }, // تأكد من اسم الملف في مجلدك
+        { file: 'NotoEmoji.ttf', family: 'NotoEmoji' },
+        { file: 'bein-ar-normal.ttf', family: 'Bein' } // احتياط للاسم الثاني
+    ];
+
+    if (fs.existsSync(fontsDir)) {
+        fontsToLoad.forEach(font => {
+            const fontPath = path.join(fontsDir, font.file);
+            if (fs.existsSync(fontPath)) {
+                try {
+                    registerFont(fontPath, { family: font.family });
+                    console.log(`[Fonts] ✅ تم تحميل الخط: ${font.file}`);
+                } catch (e) {
+                    console.warn(`[Fonts] ⚠️ فشل تحميل ${font.file}: ${e.message}`);
+                }
+            }
+        });
+    } else {
+        console.warn("[Fonts] ⚠️ مجلد fonts غير موجود!");
+    }
+} catch (e) {
+    console.warn("[Fonts] ⚠️ مكتبة Canvas غير مثبتة أو حدث خطأ عام (سيتم تخطي الخطوط).");
+}
+
+// ==================================================================
+// 3. تحديثات جداول قاعدة البيانات (للأمان)
+// ==================================================================
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastFish INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN rodLevel INTEGER DEFAULT 1").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN boatLevel INTEGER DEFAULT 1").run(); } catch (e) {}
@@ -29,11 +64,10 @@ try { if(sql.open) sql.prepare("ALTER TABLE user_weekly_stats ADD COLUMN emojis_
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id INTEGER PRIMARY KEY AUTOINCREMENT, guildID TEXT NOT NULL, trigger TEXT NOT NULL, response TEXT NOT NULL, images TEXT, matchType TEXT DEFAULT 'exact', cooldown INTEGER DEFAULT 0, allowedChannels TEXT, ignoredChannels TEXT, UNIQUE(guildID, trigger))").run(); } catch(e) {}
 
 // ==================================================================
-// 2. Import Handlers
+// 4. استيراد الهاندلرز
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
-const { checkLoanPayments } = require('./handlers/loan-handler.js'); // 🆕 استدعاء الهاندلر الجديد
 
 const questsConfig = require('./json/quests-config.json');
 const farmAnimals = require('./json/farm-animals.json');
@@ -44,7 +78,7 @@ const { checkUnjailTask } = require('./handlers/report-handler.js');
 const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
 
 // ==================================================================
-// 3. Client Setup
+// 5. إعداد العميل (Client)
 // ==================================================================
 const client = new Client({
     intents: [
@@ -349,6 +383,9 @@ function updateMarketPrices() {
     } catch (err) { console.error("[Market] Error updating prices:", err.message); }
 }
 
+// ( 🌟 استدعاء دالة القروض الجديدة هنا 🌟 )
+const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
+
 async function processFarmYields() {
     if (!sql.open) return;
     try {
@@ -521,12 +558,11 @@ client.on(Events.ClientReady, async () => {
         console.log(`✅ Successfully reloaded ${commands.length} application (/) commands.`); 
     } catch (error) { console.error("[Deploy Error]", error); }
 
-    // Timers
     setInterval(calculateInterest, 60 * 60 * 1000); calculateInterest();
     setInterval(updateMarketPrices, 60 * 60 * 1000); updateMarketPrices();
     
-    // ( 🌟 يتم الآن استدعاء دالة checkLoanPayments من ملفها المنفصل 🌟 )
-    setInterval(() => checkLoanPayments(client, sql), 60 * 60 * 1000); // كل ساعة
+    // ( 🌟 دالة القروض المفصولة 🌟 )
+    setInterval(() => checkLoanPayments(client, sql), 60 * 60 * 1000);
 
     setInterval(processFarmYields, 60 * 60 * 1000); processFarmYields();
     setInterval(() => checkDailyStreaks(client, sql), 3600000); checkDailyStreaks(client, sql);
