@@ -1,11 +1,12 @@
 const { Events } = require("discord.js");
-const ownerReactionDelete = require("./ownerReactionDelete.js"); // (استيراد ملف حذف المالك)
+const ownerReactionDelete = require("./ownerReactionDelete.js");
 
-// (كائن الإحصائيات الافتراضية لتجنب الأخطاء)
+// القيم الافتراضية الكاملة (يجب أن تطابق الأعمدة في قاعدة البيانات)
 const defaultTotalStats = { 
     total_messages: 0, 
     total_images: 0, 
     total_stickers: 0, 
+    total_emojis_sent: 0, // ( 🌟 تمت الإضافة )
     total_reactions_added: 0, 
     total_replies_sent: 0, 
     total_mentions_received: 0, 
@@ -13,10 +14,19 @@ const defaultTotalStats = {
     total_disboard_bumps: 0 
 };
 
+const defaultDailyStats = {
+    messages: 0, images: 0, stickers: 0, emojis_sent: 0, // ( 🌟 تمت الإضافة )
+    reactions_added: 0, replies_sent: 0, mentions_received: 0, 
+    vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, 
+    streaming_minutes: 0, disboard_bumps: 0 
+};
+
 function safeMerge(base, defaults) {
     const result = { ...base };
     for (const key in defaults) {
-        if (result[key] === undefined) result[key] = defaults[key];
+        if (result[key] === undefined || result[key] === null) {
+            result[key] = defaults[key];
+        }
     }
     return result;
 }
@@ -37,19 +47,21 @@ module.exports = {
     name: Events.MessageReactionAdd,
     async execute(reaction, user) {
         
-        // 1. تنفيذ كود "حذف المالك" أولاً (إذا كان هو الفاعل)
-        await ownerReactionDelete.execute(reaction, user);
+        // 1. تنفيذ حذف المالك
+        try { await ownerReactionDelete.execute(reaction, user); } catch(e) {}
 
-        // 2. إذا كان بوت، نتجاهل
         if (user.bot) return;
         if (!reaction.message.guild) return;
 
         const client = reaction.client;
         const sql = client.sql;
+        
+        if (!sql || !sql.open) return;
+
         const guildID = reaction.message.guild.id;
         const userID = user.id;
 
-        // 3. تتبع إحصائيات الرياكشن (Quest Stats)
+        // 3. تتبع إحصائيات الرياكشن
         try {
             const dateStr = getTodayDateString();
             const weekStartDateStr = getWeekStartDateString();
@@ -57,35 +69,26 @@ module.exports = {
             const weeklyStatsId = `${userID}-${guildID}-${weekStartDateStr}`;
             const totalStatsId = `${userID}-${guildID}`;
 
-            // جلب البيانات الحالية أو إنشاء جديدة
-            let dailyStats = client.getDailyStats.get(dailyStatsId) || { id: dailyStatsId, userID, guildID, date: dateStr, reactions_added: 0 };
-            let weeklyStats = client.getWeeklyStats.get(weeklyStatsId) || { id: weeklyStatsId, userID, guildID, weekStartDate: weekStartDateStr, reactions_added: 0 };
+            // جلب البيانات
+            let dailyStats = client.getDailyStats.get(dailyStatsId) || { id: dailyStatsId, userID, guildID, date: dateStr };
+            let weeklyStats = client.getWeeklyStats.get(weeklyStatsId) || { id: weeklyStatsId, userID, guildID, weekStartDate: weekStartDateStr };
             let totalStats = client.getTotalStats.get(totalStatsId) || { id: totalStatsId, userID, guildID };
 
-            // دمج القيم الافتراضية لتجنب القيم الناقصة
-            // (ملاحظة: لا نحتاج لدمج daily/weekly لأننا نحدث حقلاً واحداً فقط، لكن totalStats ضروري)
+            // دمج القيم الافتراضية
+            dailyStats = safeMerge(dailyStats, defaultDailyStats);
+            weeklyStats = safeMerge(weeklyStats, defaultDailyStats);
             totalStats = safeMerge(totalStats, defaultTotalStats);
 
             // زيادة العدادات
-            dailyStats.reactions_added = (dailyStats.reactions_added || 0) + 1;
-            weeklyStats.reactions_added = (weeklyStats.reactions_added || 0) + 1;
-            totalStats.total_reactions_added = (totalStats.total_reactions_added || 0) + 1;
+            dailyStats.reactions_added += 1;
+            weeklyStats.reactions_added += 1;
+            totalStats.total_reactions_added += 1;
 
-            // حفظ التحديثات (Daily & Weekly)
-            // (نستخدم run الجزئي لتجنب تصفير باقي الأعمدة إذا لم تكن موجودة في الكائن، لكن الأفضل استخدام prepared statement الكامل)
-            // للتبسيط والأمان، سنستخدم الدوال الموجودة في client إذا كانت تدعم الدمج، أو نستخدم run المباشر
-            
-            // هنا نستخدم الـ prepared statements الموجودة في client (وهي تتوقع كائناً كاملاً)
-            // لذا يجب أن نملأ باقي القيم بـ 0 أو القيم القديمة إذا كانت dailyStats ناقصة
-            // (للأمان، سنفترض أن client.setDailyStats يتطلب كل الحقول، لذا سنقوم بعمل merge كامل)
-            const fullDailyDefault = { messages: 0, images: 0, stickers: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
-            dailyStats = safeMerge(dailyStats, fullDailyDefault);
-            weeklyStats = safeMerge(weeklyStats, fullDailyDefault);
-
+            // الحفظ (باستخدام الدوال الجاهزة في client التي تتوقع كائناً كاملاً)
             client.setDailyStats.run(dailyStats);
             client.setWeeklyStats.run(weeklyStats);
-
-            // حفظ التحديثات (Total Stats) - ( 🌟 هنا كان الخطأ سابقاً 🌟 )
+            
+            // ( 🌟 الحفظ الكامل والشامل لتجنب خطأ Missing Parameter 🌟 )
             client.setTotalStats.run({
                 id: totalStatsId,
                 userID,
@@ -93,23 +96,27 @@ module.exports = {
                 total_messages: totalStats.total_messages,
                 total_images: totalStats.total_images,
                 total_stickers: totalStats.total_stickers,
+                total_emojis_sent: totalStats.total_emojis_sent, // ✅ موجود الآن
                 total_reactions_added: totalStats.total_reactions_added,
-                total_replies_sent: totalStats.total_replies_sent,        // (تم التصحيح)
-                total_mentions_received: totalStats.total_mentions_received, // (تم التصحيح)
+                total_replies_sent: totalStats.total_replies_sent,
+                total_mentions_received: totalStats.total_mentions_received,
                 total_vc_minutes: totalStats.total_vc_minutes,
                 total_disboard_bumps: totalStats.total_disboard_bumps
             });
 
-            // التحقق من المهام والإنجازات
+            // التحقق من المهام
             const member = await reaction.message.guild.members.fetch(userID).catch(() => null);
-            if (member) {
+            if (member && client.checkQuests) {
                 await client.checkQuests(client, member, dailyStats, 'daily', dateStr);
                 await client.checkQuests(client, member, weeklyStats, 'weekly', weekStartDateStr);
                 await client.checkAchievements(client, member, null, totalStats);
             }
 
         } catch (err) {
-            console.error("[Reaction Stats Error]", err);
+            // تجاهل الخطأ إذا كان بسبب قاعدة البيانات المغلقة مؤقتاً
+            if (!err.message.includes('database connection is not open')) {
+                console.error("[Reaction Stats Error]", err);
+            }
         }
     },
 };
