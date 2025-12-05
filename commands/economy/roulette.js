@@ -37,7 +37,7 @@ module.exports = {
                 .setRequired(false)),
 
     name: 'rps',
-    aliases: ['حجرة', 'rock', 'r'],
+    aliases: ['حجرة', 'rock', 'r', 'ورقة', 'ورقه', 'حجره', 'مقص'],
     category: "Economy",
     description: "لعبة حجرة ورقة مقص.",
 
