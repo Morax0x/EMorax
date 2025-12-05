@@ -1,5 +1,7 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, Colors, SlashCommandBuilder, Collection } = require("discord.js");
+// ( 🌟 تم إعادة استدعاء دالة البفات للعب الفردي 🌟 )
 const { calculateMoraBuff } = require('../../streak-handler.js');
+
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 
 const MIN_BET = 25;
@@ -36,7 +38,6 @@ module.exports = {
                 .setDescription(`المبلغ الذي تريد المراهنة به`)
                 .setRequired(true)
                 .setMinValue(MIN_BET)
-                // ⚠️ تمت إزالة الحد الأقصى من هنا للسماح بالمبالغ الكبيرة في اللعب الجماعي
         )
         .addUserOption(option => option.setName('الخصم1').setDescription('الخصم الأول (لعبة جماعية)').setRequired(false))
         .addUserOption(option => option.setName('الخصم2').setDescription('الخصم الثاني (لعبة جماعية)').setRequired(false))
@@ -123,7 +124,6 @@ module.exports = {
             }
 
             // 2. 🔒 التحقق من الحد الأقصى (للبوت فقط)
-            // إذا لم يكن هناك خصوم (Opponents size 0) والرهان أكبر من 100 -> نرفض
             if (opponents.size === 0 && bet > MAX_BET_SOLO) {
                 return replyError(`🚫 **تنبيه:** الحد الأقصى للرهان في اللعب الفردي (ضد البوت) هو **${MAX_BET_SOLO}** ${EMOJI_MORA}!\n(للعب بمبالغ أكبر، تحدى لاعبين آخرين).`);
             }
@@ -179,7 +179,6 @@ async function playSolo(channel, author, bet, authorData, getScore, setScore, sq
     const targetNumber = Math.floor(Math.random() * 100) + 1;
     let attempts = 0;
 
-    // الجائزة في الفردي 7 أضعاف، لكن مع عقوبة مع كل محاولة خاطئة
     const startingPrize = bet * 7;
     let currentWinnings = startingPrize;
     const penaltyPerGuess = Math.floor(startingPrize / SOLO_ATTEMPTS);
@@ -204,6 +203,7 @@ async function playSolo(channel, author, bet, authorData, getScore, setScore, sq
         const attemptsLeft = SOLO_ATTEMPTS - attempts;
 
         if (guess === targetNumber) {
+            // ( 🌟 هنا يتم تطبيق البفات في اللعب الفردي فقط 🌟 )
             const moraMultiplier = calculateMoraBuff(author, sql);
             const finalWinnings = Math.floor(currentWinnings * moraMultiplier);
 
@@ -256,9 +256,6 @@ async function playSolo(channel, author, bet, authorData, getScore, setScore, sq
 
 async function playChallenge(channel, author, opponents, bet, authorData, getScore, setScore, sql, replyFunction) {
     const channelId = channel.id;
-
-    const opponentNames = opponents.map(o => o.displayName).join(', ');
-    // تخزين ID الخصوم للتحقق
     const requiredOpponentsIDs = opponents.map(o => o.id);
 
     for (const opponent of opponents.values()) {
@@ -308,18 +305,13 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
     const acceptedOpponentsIDs = new Set(); 
     const challengeCollector = challengeMsg.createMessageComponentCollector({ time: 60000 });
 
-    // --- دالة بدء اللعبة ---
     const startGame = async () => {
         challengeCollector.stop('started');
         
-        // تجميع كل اللاعبين (المضيف + الخصوم)
-        // نحتاجهم كـ Members لجلب البيانات، وكـ IDs للفلترة
         const finalPlayers = [author];
         opponents.forEach(o => finalPlayers.push(o));
-        
         const finalPlayerIDs = finalPlayers.map(p => p.id);
 
-        // خصم المورا من الجميع
         for (const player of finalPlayers) {
             let data = getScore.get(player.id, channel.guild.id);
             if (!data) data = { ...channel.client.defaultData, user: player.id, guild: channel.guild.id };
@@ -338,7 +330,6 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
 
         await challengeMsg.edit({ content: finalPlayers.map(p => p.toString()).join(' '), embeds: [gameEmbed], components: [] });
 
-        // الفلتر: يسمح فقط للاعبين المشاركين، ويجب أن تكون الرسالة رقماً
         const filter = (m) => finalPlayerIDs.includes(m.author.id) && !isNaN(parseInt(m.content));
         const gameCollector = channel.createMessageCollector({ filter, time: 60000 });
 
@@ -348,20 +339,16 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
 
             if (guess === targetNumber) {
                 let winnerData = getScore.get(msg.author.id, channel.guild.id);
-                const moraMultiplier = calculateMoraBuff(msg.member, sql);
                 
-                // حساب الفوز (المبلغ الكلي + بوناس على حصة اللاعب فقط)
-                const bonus = Math.floor(bet * moraMultiplier) - bet; 
-                const finalWinnings = totalPot + bonus;
+                // ( 🌟 اللعب الجماعي بدون أي بفات - صافي 🌟 )
+                const finalWinnings = totalPot;
 
                 winnerData.mora += finalWinnings;
                 setScore.run(winnerData);
 
-                let bonusString = bonus > 0 ? `\n+ **${bonus}** ${EMOJI_MORA}` : "";
-
                 const winEmbed = new EmbedBuilder()
                     .setTitle(`✥ الـفـائـز ${msg.member.displayName}!`)
-                    .setDescription(`✶ نجح ${msg.member} في تخمين الرقم الصحيح **${targetNumber}**!\n\nربـح الجائـزة الكـبرى **${totalPot.toLocaleString()}** ${EMOJI_MORA}!${bonusString}`)
+                    .setDescription(`✶ نجح ${msg.member} في تخمين الرقم الصحيح **${targetNumber}**!\n\nربـح الجائـزة الكـبرى **${totalPot.toLocaleString()}** ${EMOJI_MORA}!`)
                     .setColor("Green")
                     .setImage('https://i.postimg.cc/NfMfDwp4/download-2.gif')
                     .setThumbnail(msg.author.displayAvatarURL());
@@ -398,7 +385,6 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
     };
 
     challengeCollector.on('collect', async i => {
-        // التأكد أن الشخص الذي ضغط الزر هو أحد الخصوم المدعوين
         if (!requiredOpponentsIDs.includes(i.user.id)) {
             return i.reply({ content: `التحدي ليس مرسلاً لك!`, ephemeral: true });
         }
@@ -417,7 +403,6 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
                 acceptedOpponentsIDs.add(i.user.id);
                 await i.reply({ content: `✦ تـم قبول التحدي!`, ephemeral: true });
                 
-                // 🌟🌟🌟 التحقق: هل عدد الذين قبلوا = عدد الخصوم المطلوبين؟ 🌟🌟🌟
                 if (acceptedOpponentsIDs.size === requiredOpponentsIDs.length) {
                     await startGame();
                 }
