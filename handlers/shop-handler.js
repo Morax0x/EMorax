@@ -11,6 +11,7 @@ const rootDir = process.cwd();
 const { rods: rodsConfig, boats: boatsConfig, baits: baitsConfig } = require(path.join(rootDir, 'json', 'fishing-config.json'));
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
+// ( 🌟 تعريف OWNER_ID هنا في النطاق العام ليراه الملف بالكامل 🌟 )
 const OWNER_ID = "1145327691772481577"; 
 const XP_EXCHANGE_RATE = 3;
 const BANNER_URL = 'https://i.postimg.cc/NMkWVyLV/line.png';
@@ -38,16 +39,14 @@ const THUMBNAILS = new Map([
 // --- دوال مساعدة ---
 function normalize(str) { if (!str) return ""; return str.toString().toLowerCase().replace(/[^a-z0-9]/g, ""); }
 function getGeneralSkills() { return skillsConfig.filter(s => s.id.startsWith('skill_')); }
-
 function getRaceSkillConfig(raceName) { 
     if (!raceName) return null;
     return skillsConfig.find(s => {
         if (!s.id.startsWith('race_')) return false;
-        const idName = s.id.replace('race_', '').replace('_skill', '').replace(/_/g, ' ').toLowerCase();
-        return idName === raceName.toLowerCase();
+        const idName = s.id.replace('race_', '').replace('_skill', '');
+        return normalize(idName) === normalize(raceName);
     }); 
 }
-
 function getUserRace(member, sql) { 
     if (!member || !member.roles) return null;
     const allRaceRoles = sql.prepare("SELECT roleID, raceName FROM race_roles WHERE guildID = ?").all(member.guild.id); 
@@ -55,18 +54,7 @@ function getUserRace(member, sql) {
     const userRace = allRaceRoles.find(r => userRoleIDs.includes(r.roleID)); 
     return userRace || null; 
 }
-
-function getAllUserAvailableSkills(member, sql) { 
-    const generalSkills = getGeneralSkills(); 
-    const userRace = getUserRace(member, sql); 
-    let raceSkill = null; 
-    if (userRace) { raceSkill = getRaceSkillConfig(userRace.raceName); } 
-    let allSkills = []; 
-    if (raceSkill) { allSkills.push(raceSkill); } 
-    allSkills = allSkills.concat(generalSkills); 
-    return allSkills; 
-}
-
+function getAllUserAvailableSkills(member, sql) { const generalSkills = getGeneralSkills(); const userRace = getUserRace(member, sql); let raceSkill = null; if (userRace) { raceSkill = getRaceSkillConfig(userRace.raceName); } let allSkills = []; if (raceSkill) { allSkills.push(raceSkill); } allSkills = allSkills.concat(generalSkills); return allSkills; }
 function getBuyableItems() { return shopItems.filter(it => !['upgrade_weapon', 'upgrade_skill', 'exchange_xp', 'upgrade_rod', 'fishing_gear_menu'].includes(it.id)); }
 
 // --- Builders ---
@@ -91,11 +79,11 @@ function buildPaginatedItemEmbed(selectedItemId) {
 function buildSkillEmbedWithPagination(allUserSkills, pageIndex, sql, i) {
     pageIndex = parseInt(pageIndex) || 0;
     const totalSkills = allUserSkills.length;
-    if (totalSkills === 0) return { content: '❌ لا توجد مهارات متاحة.', embeds: [], components: [] };
+    if (totalSkills === 0) return { content: '❌ لا توجد مهارات متاحة للعرض.', embeds: [], components: [] };
     if (pageIndex < 0) pageIndex = totalSkills - 1;
     if (pageIndex >= totalSkills) pageIndex = 0;
     const skillConfig = allUserSkills[pageIndex];
-    if (!skillConfig) return { content: '❌ خطأ في البيانات.', embeds: [], components: [] };
+    if (!skillConfig) return { content: '❌ خطأ: لم يتم العثور على بيانات المهارة.', embeds: [], components: [] };
     const prevIndex = (pageIndex - 1 + totalSkills) % totalSkills;
     const nextIndex = (pageIndex + 1) % totalSkills;
     let userSkill = sql.prepare("SELECT * FROM user_skills WHERE userID = ? AND guildID = ? AND skillID = ?").get(i.user.id, i.guild.id, skillConfig.id);
@@ -210,6 +198,7 @@ async function _handleBaitBuy(i, client, sql) {
     if (userData.mora < cost) return i.editReply(`❌ رصيدك غير كافي.`);
     userData.mora -= cost; client.setLevel.run(userData);
     
+    // ( 🌟 الطعوم فقط تُحفظ في الحقيبة، السنارة والقوارب لا 🌟 )
     sql.prepare("INSERT INTO user_portfolio (guildID, userID, itemID, quantity) VALUES (?, ?, ?, ?) ON CONFLICT(guildID, userID, itemID) DO UPDATE SET quantity = quantity + ?").run(i.guild.id, i.user.id, baitId, qty, qty);
     
     await i.editReply(`✅ تم شراء **${qty}x ${bait.name}** بنجاح!`);
@@ -337,7 +326,7 @@ async function _handleShopButton(i, client, sql) {
         if (!item) return await i.reply({ content: '❌ هذا العنصر غير موجود!', flags: MessageFlags.Ephemeral });
         let userData = client.getLevel.get(userId, guildId); if (!userData) userData = { ...client.defaultData, user: userId, guild: guildId };
         
-        // شرط اللفل 30
+        // ( 🌟 شرط اللفل 30 🌟 )
         const RESTRICTED_ITEMS = ['nitro_basic', 'nitro_gaming', 'discord_effect_5', 'discord_effect_10'];
         if (RESTRICTED_ITEMS.includes(item.id)) {
              if (userData.level < 30) return await i.reply({ content: `❌ يجب أن يكون مستواك 30+ لشراء هذا العنصر!`, flags: MessageFlags.Ephemeral });
@@ -356,8 +345,11 @@ async function _handleShopButton(i, client, sql) {
                 return await i.reply({ content: `⚠️ لديك معزز خبرة فعال بالفعل!`, components: [row], embeds: [], flags: MessageFlags.Ephemeral });
             }
         }
+        
         userData.mora -= item.price;
         let successMessage = `✅ تم شراء **${item.name}** بنجاح!`;
+        
+        // ( 🌟 هنا التحديث: مدة البفات ونسبها الجديدة 🌟 )
         switch (item.id) {
             case 'personal_guard_1d': userData.hasGuard = (userData.hasGuard || 0) + 3; userData.guardExpires = 0; successMessage = `✅ تم توقيع عقد الحراسة!`; break;
             case 'streak_shield': {
@@ -374,9 +366,18 @@ async function _handleShopButton(i, client, sql) {
                 const fullMediaStreakData = { id: existingMediaStreak?.id || `${guildId}-${userId}`, guildID: guildId, userID: userId, streakCount: existingMediaStreak?.streakCount || 0, lastMediaTimestamp: existingMediaStreak?.lastMediaTimestamp || 0, hasGracePeriod: existingMediaStreak?.hasGracePeriod || 0, hasItemShield: 1, hasReceivedFreeShield: existingMediaStreak?.hasReceivedFreeShield || 0, dmNotify: existingMediaStreak?.dmNotify ?? 1, highestStreak: existingMediaStreak?.highestStreak || 0 };
                 setMediaStreak.run(fullMediaStreakData); break;
             }
-            case 'xp_buff_1d_3': sql.prepare("INSERT INTO user_buffs (userID, guildID, buffType, multiplier, expiresAt, buffPercent) VALUES (?, ?, ?, ?, ?, ?)").run(userId, guildId, 'xp', 0.03, Date.now() + (24 * 60 * 60 * 1000), 3); break;
-            case 'xp_buff_1d_7': sql.prepare("INSERT INTO user_buffs (userID, guildID, buffType, multiplier, expiresAt, buffPercent) VALUES (?, ?, ?, ?, ?, ?)").run(userId, guildId, 'xp', 0.07, Date.now() + (24 * 60 * 60 * 1000), 7); break;
-            case 'xp_buff_2d_10': sql.prepare("INSERT INTO user_buffs (userID, guildID, buffType, multiplier, expiresAt, buffPercent) VALUES (?, ?, ?, ?, ?, ?)").run(userId, guildId, 'xp', 0.10, Date.now() + (2 * 24 * 60 * 60 * 1000), 10); break;
+            
+            // 🌟 تعديل البفات (النسبة والمدة) 🌟
+            case 'xp_buff_1d_3': // صغير
+                sql.prepare("INSERT INTO user_buffs (userID, guildID, buffType, multiplier, expiresAt, buffPercent) VALUES (?, ?, ?, ?, ?, ?)").run(userId, guildId, 'xp', 0.45, Date.now() + (24 * 60 * 60 * 1000), 45); 
+                break;
+            case 'xp_buff_1d_7': // متوسط
+                sql.prepare("INSERT INTO user_buffs (userID, guildID, buffType, multiplier, expiresAt, buffPercent) VALUES (?, ?, ?, ?, ?, ?)").run(userId, guildId, 'xp', 0.70, Date.now() + (48 * 60 * 60 * 1000), 70); 
+                break;
+            case 'xp_buff_2d_10': // كبير
+                sql.prepare("INSERT INTO user_buffs (userID, guildID, buffType, multiplier, expiresAt, buffPercent) VALUES (?, ?, ?, ?, ?, ?)").run(userId, guildId, 'xp', 0.90, Date.now() + (72 * 60 * 60 * 1000), 90); 
+                break;
+
             case 'vip_role_3d':
                 const settings = sql.prepare("SELECT vipRoleID FROM settings WHERE guild = ?").get(guildId);
                 const VIP_ROLE_ID = settings ? settings.vipRoleID : null;
@@ -422,12 +423,16 @@ async function _handleReplaceBuffButton(i, client, sql) {
         if (userData.mora < item.price) return await i.editReply({ content: `❌ رصيدك غير كافي! تحتاج إلى **${item.price.toLocaleString()}** ${EMOJI_MORA}`, components: [], embeds: [] });
         userData.mora -= item.price;
         sql.prepare("DELETE FROM user_buffs WHERE userID = ? AND guildID = ? AND buffType = 'xp'").run(userId, guildId);
+        
         let expiresAt, multiplier, buffPercent;
+        
+        // 🌟 تعديل البفات (الاستبدال) 🌟
         switch (item.id) {
-            case 'xp_buff_1d_3': multiplier = 0.03; buffPercent = 3; expiresAt = Date.now() + (24 * 60 * 60 * 1000); break;
-            case 'xp_buff_1d_7': multiplier = 0.07; buffPercent = 7; expiresAt = Date.now() + (24 * 60 * 60 * 1000); break;
-            case 'xp_buff_2d_10': multiplier = 0.10; buffPercent = 10; expiresAt = Date.now() + (2 * 24 * 60 * 60 * 1000); break;
+            case 'xp_buff_1d_3': multiplier = 0.45; buffPercent = 45; expiresAt = Date.now() + (24 * 60 * 60 * 1000); break;
+            case 'xp_buff_1d_7': multiplier = 0.70; buffPercent = 70; expiresAt = Date.now() + (48 * 60 * 60 * 1000); break;
+            case 'xp_buff_2d_10': multiplier = 0.90; buffPercent = 90; expiresAt = Date.now() + (72 * 60 * 60 * 1000); break;
         }
+
         sql.prepare("INSERT INTO user_buffs (userID, guildID, buffType, multiplier, expiresAt, buffPercent) VALUES (?, ?, ?, ?, ?, ?)").run(userId, guildId, 'xp', multiplier, expiresAt, buffPercent);
         userData.shop_purchases = (userData.shop_purchases || 0) + 1;
         client.setLevel.run(userData);
