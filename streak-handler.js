@@ -6,9 +6,9 @@ const KSA_TIMEZONE = 'Asia/Riyadh';
 const EMOJI_MEDIA_STREAK = '<a:Streak:1438932297519730808>';
 const EMOJI_SHIELD = '<:Shield:1437804676224516146>';
 
-// ( 🌟 قائمة الفواصل التي سيتم البحث عنها وحذف الرقم بعدها 🌟 )
-// ملاحظة: الرمز | يحتاج لـ \\ قبله لأنه رمز خاص في البرمجة
-const SEPARATORS_CLEAN_LIST = ['\\|', '»', '•', '✦', '★', '❖', '✧', '✬', '〢', '┇', '-', ':'];
+// ( 🌟 قائمة الفواصل التي سيتم البحث عنها لتنظيف الاسم 🌟 )
+// ملاحظة: الرمز | يحتاج لـ \\ قبله لأنه رمز خاص في البرمجة (Regex)
+const SEPARATORS_CLEAN_LIST = ['\\|', '»', '•', '✦', '★', '❖', '✧', '✬', '〢', '┇', '-', ':', '\\]', '\\['];
 
 function getKSADateString(dateObject) {
     return new Date(dateObject).toLocaleString('en-CA', {
@@ -105,7 +105,7 @@ function calculateMoraBuff(member, sql) {
     return finalMultiplier;
 }
 
-// 🌟 دالة تحديث الاسم (تم تعديلها لوضع الرقم في النهاية) 🌟
+// 🌟 دالة تحديث الاسم (محسنة لتنظيف أي تكرار أو فواصل قديمة) 🌟
 async function updateNickname(member, sql) {
     if (!member) return;
     if (!sql || typeof sql.prepare !== 'function') return;
@@ -118,7 +118,10 @@ async function updateNickname(member, sql) {
     const settings = sql.prepare("SELECT streakEmoji FROM settings WHERE guild = ?").get(member.guild.id);
     const streakEmoji = settings?.streakEmoji || '🔥';
 
+    // ( 🌟 الفاصلة الافتراضية هي » )
     let separator = streakData?.separator || '»'; 
+    
+    // تصحيح الفاصلة القديمة إذا كانت موجودة في الداتابيس
     if (separator === '|') separator = '»';
 
     const streakCount = streakData?.streakCount || 0;
@@ -129,22 +132,26 @@ async function updateNickname(member, sql) {
     // 1. تنظيف الاسم من الصيغة القديمة [123] في البداية
     baseName = baseName.replace(/^\[\d+\]\s*/, '').trim();
 
-    // 2. تنظيف الاسم من الصيغة الجديدة (الفاصلة + الرقم في النهاية)
-    // Regex: يبحث عن أي فاصلة من القائمة + مسافات + رقم + أي شيء بعدها حتى نهاية السطر
+    // 2. تنظيف الاسم من أي لاحقة ستريك قديمة (فاصلة + أرقام + إيموجي) في النهاية
+    // هذا الـ Regex يبحث عن أي فاصلة من القائمة، متبوعة بمسافات وأرقام وأي شيء بعدها حتى نهاية السطر
     const cleanRegexEnd = new RegExp(`\\s*(${SEPARATORS_CLEAN_LIST.join('|')})\\s*\\d+.*$`, 'i');
+    
+    // نقوم بالتنظيف مرتين للتأكد من إزالة أي تكرار (مثلاً: الاسم | 5 | 6)
     baseName = baseName.replace(cleanRegexEnd, '').trim();
+    baseName = baseName.replace(cleanRegexEnd, '').trim(); 
 
     let newName;
     if (streakCount > 0 && nicknameActive) {
-        // ( 🌟 الشكل الجديد: الاسم » الرقم 🌟 )
-        newName = `${baseName} ${separator} ${streakCount}`;
+        // ( 🌟 الشكل الجديد: الاسم » الرقم 🔥 🌟 )
+        newName = `${baseName} ${separator} ${streakCount} ${streakEmoji}`;
     } else {
         newName = baseName;
     }
 
     // التأكد من طول الاسم (32 حرف)
     if (newName.length > 32) {
-        const suffix = ` ${separator} ${streakCount}`;
+        const suffix = ` ${separator} ${streakCount} ${streakEmoji}`;
+        // نقص من الاسم الأساسي ليتسع للستريك
         baseName = baseName.substring(0, 32 - suffix.length);
         newName = `${baseName}${suffix}`;
     }
@@ -259,6 +266,9 @@ async function handleStreakMessage(message) {
 
     let streakData = getStreak.get(guildID, userID);
 
+    // ( 🌟 الفاصلة الافتراضية للجدد هي » 🌟 )
+    const DEFAULT_SEPARATOR = '»';
+
     if (!streakData) {
         streakData = {
             id: id, guildID, userID,
@@ -268,7 +278,7 @@ async function handleStreakMessage(message) {
             hasItemShield: 0,
             nicknameActive: 1,
             hasReceivedFreeShield: 1,
-            separator: '»', 
+            separator: DEFAULT_SEPARATOR, 
             dmNotify: 1,
             highestStreak: 1
         };
@@ -276,12 +286,13 @@ async function handleStreakMessage(message) {
         await updateNickname(message.member, sql);
 
     } else {
+        // تحديث الفاصلة القديمة إذا كانت |
         if (streakData.separator === '|') {
-            streakData.separator = '»';
-            sql.prepare("UPDATE streaks SET separator = ? WHERE id = ?").run('»', id);
+            streakData.separator = DEFAULT_SEPARATOR;
+            sql.prepare("UPDATE streaks SET separator = ? WHERE id = ?").run(DEFAULT_SEPARATOR, id);
         }
 
-        // 🌟 التصحيح الذاتي: التحقق من الاسم مع كل رسالة 🌟
+        // التصحيح الذاتي للاسم مع كل رسالة
         if (streakData.nicknameActive === 1) {
             await updateNickname(message.member, sql);
         }
@@ -331,7 +342,6 @@ async function handleStreakMessage(message) {
 
 async function handleMediaStreakMessage(message) {
     const sql = message.client.sql;
-    
     try {
         sql.prepare("ALTER TABLE media_streaks ADD COLUMN lastChannelID TEXT").run();
     } catch (e) {}
