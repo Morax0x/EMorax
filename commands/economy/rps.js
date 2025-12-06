@@ -1,25 +1,31 @@
 const { SlashCommandBuilder, EmbedBuilder, ButtonBuilder, ActionRowBuilder, ButtonStyle, ComponentType, Colors } = require('discord.js');
-const { calculateMoraBuff } = require('../../streak-handler.js'); 
+const { calculateMoraBuff } = require('../../streak-handler.js'); // لاستخدامه في الفردي فقط
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
-const OWNER_ID = "1145327691772481577"; 
+const OWNER_ID = "1145327691772481577"; // 🔒 آيدي المالك (استثناء الكولداون)
 const ROCK = '🪨';
 const PAPER = '📄';
 const SCISSORS = '✂️';
 const MOVES = [ROCK, PAPER, SCISSORS];
 
 const MIN_BET = 20;
-const MAX_BET_SOLO = 100;
-const COOLDOWN_MS = 1 * 60 * 60 * 1000;
+const MAX_BET_SOLO = 100; // 🔒 الحد الأقصى للفردي
+const COOLDOWN_MS = 1 * 60 * 60 * 1000; // 1 ساعة
 
+// دالة تنسيق الوقت
 function formatTime(ms) {
     if (ms < 0) ms = 0;
     const totalSeconds = Math.floor(ms / 1000);
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
-    if (hours > 0) return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    
+    const hh = String(hours).padStart(2, '0');
+    const mm = String(minutes).padStart(2, '0');
+    const ss = String(seconds).padStart(2, '0');
+    
+    if (hours > 0) return `${hh}:${mm}:${ss}`;
+    return `${mm}:${ss}`;
 }
 
 module.exports = {
@@ -43,13 +49,12 @@ module.exports = {
 
     async execute(interactionOrMessage, args) {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
-        let interaction, message, user, member, guild, client, channel;
+        let interaction, message, user, guild, client, channel;
         let betInput, opponentInput;
 
         if (isSlash) {
             interaction = interactionOrMessage;
             user = interaction.user;
-            member = interaction.member; // نحتاج الممبر عشان الرتب
             guild = interaction.guild;
             client = interaction.client;
             channel = interaction.channel;
@@ -59,7 +64,6 @@ module.exports = {
         } else {
             message = interactionOrMessage;
             user = message.author;
-            member = message.member; // نحتاج الممبر عشان الرتب
             guild = message.guild;
             client = message.client;
             channel = message.channel;
@@ -78,15 +82,11 @@ module.exports = {
             return message.channel.send(payload);
         };
 
-        // تأكد من وجود المتغيرات
-        if (!client.activeGames) client.activeGames = new Set();
-        const activeGames = client.activeGames;
-
         const sql = client.sql;
         let userData = client.getLevel.get(user.id, guild.id);
         if (!userData) userData = { ...client.defaultData, user: user.id, guild: guild.id };
 
-        // 1. الكولداون
+        // 1. التحقق من الكولداون (قبل كل شيء)
         const now = Date.now();
         if (user.id !== OWNER_ID) {
             const timeLeft = (userData.lastRPS || 0) + COOLDOWN_MS - now;
@@ -95,16 +95,14 @@ module.exports = {
             }
         }
 
-        if (activeGames.has(channel.id)) {
-            return reply({ content: "🚫 هناك لعبة نشطة بالفعل في هذه القناة!" });
-        }
-
-        // --- المراهنة التلقائية ---
+        // --- منطق المراهنة التلقائية ---
         if (!betInput) {
             let proposedBet = 100;
             const userBalance = userData.mora;
 
-            if (userBalance < MIN_BET) return reply({ content: `❌ لا تملك مورا كافية (الحد الأدنى ${MIN_BET})!`, ephemeral: true });
+            if (userBalance < MIN_BET) return reply({ content: `❌ لا تملك مورا كافية للعب (الحد الأدنى ${MIN_BET})!`, ephemeral: true });
+            
+            // إذا رصيده أقل من 100، نقترح كل رصيده
             if (userBalance < 100) proposedBet = userBalance;
 
             const autoBetEmbed = new EmbedBuilder()
@@ -123,7 +121,8 @@ module.exports = {
             const confirmMsg = await reply({ embeds: [autoBetEmbed], components: [row], fetchReply: true });
             
             // إضافة للقائمة النشطة مؤقتاً
-            activeGames.add(channel.id);
+            if (!client.activeGames) client.activeGames = new Set();
+            client.activeGames.add(channel.id);
 
             const filter = i => i.user.id === user.id && (i.customId === 'rps_auto_confirm' || i.customId === 'rps_auto_cancel');
             
@@ -132,34 +131,35 @@ module.exports = {
                 
                 if (confirmation.customId === 'rps_auto_cancel') {
                     await confirmation.update({ content: '❌ تم الإلغاء.', embeds: [], components: [] });
-                    activeGames.delete(channel.id);
+                    client.activeGames.delete(channel.id);
                     return;
                 }
 
                 if (confirmation.customId === 'rps_auto_confirm') {
-                    // إزالة رسالة التأكيد والبدء فوراً بدون رسائل انتظار
+                    // هام: استخدام deferUpdate بدلاً من update لتجنب خطأ التفاعل المنتهي
+                    await confirmation.deferUpdate(); 
+                    
+                    // حذف رسالة التأكيد
                     if (!isSlash) await confirmMsg.delete().catch(() => {});
-                    else await confirmation.deferUpdate(); // فقط تأكيد الاستلام بدون رسالة
+                    else await confirmation.editReply({ content: '✅', embeds: [], components: [] }); // أو حذفها إذا أمكن
 
                     // إزالة من القائمة النشطة للسماح ببدء اللعبة الفعلية
-                    activeGames.delete(channel.id);
-                    // تمرير member بدلاً من user لحساب البفات
-                    return startGame(channel, user, member, opponentInput, proposedBet, client, guild, sql, isSlash ? interaction : null);
+                    client.activeGames.delete(channel.id);
+                    return startGame(channel, user, opponentInput, proposedBet, client, guild, sql, isSlash ? interaction : null);
                 }
             } catch (e) {
-                activeGames.delete(channel.id);
+                client.activeGames.delete(channel.id);
                 if (!isSlash) await confirmMsg.delete().catch(() => {});
                 else await interaction.editReply({ content: '⏰ انتهى الوقت.', embeds: [], components: [] });
                 return;
             }
         } else {
-            // تمرير member بدلاً من user
-            return startGame(channel, user, member, opponentInput, betInput, client, guild, sql, isSlash ? interaction : null);
+            return startGame(channel, user, opponentInput, betInput, client, guild, sql, isSlash ? interaction : null);
         }
     }
 };
 
-async function startGame(channel, user, member, opponent, bet, client, guild, sql, interaction) {
+async function startGame(channel, user, opponent, bet, client, guild, sql, interaction) {
     if (!client.activeGames) client.activeGames = new Set();
     const activeGames = client.activeGames;
 
@@ -234,8 +234,7 @@ async function startGame(channel, user, member, opponent, bet, client, guild, sq
             client.setLevel.run(userData);
             client.setLevel.run(opponentData);
 
-            // بدء الجولة مباشرة في نفس الرسالة
-            await runRPSRound(inviteMsg, user, member, opponent, bet, true, client, guild, sql);
+            await runRPSRound(inviteMsg, user, opponent, bet, true, client, guild, sql);
 
         } catch (e) {
             activeGames.delete(channel.id);
@@ -259,37 +258,50 @@ async function startGame(channel, user, member, opponent, bet, client, guild, sq
         if (user.id !== OWNER_ID) userData.lastRPS = Date.now();
         client.setLevel.run(userData);
         
-        // إرسال اللوحة مباشرة بدون رسالة "جاري البدء"
+        // ( 🌟 الحل هنا: إرسال اللوحة مباشرة كرسالة جديدة 🌟 )
         let msg;
-        if (interaction && !interaction.replied) {
-             // إذا كان سلاش ولم نرد بعد، نرسل رد جديد
-             // لكن بما أننا عملنا deferReply، نستخدم editReply لرسالة البدء
-             // لكن هنا نريد رسالة جديدة نظيفة، لذا نستخدم editReply للرسالة الأصلية لتكون هي اللعبة
-             msg = await interaction.editReply({ content: " ", embeds: [], components: [] }); 
-        } else if (interaction && interaction.replied) {
-             // إذا كنا قادمين من زر التأكيد (تم الرد بالفعل)، نعدل الرسالة الأصلية
-             msg = await interaction.editReply({ content: " ", embeds: [], components: [] });
+        const initialEmbed = new EmbedBuilder()
+            .setTitle('حجرة ورقة مقص!')
+            .setDescription(`اختر حركتك يا ${user.username}!`)
+            .setColor("Blue");
+            
+        const initialRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('rps_rock').setEmoji(ROCK).setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('rps_paper').setEmoji(PAPER).setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('rps_scissors').setEmoji(SCISSORS).setStyle(ButtonStyle.Secondary)
+        );
+
+        if (interaction) {
+             if (!interaction.replied) {
+                msg = await interaction.editReply({ content: " ", embeds: [initialEmbed], components: [initialRow] });
+             } else {
+                msg = await channel.send({ content: `${user}`, embeds: [initialEmbed], components: [initialRow] });
+             }
         } else {
-             msg = await channel.send({ content: " " });
+             msg = await channel.send({ content: " ", embeds: [initialEmbed], components: [initialRow] });
         }
         
-        await runRPSRound(msg, user, member, null, bet, false, client, guild, sql);
+        await runRPSRound(msg, user, null, bet, false, client, guild, sql);
     }
 }
 
-async function runRPSRound(message, player1, member1, player2, bet, isPvP, client, guild, sql) {
-    const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('rps_rock').setEmoji(ROCK).setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('rps_paper').setEmoji(PAPER).setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('rps_scissors').setEmoji(SCISSORS).setStyle(ButtonStyle.Secondary)
-    );
+async function runRPSRound(message, player1, player2, bet, isPvP, client, guild, sql) {
+    // اللوحة أرسلت بالفعل في startGame للـ Solo، أو inviteMsg للـ PvP
+    // إذا كان PvP نحتاج لتحديث الرسالة
+    if (isPvP) {
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('rps_rock').setEmoji(ROCK).setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('rps_paper').setEmoji(PAPER).setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('rps_scissors').setEmoji(SCISSORS).setStyle(ButtonStyle.Secondary)
+        );
 
-    const embed = new EmbedBuilder()
-        .setTitle('حجرة ورقة مقص!')
-        .setDescription(isPvP ? `اللاعبين: ${player1} vs ${player2}\nاختاروا حركتكم!` : `اختر حركتك يا ${player1.username}!`)
-        .setColor("Blue");
+        const embed = new EmbedBuilder()
+            .setTitle('حجرة ورقة مقص!')
+            .setDescription(`اللاعبين: ${player1} vs ${player2}\nاختاروا حركتكم!`)
+            .setColor("Blue");
 
-    await message.edit({ content: " ", embeds: [embed], components: [row] });
+        await message.edit({ content: " ", embeds: [embed], components: [row] });
+    }
 
     const moves = {};
     const filter = i => {
@@ -393,8 +405,13 @@ async function runRPSRound(message, player1, member1, player2, bet, isPvP, clien
                     .setThumbnail(player1.displayAvatarURL({ dynamic: true }));
 
             } else {
-                // الفردي: تمرير member1 (الكائن الكامل) لحساب البفات
-                const multiplier = calculateMoraBuff(member1, sql); // 🌟 التصحيح هنا
+                // الفردي: استخدام member الكامل (لأننا في message context قد نحتاج fetch)
+                // في الكود الحالي player1 هو User object
+                // لجلب الرتب، نحتاج Member object
+                let member = guild.members.cache.get(player1.id);
+                if (!member) try { member = await guild.members.fetch(player1.id); } catch(e){}
+
+                const multiplier = calculateMoraBuff(member, sql); 
                 winnings = Math.floor((bet * 2) * multiplier); 
                 
                 const buffPercent = Math.round((multiplier - 1) * 100);
