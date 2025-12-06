@@ -11,7 +11,6 @@ const rootDir = process.cwd();
 const { rods: rodsConfig, boats: boatsConfig, baits: baitsConfig } = require(path.join(rootDir, 'json', 'fishing-config.json'));
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
-// ( 🌟 تعريف OWNER_ID هنا في النطاق العام ليراه الملف بالكامل 🌟 )
 const OWNER_ID = "1145327691772481577"; 
 const XP_EXCHANGE_RATE = 3;
 const BANNER_URL = 'https://i.postimg.cc/NMkWVyLV/line.png';
@@ -43,8 +42,8 @@ function getRaceSkillConfig(raceName) {
     if (!raceName) return null;
     return skillsConfig.find(s => {
         if (!s.id.startsWith('race_')) return false;
-        const idName = s.id.replace('race_', '').replace('_skill', '');
-        return normalize(idName) === normalize(raceName);
+        const idName = s.id.replace('race_', '').replace('_skill', '').replace(/_/g, ' ').toLowerCase();
+        return idName === raceName.toLowerCase();
     }); 
 }
 function getUserRace(member, sql) { 
@@ -204,97 +203,31 @@ async function _handleBaitBuy(i, client, sql) {
     await i.editReply(`✅ تم شراء **${qty}x ${bait.name}** بنجاح!`);
 }
 
-// 🌟 دالة شراء السلاح (مصححة لترسل رسالة جديدة مخفية بدلاً من تعديل القائمة) 🌟
 async function _handleWeaponUpgrade(i, client, sql) {
     try {
-        const userId = i.user.id; 
-        const guildId = i.guild.id; 
-        const isBuy = i.customId.startsWith('buy_weapon_');
+        await i.deferUpdate();
+        const userId = i.user.id; const guildId = i.guild.id; const isBuy = i.customId.startsWith('buy_weapon_');
+        const raceName = i.customId.replace(isBuy ? 'buy_weapon_' : 'upgrade_weapon_', ''); 
         
-        let exactRaceName = null;
-        let weaponConfig = null;
-
-        // الحالة 1: اختيار من القائمة (إرسال رسالة مخفية جديدة)
-        if (i.isStringSelectMenu() && i.values[0] === 'upgrade_weapon') {
-             if (!i.replied && !i.deferred) await i.deferReply({ flags: MessageFlags.Ephemeral }); // رد جديد
-             
-             const userRace = getUserRace(i.member, sql);
-             if (!userRace) return i.editReply({ content: "❌ ليس لديك عرق! قم باختيار عرقك أولاً." });
-             
-             weaponConfig = weaponsConfig.find(w => w.race.toLowerCase() === userRace.raceName.toLowerCase());
-             if (!weaponConfig) return i.editReply({ content: `❌ لا يوجد سلاح متاح لعرقك (${userRace.raceName}).` });
-             
-             exactRaceName = weaponConfig.race;
-        }
-        // الحالة 2: ضغط زر الشراء/التطوير (تحديث الرسالة المخفية الحالية)
-        else if (i.isButton()) {
-             if (!i.replied && !i.deferred) await i.deferUpdate(); // تحديث نفس الرسالة
-             
-             const raceNameFromBtn = i.customId.replace(isBuy ? 'buy_weapon_' : 'upgrade_weapon_', ''); 
-             // بحث دقيق
-             weaponConfig = weaponsConfig.find(w => w.race.toLowerCase() === raceNameFromBtn.toLowerCase());
-             
-             // محاولة بحث مرن إذا فشل الدقيق
-             if (!weaponConfig) {
-                 const userRace = getUserRace(i.member, sql);
-                 if (userRace) weaponConfig = weaponsConfig.find(w => w.race.toLowerCase() === userRace.raceName.toLowerCase());
-             }
-
-             if (!weaponConfig) {
-                 return await i.followUp({ content: `❌ خطأ: لم يتم العثور على بيانات سلاح للعرق: ${raceNameFromBtn}`, flags: MessageFlags.Ephemeral });
-             }
-             exactRaceName = weaponConfig.race;
-        }
-
-        let userData = client.getLevel.get(userId, guildId); 
-        if (!userData) userData = { ...client.defaultData, user: userId, guild: guildId };
+        const weaponConfig = weaponsConfig.find(w => normalize(w.race) === normalize(raceName));
+        if (!weaponConfig) return await i.followUp({ content: '❌ خطأ: لم يتم العثور على بيانات هذا السلاح.', flags: MessageFlags.Ephemeral });
         
+        const exactRaceName = weaponConfig.race;
+        let userData = client.getLevel.get(userId, guildId); if (!userData) userData = { ...client.defaultData, user: userId, guild: guildId };
         let userWeapon = sql.prepare("SELECT * FROM user_weapons WHERE userID = ? AND guildID = ? AND raceName = ?").get(userId, guildId, exactRaceName);
         let currentLevel = userWeapon ? userWeapon.weaponLevel : 0;
-
-        // منطق الشراء (فقط عند ضغط الزر)
-        if (i.isButton()) {
-            if (currentLevel >= weaponConfig.max_level) {
-                 return await i.followUp({ content: '❌ لقد وصلت للحد الأقصى للتطوير بالفعل!', flags: MessageFlags.Ephemeral });
-            }
-            
-            let price = (currentLevel === 0) ? weaponConfig.base_price : weaponConfig.base_price + (weaponConfig.price_increment * currentLevel);
-            
-            if (userData.mora < price) {
-                return await i.followUp({ content: `❌ رصيدك غير كافي! تحتاج إلى **${price.toLocaleString()}** ${EMOJI_MORA}`, flags: MessageFlags.Ephemeral });
-            }
-            
-            userData.mora -= price; 
-            userData.shop_purchases = (userData.shop_purchases || 0) + 1; 
-            client.setLevel.run(userData);
-            
-            const newLevel = currentLevel + 1;
-            if (isBuy) sql.prepare("INSERT INTO user_weapons (userID, guildID, raceName, weaponLevel) VALUES (?, ?, ?, ?)").run(userId, guildId, exactRaceName, newLevel);
-            else sql.prepare("UPDATE user_weapons SET weaponLevel = ? WHERE id = ?").run(newLevel, userWeapon.id);
-            
-            currentLevel = newLevel;
-            await i.followUp({ content: `🎉 تم التطوير بنجاح!`, flags: MessageFlags.Ephemeral });
-        }
-
-        // بناء وعرض الإيمبد
-        const newDamage = weaponConfig.base_damage + (weaponConfig.damage_increment * (currentLevel - (currentLevel > 0 ? 1 : 0)));
-        const embed = new EmbedBuilder().setTitle(`${weaponConfig.emoji} سلاح العرق: ${weaponConfig.name}`).setColor(Colors.Blue).setImage(BANNER_URL).setThumbnail(THUMBNAILS.get('upgrade_weapon')).addFields({ name: "العرق", value: exactRaceName, inline: true }, { name: "المستوى", value: `Lv. ${currentLevel}`, inline: true }, { name: "الضرر", value: `${newDamage} DMG`, inline: true });
-        
+        let price = (currentLevel === 0) ? weaponConfig.base_price : weaponConfig.base_price + (weaponConfig.price_increment * currentLevel);
+        if (userData.mora < price) return await i.followUp({ content: `❌ رصيدك غير كافي!`, flags: MessageFlags.Ephemeral });
+        userData.mora -= price; userData.shop_purchases = (userData.shop_purchases || 0) + 1; client.setLevel.run(userData);
+        const newLevel = currentLevel + 1;
+        if (isBuy) sql.prepare("INSERT INTO user_weapons (userID, guildID, raceName, weaponLevel) VALUES (?, ?, ?, ?)").run(userId, guildId, exactRaceName, newLevel);
+        else sql.prepare("UPDATE user_weapons SET weaponLevel = ? WHERE id = ?").run(newLevel, userWeapon.id);
+        const newDamage = weaponConfig.base_damage + (weaponConfig.damage_increment * (newLevel - 1));
+        const embed = new EmbedBuilder().setTitle(`${weaponConfig.emoji} سلاح العرق: ${weaponConfig.name}`).setColor(Colors.Blue).setImage(BANNER_URL).setThumbnail(THUMBNAILS.get('upgrade_weapon')).addFields({ name: "العرق", value: exactRaceName, inline: true }, { name: "المستوى", value: `Lv. ${newLevel}`, inline: true }, { name: "الضرر", value: `${newDamage} DMG`, inline: true });
         const row = new ActionRowBuilder();
-        if (currentLevel >= weaponConfig.max_level) { 
-            embed.addFields({ name: "التطوير", value: "وصلت للحد الأقصى!", inline: true }); 
-            row.addComponents(new ButtonBuilder().setCustomId('max_level').setLabel('الحد الأقصى').setStyle(ButtonStyle.Success).setDisabled(true)); 
-        } else { 
-            const nextLevelPrice = weaponConfig.base_price + (weaponConfig.price_increment * currentLevel); 
-            const nextDamage = newDamage + weaponConfig.damage_increment; 
-            const buttonId = currentLevel === 0 ? `buy_weapon_${exactRaceName}` : `upgrade_weapon_${exactRaceName}`; 
-            const buttonLabel = currentLevel === 0 ? `شراء (Lv.1)` : `تطوير (Lv.${currentLevel + 1})`; 
-            embed.addFields({ name: "المستوى القادم", value: `Lv. ${currentLevel + 1}`, inline: true }, { name: "التأثير القادم", value: `${nextDamage} DMG`, inline: true }, { name: "تكلفة التطوير", value: `${nextLevelPrice.toLocaleString()} ${EMOJI_MORA}`, inline: true }); 
-            row.addComponents(new ButtonBuilder().setCustomId(buttonId).setLabel(buttonLabel).setStyle(ButtonStyle.Success).setEmoji('⬆️')); 
-        }
-        
-        await i.editReply({ embeds: [embed], components: [row] });
-        
+        if (newLevel >= weaponConfig.max_level) { embed.addFields({ name: "التطوير", value: "وصلت للحد الأقصى!", inline: true }); row.addComponents(new ButtonBuilder().setCustomId('max_level').setLabel('الحد الأقصى').setStyle(ButtonStyle.Success).setDisabled(true)); } 
+        else { const nextLevelPrice = weaponConfig.base_price + (weaponConfig.price_increment * newLevel); const nextDamage = newDamage + weaponConfig.damage_increment; const buttonId = `upgrade_weapon_${exactRaceName}`; const buttonLabel = `تطوير (Lv.${newLevel + 1})`; embed.addFields({ name: "المستوى القادم", value: `Lv. ${newLevel + 1}`, inline: true }, { name: "التأثير القادم", value: `${nextDamage} DMG`, inline: true }, { name: "تكلفة التطوير", value: `${nextLevelPrice.toLocaleString()} ${EMOJI_MORA}`, inline: true }); row.addComponents(new ButtonBuilder().setCustomId(buttonId).setLabel(buttonLabel).setStyle(ButtonStyle.Success).setEmoji('⬆️')); }
+        await i.editReply({ embeds: [embed], components: [row] }); await i.followUp({ content: `🎉 تم التطوير بنجاح!`, flags: MessageFlags.Ephemeral });
     } catch (error) { console.error("خطأ في زر تطوير السلاح:", error); if (i.replied || i.deferred) await i.followUp({ content: '❌ حدث خطأ.', flags: MessageFlags.Ephemeral }); }
 }
 
@@ -345,13 +278,21 @@ async function _handleShopButton(i, client, sql) {
                 return await i.reply({ content: `⚠️ لديك معزز خبرة فعال بالفعل!`, components: [row], embeds: [], flags: MessageFlags.Ephemeral });
             }
         }
-        
         userData.mora -= item.price;
         let successMessage = `✅ تم شراء **${item.name}** بنجاح!`;
-        
-        // ( 🌟 هنا التحديث: مدة البفات ونسبها الجديدة 🌟 )
         switch (item.id) {
-            case 'personal_guard_1d': userData.hasGuard = (userData.hasGuard || 0) + 3; userData.guardExpires = 0; successMessage = `✅ تم توقيع عقد الحراسة!`; break;
+            case 'personal_guard_1d': userData.hasGuard = (userData.hasGuard || 0) + 3; userData.guardExpires = 0; successMessage = `✅ تم توقيع عقد الحراسة!`;
+            // ( 🌟 هنا التحقق من الحارس الموجود 🌟 )
+            if (userData.hasGuard > 0) {
+                // إعادة المورا لأننا سنطلب التأكيد أولاً
+                userData.mora += item.price; 
+                const replaceButton = new ButtonBuilder().setCustomId(`replace_guard`).setLabel("توقيع عقد جديد").setStyle(ButtonStyle.Danger);
+                const cancelButton = new ButtonBuilder().setCustomId('cancel_purchase').setLabel("إلغاء").setStyle(ButtonStyle.Secondary);
+                const row = new ActionRowBuilder().addComponents(replaceButton, cancelButton);
+                return await i.reply({ content: `⚠️ **لديك حارس بالفعل!**\nهو يحميك حالياً من **${userData.hasGuard}** محاولات سرقة.\n\nهل تريد إلغاء العقد القديم وتوقيع عقد جديد (3 محاولات) بـ **${item.price}**؟`, components: [row], ephemeral: true });
+            }
+            break;
+
             case 'streak_shield': {
                 const setStreak = sql.prepare("INSERT OR REPLACE INTO streaks (id, guildID, userID, streakCount, lastMessageTimestamp, hasGracePeriod, hasItemShield, nicknameActive, hasReceivedFreeShield, separator, dmNotify, highestStreak) VALUES (@id, @guildID, @userID, @streakCount, @lastMessageTimestamp, @hasGracePeriod, @hasItemShield, @nicknameActive, @hasReceivedFreeShield, @separator, @dmNotify, @highestStreak);");
                 const existingStreak = sql.prepare("SELECT * FROM streaks WHERE userID = ? AND guildID = ?").get(userId, guildId);
@@ -410,6 +351,30 @@ async function _handleShopButton(i, client, sql) {
         client.setLevel.run(userData);
         await i.reply({ content: `${successMessage}\nرصيدك المتبقي: **${userData.mora.toLocaleString()}** ${EMOJI_MORA}`, components: [], embeds: [], flags: MessageFlags.Ephemeral });
     } catch (error) { console.error("خطأ في زر المتجر:", error); if (i.replied || i.deferred) await i.followUp({ content: '❌ حدث خطأ.', flags: MessageFlags.Ephemeral }); else await i.reply({ content: '❌ حدث خطأ.', flags: MessageFlags.Ephemeral }); }
+}
+
+// ( 🌟 دالة استبدال الحارس 🌟 )
+async function _handleReplaceGuard(i, client, sql) {
+    try {
+        await i.deferUpdate();
+        const userId = i.user.id; 
+        const guildId = i.guild.id; 
+        const item = shopItems.find(it => it.id === 'personal_guard_1d');
+        
+        let userData = client.getLevel.get(userId, guildId);
+        if (!userData) userData = { ...client.defaultData, user: userId, guild: guildId };
+
+        if (userData.mora < item.price) return await i.editReply({ content: `❌ رصيدك غير كافي! تحتاج إلى **${item.price.toLocaleString()}** ${EMOJI_MORA}`, components: [], embeds: [] });
+        
+        userData.mora -= item.price;
+        userData.hasGuard = 3; // إعادة تعيين الحارس لـ 3 محاولات
+        userData.guardExpires = 0;
+        userData.shop_purchases = (userData.shop_purchases || 0) + 1;
+        
+        client.setLevel.run(userData);
+        
+        await i.editReply({ content: `✅ **تم تجديد العقد!**\nلديك الآن **3** محاولات حماية جديدة.\nرصيدك المتبقي: **${userData.mora.toLocaleString()}** ${EMOJI_MORA}`, components: [], embeds: [] });
+    } catch (error) { console.error("Guard Replace Error:", error); }
 }
 
 async function _handleReplaceBuffButton(i, client, sql) {
@@ -636,6 +601,10 @@ async function handleShopInteractions(i, client, sql) {
         const xpModal = new ModalBuilder().setCustomId('exchange_xp_modal').setTitle('شراء خبرة');
         xpModal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('xp_amount_input').setLabel('الكمية').setStyle(TextInputStyle.Short).setRequired(true)));
         await i.showModal(xpModal);
+    }
+    // ( 🌟 زر استبدال الحارس 🌟 )
+    else if (i.customId === 'replace_guard') {
+        await _handleReplaceGuard(i, client, sql);
     }
     // (فتح مودال الشراء/البيع للمزرعة والسوق)
     else if (i.customId.startsWith('buy_market_') || i.customId.startsWith('sell_market_') || i.customId.startsWith('buy_animal_') || i.customId.startsWith('sell_animal_')) {
