@@ -6,8 +6,10 @@ const KSA_TIMEZONE = 'Asia/Riyadh';
 const EMOJI_MEDIA_STREAK = '<a:Streak:1438932297519730808>';
 const EMOJI_SHIELD = '<:Shield:1437804676224516146>';
 
-// قائمة الفواصل للتنظيف (تشمل القديم والجديد)
-const SEPARATORS_CLEAN_LIST = ['\\|', '»', '•', '✦', '★', '❖', '✧', '✬', '〢', '┇', '-', ':', '\\]', '\\['];
+// ( 🌟 القائمة الحصرية للفواصل المسموحة 🌟 )
+// ملاحظة: الرمز | يحتاج لـ \\ قبله لأنه رمز خاص في البرمجة
+const SEPARATORS_CLEAN_LIST = ['»', '•', '✦', '★', '❖', '✧', '✬', '〢', '┇', '\\|'];
+const DEFAULT_SEPARATOR = '»';
 
 function getKSADateString(dateObject) {
     return new Date(dateObject).toLocaleString('en-CA', {
@@ -104,7 +106,7 @@ function calculateMoraBuff(member, sql) {
     return finalMultiplier;
 }
 
-// 🌟 دالة تحديث الاسم (مانع التلاعب) 🌟
+// 🌟 دالة تحديث الاسم (باستخدام الفواصل المسموحة فقط) 🌟
 async function updateNickname(member, sql) {
     if (!member) return;
     if (!sql || typeof sql.prepare !== 'function') return;
@@ -117,28 +119,33 @@ async function updateNickname(member, sql) {
     const settings = sql.prepare("SELECT streakEmoji FROM settings WHERE guild = ?").get(member.guild.id);
     const streakEmoji = settings?.streakEmoji || '🔥';
 
-    let separator = streakData?.separator || '»'; 
-    if (separator === '|') separator = '»';
+    // التأكد من أن الفاصلة هي واحدة من القائمة المسموحة، وإلا نستخدم الافتراضية
+    let separator = streakData?.separator;
+    // التحقق البسيط: هل الفاصلة موجودة في قائمتنا؟ (نحتاج إزالة الـ \\ من الـ | للمقارنة)
+    const cleanCheckList = SEPARATORS_CLEAN_LIST.map(s => s.replace('\\', ''));
+    if (!cleanCheckList.includes(separator)) {
+        separator = DEFAULT_SEPARATOR;
+    }
 
     const streakCount = streakData?.streakCount || 0;
     const nicknameActive = streakData?.nicknameActive ?? 1;
 
     let baseName = member.displayName;
 
-    // 1. تنظيف: حذف النمط القديم [123] من البداية
-    baseName = baseName.replace(/^\[\d+\]\s*/, '').trim();
-
-    // 2. تنظيف: حذف النمط الجديد (فاصلة + رقم + ايموجي) من النهاية
-    // يبحث عن أي فاصلة، بعدها مسافات، بعدها أرقام، بعدها أي شيء لآخر السطر
-    const cleanRegexEnd = new RegExp(`\\s*(${SEPARATORS_CLEAN_LIST.join('|')})\\s*\\d+.*$`, 'i');
+    // تنظيف الاسم: البحث عن أي من الفواصل المسموحة + رقم + أي شيء بعدها وحذفه
+    // Regex: \s* (مسافات) + (أحد الفواصل) + \s* (مسافات) + \d+ (أرقام) + .*$ (لنهاية السطر)
+    const cleanRegex = new RegExp(`\\s*(${SEPARATORS_CLEAN_LIST.join('|')})\\s*\\d+.*$`, 'i');
     
-    // تكرار التنظيف للتأكد
-    baseName = baseName.replace(cleanRegexEnd, '').trim();
-    baseName = baseName.replace(cleanRegexEnd, '').trim();
+    // ننظف مرتين للتأكد من إزالة التكرار
+    baseName = baseName.replace(cleanRegex, '').trim();
+    baseName = baseName.replace(cleanRegex, '').trim();
+    
+    // (إزالة الأقواس القديمة احتياطاً لمنع تشوه الاسم)
+    baseName = baseName.replace(/^\[\d+\]\s*/, '').trim();
 
     let newName;
     if (streakCount > 0 && nicknameActive) {
-        // بناء الاسم الصحيح من الداتابيس
+        // الشكل: الاسم » الرقم 🔥
         newName = `${baseName} ${separator} ${streakCount} ${streakEmoji}`;
     } else {
         newName = baseName;
@@ -150,14 +157,10 @@ async function updateNickname(member, sql) {
         newName = `${baseName}${suffix}`;
     }
 
-    // إذا الاسم الحالي يختلف عن الاسم المفروض (يعني فيه تلاعب أو تحديث)، نغيره فوراً
     if (member.displayName !== newName) {
         try {
             await member.setNickname(newName);
-            // console.log(`[Anti-Cheat] Fixed nickname for ${member.user.tag}`);
-        } catch (err) {
-            // console.error(`[Streak Nickname] Error: ${err.message}`);
-        }
+        } catch (err) {}
     }
 }
 
@@ -271,7 +274,7 @@ async function handleStreakMessage(message) {
             hasItemShield: 0,
             nicknameActive: 1,
             hasReceivedFreeShield: 1,
-            separator: '»', 
+            separator: DEFAULT_SEPARATOR, 
             dmNotify: 1,
             highestStreak: 1
         };
@@ -279,20 +282,20 @@ async function handleStreakMessage(message) {
         await updateNickname(message.member, sql);
 
     } else {
-        if (streakData.separator === '|') {
-            streakData.separator = '»';
-            sql.prepare("UPDATE streaks SET separator = ? WHERE id = ?").run('»', id);
+        // تحديث الفاصلة إذا كانت غير مسموحة
+        const cleanCheckList = SEPARATORS_CLEAN_LIST.map(s => s.replace('\\', ''));
+        if (!cleanCheckList.includes(streakData.separator)) {
+            streakData.separator = DEFAULT_SEPARATOR;
+            sql.prepare("UPDATE streaks SET separator = ? WHERE id = ?").run(DEFAULT_SEPARATOR, id);
         }
 
-        const lastDateKSA = getKSADateString(streakData.lastMessageTimestamp);
-        const diffDays = getDayDifference(todayKSA, lastDateKSA);
-
-        // ( 🌟 هنا يكمن الحل: فحص وتصحيح الاسم دائماً، حتى لو لم يزد الستريك 🌟 )
+        // التصحيح الذاتي للاسم
         if (streakData.nicknameActive === 1) {
             await updateNickname(message.member, sql);
         }
 
-        if (todayKSA === lastDateKSA) return; // تم احتساب اليوم
+        const lastDateKSA = getKSADateString(streakData.lastMessageTimestamp);
+        if (todayKSA === lastDateKSA) return;
 
         if (typeof streakData.dmNotify === 'undefined' || typeof streakData.highestStreak === 'undefined') {
             streakData.dmNotify = streakData.dmNotify ?? 1;
@@ -309,6 +312,7 @@ async function handleStreakMessage(message) {
             setStreak.run(streakData);
             await updateNickname(message.member, sql);
         } else {
+            const diffDays = getDayDifference(todayKSA, lastDateKSA);
             if (diffDays === 1) {
                 streakData.streakCount += 1;
                 streakData.lastMessageTimestamp = now;
@@ -325,7 +329,6 @@ async function handleStreakMessage(message) {
                     levelData.totalXP = (levelData.totalXP || 0) + 100;
                     setLevel.run(levelData);
                 }
-                // تحديث الاسم أيضاً عند زيادة الستريك
                 await updateNickname(message.member, sql);
             } else {
                 sql.prepare("UPDATE streaks SET lastMessageTimestamp = ? WHERE id = ?").run(now, id);
