@@ -6,8 +6,9 @@ const KSA_TIMEZONE = 'Asia/Riyadh';
 const EMOJI_MEDIA_STREAK = '<a:Streak:1438932297519730808>';
 const EMOJI_SHIELD = '<:Shield:1437804676224516146>';
 
-// قائمة الرموز المحتملة للتنظيف القوي
-const SEPARATORS = ['\\|', '»', '•', '✦', '★', '❖', '✧', '✬', '〢', '┇', '-', ':', '\\]', '\\['];
+// ( 🌟 قائمة الفواصل التي سيتم البحث عنها وحذف الرقم بعدها 🌟 )
+// ملاحظة: الرمز | يحتاج لـ \\ قبله لأنه رمز خاص في البرمجة
+const SEPARATORS_CLEAN_LIST = ['\\|', '»', '•', '✦', '★', '❖', '✧', '✬', '〢', '┇', '-', ':'];
 
 function getKSADateString(dateObject) {
     return new Date(dateObject).toLocaleString('en-CA', {
@@ -104,12 +105,11 @@ function calculateMoraBuff(member, sql) {
     return finalMultiplier;
 }
 
-// 🌟 دالة تحديث الاسم (محسنة لتنظيف أي تلاعب) 🌟
+// 🌟 دالة تحديث الاسم (تم تعديلها لوضع الرقم في النهاية) 🌟
 async function updateNickname(member, sql) {
     if (!member) return;
     if (!sql || typeof sql.prepare !== 'function') return;
     
-    // ⚠️ تنبيه: البوت لا يستطيع تغيير اسم المالك (سياسة ديسكورد)
     if (member.id === member.guild.ownerId) return;
     if (!member.guild.members.me.permissions.has(PermissionsBitField.Flags.ManageNicknames)) return;
     if (!member.manageable) return;
@@ -124,27 +124,29 @@ async function updateNickname(member, sql) {
     const streakCount = streakData?.streakCount || 0;
     const nicknameActive = streakData?.nicknameActive ?? 1;
 
-    // تنظيف الاسم من أي أرقام ستريك سابقة (بأي شكل كان)
     let baseName = member.displayName;
-    
-    // Regex قوي يحذف [123] أو 123 | أو 123 » من بداية الاسم
-    // يبحث عن: (بداية السطر) -> (رقم داخل أقواس أو رقم بعده فاصل) -> (مسافة)
-    const cleanRegex = /^(\[\d+\]|\d+\s*[»|•\-:.]?)\s*/;
-    baseName = baseName.replace(cleanRegex, '').trim();
+
+    // 1. تنظيف الاسم من الصيغة القديمة [123] في البداية
+    baseName = baseName.replace(/^\[\d+\]\s*/, '').trim();
+
+    // 2. تنظيف الاسم من الصيغة الجديدة (الفاصلة + الرقم في النهاية)
+    // Regex: يبحث عن أي فاصلة من القائمة + مسافات + رقم + أي شيء بعدها حتى نهاية السطر
+    const cleanRegexEnd = new RegExp(`\\s*(${SEPARATORS_CLEAN_LIST.join('|')})\\s*\\d+.*$`, 'i');
+    baseName = baseName.replace(cleanRegexEnd, '').trim();
 
     let newName;
     if (streakCount > 0 && nicknameActive) {
-        // الشكل المعتمد: [الرقم] الاسم
-        newName = `[${streakCount}] ${baseName}`;
+        // ( 🌟 الشكل الجديد: الاسم » الرقم 🌟 )
+        newName = `${baseName} ${separator} ${streakCount}`;
     } else {
         newName = baseName;
     }
 
-    // التأكد من الطول المسموح (32 حرف)
+    // التأكد من طول الاسم (32 حرف)
     if (newName.length > 32) {
-        const prefix = `[${streakCount}] `;
-        baseName = baseName.substring(0, 32 - prefix.length);
-        newName = `${prefix}${baseName}`;
+        const suffix = ` ${separator} ${streakCount}`;
+        baseName = baseName.substring(0, 32 - suffix.length);
+        newName = `${baseName}${suffix}`;
     }
 
     if (member.displayName !== newName) {
@@ -329,6 +331,7 @@ async function handleStreakMessage(message) {
 
 async function handleMediaStreakMessage(message) {
     const sql = message.client.sql;
+    
     try {
         sql.prepare("ALTER TABLE media_streaks ADD COLUMN lastChannelID TEXT").run();
     } catch (e) {}
