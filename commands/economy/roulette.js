@@ -1,15 +1,14 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, Colors, SlashCommandBuilder, Collection } = require("discord.js");
-const { calculateMoraBuff } = require('../../streak-handler.js');
+const { SlashCommandBuilder, EmbedBuilder, ButtonBuilder, ActionRowBuilder, ButtonStyle, ComponentType, Colors, Collection } = require("discord.js");
+const { calculateMoraBuff } = require('../../streak-handler.js'); // للفردي فقط
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
-const MAX_BET_SOLO = 100;
-const MAX_PLAYERS = 5;
-const CHAMBER_COUNT = 6;
-const COOLDOWN_MS = 1 * 60 * 60 * 1000;
 const MIN_BET = 20;
+const MAX_BET_SOLO = 100; // 🔒 الحد الأقصى للفردي
+const MAX_PLAYERS = 5;
+const COOLDOWN_MS = 1 * 60 * 60 * 1000; // 1 ساعة
+const CHAMBER_COUNT = 6;
 
-// إيموجيات مراحل الروليت
-const PULL_EMOJIS = ['🎲', '😰', '🥶', '😱', '👑'];
+const PULL_EMOJIS = ['🎯', '😮‍💨', '🥶', '🤯', '👑'];
 
 function formatTime(ms) {
     if (ms < 0) ms = 0;
@@ -40,13 +39,13 @@ module.exports = {
         .addIntegerOption(option => 
             option.setName('الرهان')
                 .setDescription('مبلغ الرهان (اختياري)')
-                .setRequired(false)
-                .setMinValue(MIN_BET))
-        .addUserOption(option => option.setName('خصم1').setDescription('تحدي لاعب آخر').setRequired(false))
-        .addUserOption(option => option.setName('خصم2').setDescription('تحدي لاعب آخر').setRequired(false))
-        .addUserOption(option => option.setName('خصم3').setDescription('تحدي لاعب آخر').setRequired(false))
-        .addUserOption(option => option.setName('خصم4').setDescription('تحدي لاعب آخر').setRequired(false))
-        .addUserOption(option => option.setName('خصم5').setDescription('تحدي لاعب آخر').setRequired(false)),
+                .setMinValue(MIN_BET)
+                .setRequired(false))
+        .addUserOption(option => option.setName('الخصم1').setDescription('تحدي لاعب آخر').setRequired(false))
+        .addUserOption(option => option.setName('الخصم2').setDescription('تحدي لاعب آخر').setRequired(false))
+        .addUserOption(option => option.setName('الخصم3').setDescription('تحدي لاعب آخر').setRequired(false))
+        .addUserOption(option => option.setName('الخصم4').setDescription('تحدي لاعب آخر').setRequired(false))
+        .addUserOption(option => option.setName('الخصم5').setDescription('تحدي لاعب آخر').setRequired(false)),
 
     name: 'roulette',
     aliases: ['روليت', 'rl'],
@@ -55,12 +54,13 @@ module.exports = {
 
     async execute(interactionOrMessage, args) {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
-        let interaction, message, user, guild, client, channel;
+        let interaction, message, user, member, guild, client, channel;
         let betInput, opponents = new Collection();
 
         if (isSlash) {
             interaction = interactionOrMessage;
             user = interaction.user;
+            member = interaction.member; // مهم جداً
             guild = interaction.guild;
             client = interaction.client;
             channel = interaction.channel;
@@ -69,14 +69,15 @@ module.exports = {
             for (let i = 1; i <= 5; i++) {
                 const opp = interaction.options.getUser(`خصم${i}`);
                 if (opp) {
-                    const member = await guild.members.fetch(opp.id).catch(() => null);
-                    if (member && !member.user.bot && member.id !== user.id) opponents.set(member.id, member);
+                    const m = await guild.members.fetch(opp.id).catch(() => null);
+                    if (m && !m.user.bot && m.id !== user.id) opponents.set(m.id, m);
                 }
             }
             await interaction.deferReply();
         } else {
             message = interactionOrMessage;
             user = message.author;
+            member = message.member; // مهم جداً
             guild = message.guild;
             client = message.client;
             channel = message.channel;
@@ -92,7 +93,6 @@ module.exports = {
             return message.channel.send(payload);
         };
 
-        // إدارة الألعاب النشطة لتجنب التداخل
         if (!client.activeGames) client.activeGames = new Set();
         if (client.activeGames.has(channel.id)) {
             const msg = "🚫 هناك لعبة جارية في هذه القناة.";
@@ -104,9 +104,11 @@ module.exports = {
         let userData = client.getLevel.get(user.id, guild.id);
         if (!userData) userData = { ...client.defaultData, user: user.id, guild: guild.id };
 
-        // الكولداون (للجميع)
+        // الكولداون
         const now = Date.now();
+        // (استثناء المالك إذا أردت، هنا مفعل للكل)
         const timeLeft = (userData.lastRoulette || 0) + COOLDOWN_MS - now;
+        // if (user.id !== 'OWNER_ID' && timeLeft > 0)
         if (timeLeft > 0) {
             const msg = `🕐 انتظر **\`${formatTime(timeLeft)}\`** قبل اللعب مرة أخرى.`;
             if (isSlash) await interaction.editReply(msg); else message.reply(msg);
@@ -140,7 +142,6 @@ module.exports = {
 
             const confirmMsg = await reply({ embeds: [autoBetEmbed], components: [row], fetchReply: true });
             
-            // حجز القناة مؤقتاً
             client.activeGames.add(channel.id);
 
             const filter = i => i.user.id === user.id && (i.customId === 'rl_auto_confirm' || i.customId === 'rl_auto_cancel');
@@ -159,8 +160,9 @@ module.exports = {
                     if (!isSlash) await confirmMsg.delete().catch(() => {}); 
                     else await confirmation.editReply({ content: '✅', embeds: [], components: [] });
                     
-                    client.activeGames.delete(channel.id); // نحرر القناة للبدء الفعلي
-                    return startRoulette(channel, user, opponents, proposedBet, client, guild, sql, isSlash ? interaction : null);
+                    client.activeGames.delete(channel.id); 
+                    // تمرير member بدلاً من user
+                    return startRoulette(channel, user, member, opponents, proposedBet, client, guild, sql, isSlash ? interaction : null);
                 }
             } catch (e) {
                 client.activeGames.delete(channel.id);
@@ -169,12 +171,13 @@ module.exports = {
                 return;
             }
         } else {
-            return startRoulette(channel, user, opponents, betInput, client, guild, sql, isSlash ? interaction : null);
+            // تمرير member بدلاً من user
+            return startRoulette(channel, user, member, opponents, betInput, client, guild, sql, isSlash ? interaction : null);
         }
     }
 };
 
-async function startRoulette(channel, user, opponents, bet, client, guild, sql, interaction) {
+async function startRoulette(channel, user, member, opponents, bet, client, guild, sql, interaction) {
     if (client.activeGames.has(channel.id)) {
         const msg = "🚫 هناك لعبة جارية.";
         if (interaction) await interaction.followUp({ content: msg, ephemeral: true });
@@ -264,7 +267,8 @@ async function startRoulette(channel, user, opponents, bet, client, guild, sql, 
         // --- Solo ---
         if (bet > MAX_BET_SOLO) {
             const msg = `🚫 الحد الأقصى للرهان الفردي هو **${MAX_BET_SOLO}** ${EMOJI_MORA}.`;
-            if (interaction) await interaction.followUp(msg); else channel.send(msg);
+            if (interaction) await interaction.followUp({ content: msg, ephemeral: true });
+            else channel.send(msg);
             return;
         }
 
@@ -273,7 +277,6 @@ async function startRoulette(channel, user, opponents, bet, client, guild, sql, 
         userData.lastRoulette = Date.now();
         client.setLevel.run(userData);
 
-        // إرسال اللوحة مباشرة
         const initialEmbed = new EmbedBuilder()
             .setTitle('❖ رولــيـت (فردي)')
             .setDescription(`رصـاصـة واحـدة بالمسدس راهـن وحاول النجـاة !`)
@@ -290,25 +293,39 @@ async function startRoulette(channel, user, opponents, bet, client, guild, sql, 
         if (interaction) msg = await interaction.editReply({ content: " ", embeds: [initialEmbed], components: [row] });
         else msg = await channel.send({ content: " ", embeds: [initialEmbed], components: [row] });
 
-        await playSoloRound(msg, user, bet, userData, client, sql);
+        // تمرير member بدلاً من user
+        await playSoloRound(msg, user, member, bet, userData, client, sql);
     }
 }
 
-async function playSoloRound(message, user, bet, userData, client, sql) {
+async function playSoloRound(message, user, member, bet, userData, client, sql) {
     let chambers = setupChambers();
     let currentTurn = 0;
     let currentMultiplier = 1.0;
     const MULTIPLIERS = getMultipliers(1);
 
+    const updateEmbed = () => {
+        return new EmbedBuilder()
+            .setTitle('❖ رولــيـت (فردي)')
+            .setDescription(`رصـاصـة واحـدة بالمسدس راهـن وحاول النجـاة !`)
+            .setColor("Random")
+            .setImage('https://i.postimg.cc/J44F9YWS/gun.gif')
+            .addFields(
+                { name: 'الطلقة الحالية', value: `${currentTurn + 1} / ${CHAMBER_COUNT}`, inline: true },
+                { name: 'المضاعف الحالي', value: `x${currentMultiplier}`, inline: true }
+            );
+    };
+
     const collector = message.createMessageComponentCollector({ filter: i => i.user.id === user.id, time: 120000 });
 
     collector.on('collect', async i => {
-        // 🌟 إصلاح التعليق: استجابة فورية 🌟
         await i.deferUpdate().catch(() => {});
 
         if (i.customId === 'rl_cashout') {
             const baseWinnings = Math.floor(bet * currentMultiplier);
-            const moraMultiplier = calculateMoraBuff(user, sql);
+            
+            // 🌟 إصلاح الخطأ: تمرير member لحساب البف 🌟
+            const moraMultiplier = calculateMoraBuff(member, sql);
             const finalWinnings = Math.floor(baseWinnings * moraMultiplier);
             
             let buffString = "";
@@ -345,8 +362,10 @@ async function playSoloRound(message, user, bet, userData, client, sql) {
                 currentTurn++;
 
                 if (currentTurn === 5) {
+                    // فوز كامل
                     const baseMaxWinnings = Math.floor(bet * MULTIPLIERS[4]);
-                    const moraMultiplier = calculateMoraBuff(user, sql);
+                    // 🌟 إصلاح الخطأ: تمرير member لحساب البف 🌟
+                    const moraMultiplier = calculateMoraBuff(member, sql);
                     const finalMaxWinnings = Math.floor(baseMaxWinnings * moraMultiplier);
                     
                     let buffString = "";
@@ -365,39 +384,37 @@ async function playSoloRound(message, user, bet, userData, client, sql) {
                     await message.edit({ embeds: [maxEmbed], components: [] });
                     collector.stop('finished');
                 } else {
+                    // الاستمرار
                     const currentWin = Math.floor(bet * currentMultiplier);
-                    const moraMultiplier = calculateMoraBuff(user, sql);
+                    // 🌟 إصلاح الخطأ: تمرير member لحساب البف 🌟
+                    const moraMultiplier = calculateMoraBuff(member, sql);
                     const finalProfit = Math.floor(currentWin * moraMultiplier);
 
-                    const nextEmbed = new EmbedBuilder()
-                        .setTitle(`${PULL_EMOJIS[currentTurn - 1]} نجاة!`)
-                        .setDescription(`*كليك*... الغرفة كانت فارغة.\nالرهان: **${bet}** ${EMOJI_MORA}\n\nاسحب الزناد مجدداً لزيادة المضاعف، أو انسحب الآن.`)
-                        .setColor("Random")
-                        .setImage('https://i.postimg.cc/J44F9YWS/gun.gif')
-                        .addFields(
-                            { name: 'الطلقة التالية', value: `${currentTurn + 1} / ${CHAMBER_COUNT}`, inline: true },
-                            { name: 'المضاعف القادم', value: `x${MULTIPLIERS[currentTurn]}`, inline: true },
-                            { name: 'الربح الحالي', value: `(x${currentMultiplier} = ${finalProfit})`, inline: false }
-                        );
-
-                    const nextRow = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId('rl_pull').setLabel('سحب الزناد مجدداً').setStyle(ButtonStyle.Danger),
-                        new ButtonBuilder().setCustomId('rl_cashout').setLabel(`انسحاب (${finalProfit})`).setStyle(ButtonStyle.Success)
+                    const nextEmbed = updateEmbed();
+                    nextEmbed.setDescription(`*كليك*... فارغة! 😅\nالمضاعف التالي: **x${MULTIPLIERS[currentTurn]}**`);
+                    nextEmbed.setFields(
+                        { name: 'الطلقة القادمة', value: `${currentTurn + 1} / ${CHAMBER_COUNT}`, inline: true },
+                        { name: 'الربح الحالي', value: `${currentWin} (${finalProfit} مع البف)`, inline: true }
                     );
 
-                    await message.edit({ embeds: [nextEmbed], components: [nextRow] });
+                    const newRow = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('rl_pull').setLabel('سحب الزناد مجدداً').setStyle(ButtonStyle.Danger),
+                        new ButtonBuilder().setCustomId('rl_cashout').setLabel(`انسحاب (${finalProfit})`).setStyle(ButtonStyle.Success).setDisabled(false)
+                    );
+
+                    await message.edit({ embeds: [nextEmbed], components: [newRow] });
                 }
             }
         }
     });
 
-    collector.on('end', (c, reason) => {
+    collector.on('end', async (collected, reason) => {
         if (client.activeGames) client.activeGames.delete(message.channel.id);
         if (reason === 'time') {
-             // عند انتهاء الوقت واللاعب رابح، ينسحب تلقائياً
              if (currentMultiplier > 1.0) {
                  const baseWinnings = Math.floor(bet * currentMultiplier);
-                 const moraMultiplier = calculateMoraBuff(user, sql);
+                 // 🌟 إصلاح الخطأ: تمرير member لحساب البف 🌟
+                 const moraMultiplier = calculateMoraBuff(member, sql);
                  const finalWinnings = Math.floor(baseWinnings * moraMultiplier);
                  userData.mora += finalWinnings;
                  client.setLevel.run(userData);
@@ -429,7 +446,7 @@ async function playMultiplayerGame(msg, players, bet, totalPot, client, guild) {
     const collector = msg.createMessageComponentCollector({ time: 90000 });
 
     collector.on('collect', async i => {
-        await i.deferUpdate().catch(()=>{}); // استجابة فورية
+        await i.deferUpdate().catch(()=>{}); 
         const state = gameStates.get(i.user.id);
         if (!state || state.status !== 'playing') return i.followUp({ content: "أنت خارج اللعبة.", ephemeral: true });
 
@@ -443,12 +460,8 @@ async function playMultiplayerGame(msg, players, bet, totalPot, client, guild) {
                 await i.followUp({ content: `💥 مت!`, ephemeral: true });
             } else {
                 state.multiplier = MULTIPLIERS[state.turn]; state.turn++;
-                if (state.turn === 5) { 
-                    state.status = 'max_win'; 
-                    await i.followUp({ content: `🏆 نجاة أسطورية!`, ephemeral: true }); 
-                } else {
-                    await i.followUp({ content: `😮‍💨 نجاة! التالي x${MULTIPLIERS[state.turn]}`, ephemeral: true });
-                }
+                if (state.turn === 5) { state.status = 'max_win'; await i.followUp({ content: `🏆 Max Win!`, ephemeral: true }); }
+                else await i.followUp({ content: `نجاة! التالي x${MULTIPLIERS[state.turn]}`, ephemeral: true });
             }
         }
         if (Array.from(gameStates.values()).every(s => s.status !== 'playing')) collector.stop();
