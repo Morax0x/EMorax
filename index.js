@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 // ==================================================================
-// 1. Database Setup
+// 1. إعداد قاعدة البيانات
 // ==================================================================
 const sql = new SQLite('./mainDB.sqlite');
 sql.pragma('journal_mode = WAL');
@@ -18,24 +18,36 @@ try {
     process.exit(1);
 }
 
-// ( 🌟 التأكد من وجود الأعمدة المطلوبة + عمود اللوج الجديد 🌟 )
+// ==================================================================
+// 2. تحديثات الجداول (الأعمدة الجديدة)
+// ==================================================================
+// أعمدة الصيد
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastFish INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN rodLevel INTEGER DEFAULT 1").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN boatLevel INTEGER DEFAULT 1").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN currentLocation TEXT DEFAULT 'beach'").run(); } catch (e) {}
+
+// عمود لعبة الإيموجي (الذاكرة) 🆕
+try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastMemory INTEGER DEFAULT 0").run(); } catch (e) {}
+
+// إحصائيات الإيموجي
 try { if(sql.open) sql.prepare("ALTER TABLE user_total_stats ADD COLUMN total_emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE user_daily_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE user_weekly_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
+
+// إعدادات القنوات الجديدة
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN shopLogChannelID TEXT").run(); } catch (e) {} // ✅ تمت الإضافة
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN shopLogChannelID TEXT").run(); } catch (e) {} // لوج المتجر
+
+// الردود التلقائية
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id INTEGER PRIMARY KEY AUTOINCREMENT, guildID TEXT NOT NULL, trigger TEXT NOT NULL, response TEXT NOT NULL, images TEXT, matchType TEXT DEFAULT 'exact', cooldown INTEGER DEFAULT 0, allowedChannels TEXT, ignoredChannels TEXT, UNIQUE(guildID, trigger))").run(); } catch(e) {}
 
 // ==================================================================
-// 2. Import Handlers
+// 3. استيراد الهاندلرز
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
-const { checkLoanPayments } = require('./handlers/loan-handler.js'); // استدعاء محصل الديون
+const { checkLoanPayments } = require('./handlers/loan-handler.js'); // 🆕 محصل الديون المفصول
 
 const questsConfig = require('./json/quests-config.json');
 const farmAnimals = require('./json/farm-animals.json');
@@ -44,10 +56,10 @@ const { generateSingleAchievementAlert, generateQuestAlert } = require('./genera
 const { createRandomDropGiveaway, endGiveaway, getUserWeight } = require('./handlers/giveaway-handler.js');
 const { checkUnjailTask } = require('./handlers/report-handler.js'); 
 const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
-const { handleShopInteractions } = require('./handlers/shop-handler.js'); // للتأكد من تحميل الدوال
+const { handleShopInteractions } = require('./handlers/shop-handler.js'); 
 
 // ==================================================================
-// 3. Client Setup
+// 4. إعداد العميل (Client)
 // ==================================================================
 const client = new Client({
     intents: [
@@ -84,14 +96,32 @@ client.generateQuestAlert = generateQuestAlert;
 
 if (sql.open) {
     client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
-    client.setLevel = sql.prepare("INSERT OR REPLACE INTO levels (user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, lastRob, lastGuess, lastRPS, lastRoulette, lastTransfer, lastDeposit, shop_purchases, total_meow_count, boost_count, lastPVP, lastFarmYield, lastFish, rodLevel, boatLevel, currentLocation) VALUES (@user, @guild, @xp, @level, @totalXP, @mora, @lastWork, @lastDaily, @dailyStreak, @bank, @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @lastCollected, @totalVCTime, @lastRob, @lastGuess, @lastRPS, @lastRoulette, @lastTransfer, @lastDeposit, @shop_purchases, @total_meow_count, @boost_count, @lastPVP, @lastFarmYield, @lastFish, @rodLevel, @boatLevel, @currentLocation);");
     
+    // ( 🌟 جملة الإدخال المحدثة تشمل lastMemory 🌟 )
+    client.setLevel = sql.prepare(`
+        INSERT OR REPLACE INTO levels (
+            user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, 
+            lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, 
+            lastRob, lastGuess, lastRPS, lastRoulette, lastTransfer, lastDeposit, shop_purchases, 
+            total_meow_count, boost_count, lastPVP, lastFarmYield, lastFish, rodLevel, boatLevel, 
+            currentLocation, lastMemory
+        ) VALUES (
+            @user, @guild, @xp, @level, @totalXP, @mora, @lastWork, @lastDaily, @dailyStreak, @bank, 
+            @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @lastCollected, @totalVCTime, 
+            @lastRob, @lastGuess, @lastRPS, @lastRoulette, @lastTransfer, @lastDeposit, @shop_purchases, 
+            @total_meow_count, @boost_count, @lastPVP, @lastFarmYield, @lastFish, @rodLevel, @boatLevel, 
+            @currentLocation, @lastMemory
+        );
+    `);
+    
+    // ( 🌟 البيانات الافتراضية المحدثة 🌟 )
     client.defaultData = { 
         user: null, guild: null, xp: 0, level: 1, totalXP: 0, mora: 0, lastWork: 0, lastDaily: 0, dailyStreak: 0, bank: 0, 
         lastInterest: 0, totalInterestEarned: 0, hasGuard: 0, guardExpires: 0, lastCollected: 0, totalVCTime: 0, 
         lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, 
         total_meow_count: 0, boost_count: 0, lastPVP: 0, lastFarmYield: 0,
-        lastFish: 0, rodLevel: 1, boatLevel: 1, currentLocation: 'beach'
+        lastFish: 0, rodLevel: 1, boatLevel: 1, currentLocation: 'beach',
+        lastMemory: 0 // ✅ للكولداون الجديد
     };
 
     client.getDailyStats = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?");
@@ -109,7 +139,6 @@ if (sql.open) {
 
 try { require('./handlers/backup-scheduler.js')(client, sql); } catch(e) {}
 
-// Default stats
 const defaultDailyStats = { messages: 0, images: 0, stickers: 0, emojis_sent: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
 const defaultTotalStats = { total_messages: 0, total_images: 0, total_stickers: 0, total_emojis_sent: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
 
@@ -528,7 +557,7 @@ client.on(Events.ClientReady, async () => {
     setInterval(updateMarketPrices, 60 * 60 * 1000); updateMarketPrices();
     
     // ( 🌟 دالة القروض المفصولة 🌟 )
-    setInterval(() => checkLoanPayments(client, sql), 60 * 60 * 1000);
+    setInterval(() => checkLoanPayments(client, sql), 60 * 60 * 1000); // كل ساعة
 
     setInterval(processFarmYields, 60 * 60 * 1000); processFarmYields();
     setInterval(() => checkDailyStreaks(client, sql), 3600000); checkDailyStreaks(client, sql);
