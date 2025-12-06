@@ -31,7 +31,8 @@ const DESCRIPTION_TRANSLATIONS = new Map([
     ['set-streak-emoji', 'تغيير إيموجي الستريك'],
     ['setup-streak-panel', 'نشر لوحة الستريك التفاعلية'],
     ['checkdb', 'فحص قاعدة البيانات (للمطور)'],
-    ['reroll', 'إعادة سحب فائز في قيف اواي']
+    ['reroll', 'إعادة سحب فائز في قيف اواي'],
+    ['set-shop-log', 'تحديد قناة سجلات المتجر']
 ]);
 
 // خريطة للأسماء العربية اليدوية
@@ -61,7 +62,8 @@ const MANUAL_ARABIC_NAMES = new Map([
     ['my-skills', 'عتاد'],
     ['weapon-info', 'سلاح'],
     ['shop', 'متجر'],
-    ['fish', 'صيد'] // ( 🌟 تمت الإضافة هنا 🌟 )
+    ['fish', 'صيد'],
+    ['emoji', 'ايموجي']
 ]);
 
 function getArabicDescription(cmd) {
@@ -123,6 +125,7 @@ function buildCasinoEmbed(client) {
 ✶** ${getCmdName(commands, 'work')}: ** \`للعمل وكسب المورا مرة كل ساعة\`
 ✶** ${getCmdName(commands, 'rps')}: ** \`لعب حجرة ورقة مقص\`
 ✶** ${getCmdName(commands, 'roulette')}: ** \`للعب الروليت الروسية ومضاعفة رهانك\`
+✶** ${getCmdName(commands, 'emoji')}: ** \`لعبة تحدي الذاكرة\`
 ✶** ${getCmdName(commands, 'rob')}: ** \`لسرقة ونهب رصيد مستخدم آخر\`
 ✶** ${getCmdName(commands, 'guess')}: ** \`لعبة تخمين الرقم فردي او جماعي\`
 ✶** ${getCmdName(commands, 'gametime')}: ** \`لاظهار فترة التهدئة لأوامر الكازينو\`
@@ -168,7 +171,8 @@ function buildAdminSettingsEmbed(client) {
         cmd.name === 'set-quest-configs' ||
         cmd.name === 'set-race-role' ||
         cmd.name === 'set-vip-role' || 
-        cmd.name === 'set-casino-room' 
+        cmd.name === 'set-casino-room' ||
+        cmd.name === 'set-shop-log'
     ).map(cmd => `✶ **${getCmdName(client.commands, cmd.name)}**\n✬ ${getArabicDescription(cmd)}`).join('\n\n'); 
 
     return new EmbedBuilder()
@@ -219,7 +223,6 @@ module.exports = {
         try {
             const focusedValue = interaction.options.getFocused().toLowerCase();
             const commands = interaction.client.commands;
-            // تصفية بسيطة للأوتوكومبليت لتجنب الأخطاء
             const filtered = commands.filter(cmd => 
                 cmd.name.toLowerCase().includes(focusedValue)
             ).map(cmd => ({
@@ -227,14 +230,10 @@ module.exports = {
                 value: cmd.name
             }));
             await interaction.respond(filtered.slice(0, 25));
-        } catch (e) {
-            // تجاهل أخطاء الأوتوكومبليت الصامتة
-        }
+        } catch (e) {}
     },
 
     async execute(interactionOrMessage, args) {
-
-        // 1. تحديد نوع التفاعل
         const isSlash = !!interactionOrMessage.isChatInputCommand;
         let interaction, message, guild, client, user;
 
@@ -251,7 +250,6 @@ module.exports = {
             user = message.author;
         }
 
-        // 2. دوال الرد الموحدة
         const reply = async (payload) => {
             if (isSlash) return interaction.editReply(payload);
             return message.channel.send(payload);
@@ -266,19 +264,16 @@ module.exports = {
         const sql = client.sql; 
         const { commands } = client;
 
-        // 3. جلب البريفكس
         let prefix = "-"; 
         try {
             const prefixRow = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(guild.id);
             if (prefixRow && prefixRow.serverprefix) prefix = prefixRow.serverprefix;
         } catch (e) {}
 
-        // 4. التحقق من الصلاحيات
         if (!guild.members.me.permissions.has(PermissionsBitField.Flags.EmbedLinks)) {
             return replyError(`Missing Permission: EMBED_LINKS`);
         }
 
-        // 5. التعامل مع طلب أمر معين (Help <command>)
         let commandNameArg = null;
         if (isSlash) {
             commandNameArg = interaction.options.getString('اسم-الامر');
@@ -312,14 +307,12 @@ module.exports = {
             return reply({ embeds: [embed] });
         }
 
-        // 6. بناء القائمة الرئيسية
         const isAdmin = guild.members.cache.get(user.id).permissions.has(PermissionsBitField.Flags.ManageGuild);
         let settings;
         try {
             settings = sql.prepare("SELECT casinoChannelID FROM settings WHERE guild = ?").get(guild.id);
         } catch (e) { settings = null; }
 
-        // تحديد الإيمبد الافتراضي بناءً على القناة
         const isCasinoChannel = settings && settings.casinoChannelID === (isSlash ? interaction.channel.id : message.channel.id);
         
         const mainEmbed = buildMainMenuEmbed(client);
@@ -332,7 +325,6 @@ module.exports = {
             initialEmbed = mainEmbed;
         }
 
-        // 7. بناء القائمة المنسدلة
         const options = [
             new StringSelectMenuOptionBuilder()
                 .setLabel('القائمة الرئيسية')
@@ -368,10 +360,8 @@ module.exports = {
 
         const row = new ActionRowBuilder().addComponents(selectMenu);
 
-        // إرسال الرسالة
         const helpMessage = await reply({ embeds: [initialEmbed], components: [row] });
 
-        // 8. التعامل مع التفاعلات (Collector)
         const filter = (i) => i.user.id === user.id && i.customId === 'help_menu';
         const collector = helpMessage.createMessageComponentCollector({ filter, componentType: ComponentType.StringSelect, time: 60000 });
 
@@ -393,10 +383,7 @@ module.exports = {
         });
 
         collector.on('end', () => {
-            const disabledRow = new ActionRowBuilder().addComponents(
-                selectMenu.setDisabled(true)
-            );
-            // محاولة تعديل الرسالة لتعطيل الزر
+            const disabledRow = new ActionRowBuilder().addComponents(selectMenu.setDisabled(true));
             if (helpMessage.editable) {
                 helpMessage.edit({ components: [disabledRow] }).catch(() => {});
             } else if (isSlash) {
