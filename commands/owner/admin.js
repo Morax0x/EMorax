@@ -1,4 +1,4 @@
-const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
+const { EmbedBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
@@ -27,7 +27,7 @@ module.exports = {
         const commandName = message.content.split(" ")[0].slice(prefix.length).toLowerCase();
 
         // ============================================================
-        // 📥 أمر UP: رفع واستبدال قاعدة البيانات
+        // 📥 أمر UP: رفع واستبدال قاعدة البيانات (عبر مرفق في الشات)
         // ============================================================
         if (commandName === 'up') {
             const attachment = message.attachments.first();
@@ -45,7 +45,7 @@ module.exports = {
                 file.on('finish', function() {
                     file.close(async () => {
                         try {
-                            // 1. محاولة إغلاق القاعدة (دون تعطيل البوت)
+                            // 1. محاولة إغلاق القاعدة
                             try {
                                 if (client.sql && client.sql.open) {
                                     client.sql.close();
@@ -67,12 +67,9 @@ module.exports = {
                             // 4. رسالة النهاية
                             await msg.edit("✅ **تم التحديث!**\n🔌 **جاري إعادة التشغيل تلقائياً... (انتظر دقيقة)**");
 
-                            // 5. القتل الرحيم للعملية (ليقوم Railway بإعادة تشغيلها)
+                            // 5. إعادة التشغيل
                             console.log("[System] Exiting process to force restart...");
-                            
-                            setTimeout(() => {
-                                process.kill(process.pid); 
-                            }, 1000);
+                            setTimeout(() => { process.kill(process.pid); }, 1000);
 
                         } catch (err) {
                             console.error(err);
@@ -86,7 +83,7 @@ module.exports = {
         }
 
         // ============================================================
-        // 📤 أمر DO: تحميل نسخة
+        // 📤 أمر DO: تحميل نسخة (مع زر الاستعادة)
         // ============================================================
         else if (commandName === 'do') {
             try {
@@ -97,11 +94,24 @@ module.exports = {
 
                 const attachment = new AttachmentBuilder(DB_PATH, { name: 'mainDB.sqlite' });
                 
+                // 🌟 إضافة زر الاستعادة 🌟
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('restore_backup') // نفس الآيدي الموجود في backup-scheduler
+                        .setLabel('استعادة هذه النسخة 🔄')
+                        .setStyle(ButtonStyle.Danger)
+                );
+
                 await message.author.send({ 
-                    content: `📦 **نسخة احتياطية**\n📆 <t:${Math.floor(Date.now() / 1000)}:R>`, 
-                    files: [attachment] 
+                    content: `📦 **نسخة احتياطية (يدوية)**\n📆 <t:${Math.floor(Date.now() / 1000)}:R>`, 
+                    files: [attachment],
+                    components: [row] // إرفاق الزر
                 }).then(() => message.react('✅'))
-                  .catch(() => message.reply({ content: "⚠️ الخاص مغلق، خذ النسخة:", files: [attachment] }));
+                  .catch(() => message.reply({ 
+                      content: "⚠️ الخاص مغلق، خذ النسخة هنا:", 
+                      files: [attachment],
+                      components: [row] 
+                  }));
 
             } catch (err) { message.reply(`❌ خطأ: ${err.message}`); }
         }
@@ -112,7 +122,6 @@ module.exports = {
         else if (commandName === 'sss') {
             const channel = message.mentions.channels.first() || message.channel;
             try {
-                // التأكد من وجود الجدول
                 client.sql.prepare(`CREATE TABLE IF NOT EXISTS bot_config (key TEXT PRIMARY KEY, value TEXT)`).run();
                 client.sql.prepare(`INSERT OR REPLACE INTO bot_config (key, value) VALUES (?, ?)`).run('backup_channel', channel.id);
                 message.reply(`✅ تم تعيين قناة النسخ التلقائي: ${channel}`);
