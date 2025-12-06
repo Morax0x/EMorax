@@ -70,9 +70,8 @@ module.exports = {
                             // 5. القتل الرحيم للعملية (ليقوم Railway بإعادة تشغيلها)
                             console.log("[System] Exiting process to force restart...");
                             
-                            // ننتظر ثانية واحدة فقط لتصل الرسالة لديسكورد ثم نقتل العملية
                             setTimeout(() => {
-                                process.kill(process.pid); // قتل العملية الحالية
+                                process.kill(process.pid); 
                             }, 1000);
 
                         } catch (err) {
@@ -108,14 +107,15 @@ module.exports = {
         }
         
         // ============================================================
-        // ⚙️ أمر SSS
+        // ⚙️ أمر SSS (تعيين قناة الباكوب)
         // ============================================================
         else if (commandName === 'sss') {
             const channel = message.mentions.channels.first() || message.channel;
             try {
+                // التأكد من وجود الجدول
                 client.sql.prepare(`CREATE TABLE IF NOT EXISTS bot_config (key TEXT PRIMARY KEY, value TEXT)`).run();
                 client.sql.prepare(`INSERT OR REPLACE INTO bot_config (key, value) VALUES (?, ?)`).run('backup_channel', channel.id);
-                message.reply(`✅ تم تعيين قناة النسخ: ${channel}`);
+                message.reply(`✅ تم تعيين قناة النسخ التلقائي: ${channel}`);
             } catch (err) { message.reply(`❌ خطأ: ${err.message}`); }
         }
     }
