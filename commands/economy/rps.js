@@ -1,31 +1,25 @@
 const { SlashCommandBuilder, EmbedBuilder, ButtonBuilder, ActionRowBuilder, ButtonStyle, ComponentType, Colors } = require('discord.js');
-const { calculateMoraBuff } = require('../../streak-handler.js'); // لاستخدامه في الفردي فقط
+const { calculateMoraBuff } = require('../../streak-handler.js');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
-const OWNER_ID = "1145327691772481577"; // 🔒 آيدي المالك (استثناء الكولداون)
+const OWNER_ID = "1145327691772481577"; // استثناء الكولداون
 const ROCK = '🪨';
 const PAPER = '📄';
 const SCISSORS = '✂️';
 const MOVES = [ROCK, PAPER, SCISSORS];
 
 const MIN_BET = 20;
-const MAX_BET_SOLO = 100; // الحد الأقصى للفردي
-const COOLDOWN_MS = 1 * 60 * 60 * 1000; // 1 ساعة
+const MAX_BET_SOLO = 100;
+const COOLDOWN_MS = 1 * 60 * 60 * 1000;
 
-// دالة تنسيق الوقت
 function formatTime(ms) {
     if (ms < 0) ms = 0;
     const totalSeconds = Math.floor(ms / 1000);
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
-    
-    const hh = String(hours).padStart(2, '0');
-    const mm = String(minutes).padStart(2, '0');
-    const ss = String(seconds).padStart(2, '0');
-    
-    if (hours > 0) return `${hh}:${mm}:${ss}`;
-    return `${mm}:${ss}`;
+    if (hours > 0) return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
 module.exports = {
@@ -82,11 +76,15 @@ module.exports = {
             return message.channel.send(payload);
         };
 
+        // تأكد من وجود المتغيرات
+        if (!client.activeGames) client.activeGames = new Set();
+        const activeGames = client.activeGames;
+
         const sql = client.sql;
         let userData = client.getLevel.get(user.id, guild.id);
         if (!userData) userData = { ...client.defaultData, user: user.id, guild: guild.id };
 
-        // 1. التحقق من الكولداون (قبل كل شيء)
+        // 1. الكولداون
         const now = Date.now();
         if (user.id !== OWNER_ID) {
             const timeLeft = (userData.lastRPS || 0) + COOLDOWN_MS - now;
@@ -95,14 +93,16 @@ module.exports = {
             }
         }
 
-        // --- منطق المراهنة التلقائية ---
+        if (activeGames.has(channel.id)) {
+            return reply({ content: "🚫 هناك لعبة نشطة بالفعل في هذه القناة!" });
+        }
+
+        // --- المراهنة التلقائية ---
         if (!betInput) {
             let proposedBet = 100;
             const userBalance = userData.mora;
 
-            if (userBalance < MIN_BET) return reply({ content: `❌ لا تملك مورا كافية للعب (الحد الأدنى ${MIN_BET})!`, ephemeral: true });
-            
-            // إذا رصيده أقل من 100، نقترح كل رصيده
+            if (userBalance < MIN_BET) return reply({ content: `❌ لا تملك مورا كافية (الحد الأدنى ${MIN_BET})!`, ephemeral: true });
             if (userBalance < 100) proposedBet = userBalance;
 
             const autoBetEmbed = new EmbedBuilder()
@@ -119,6 +119,10 @@ module.exports = {
             );
 
             const confirmMsg = await reply({ embeds: [autoBetEmbed], components: [row], fetchReply: true });
+            
+            // إضافة للقائمة النشطة مؤقتاً لمنع التداخل
+            activeGames.add(channel.id);
+
             const filter = i => i.user.id === user.id && (i.customId === 'rps_auto_confirm' || i.customId === 'rps_auto_cancel');
             
             try {
@@ -126,17 +130,21 @@ module.exports = {
                 
                 if (confirmation.customId === 'rps_auto_cancel') {
                     await confirmation.update({ content: '❌ تم الإلغاء.', embeds: [], components: [] });
+                    activeGames.delete(channel.id);
                     return;
                 }
 
                 if (confirmation.customId === 'rps_auto_confirm') {
-                    await confirmation.deferUpdate(); // مهم جداً لمنع التعليق
-                    if (!isSlash) await confirmMsg.delete().catch(() => {}); 
+                    await confirmation.deferUpdate();
+                    if (!isSlash) await confirmMsg.delete().catch(() => {});
                     else await confirmation.editReply({ content: '✅', embeds: [], components: [] });
                     
+                    // إزالة من القائمة النشطة للسماح ببدء اللعبة الفعلية
+                    activeGames.delete(channel.id);
                     return startGame(channel, user, opponentInput, proposedBet, client, guild, sql, isSlash ? interaction : null);
                 }
             } catch (e) {
+                activeGames.delete(channel.id);
                 if (!isSlash) await confirmMsg.delete().catch(() => {});
                 else await interaction.editReply({ content: '⏰ انتهى الوقت.', embeds: [], components: [] });
                 return;
@@ -148,7 +156,16 @@ module.exports = {
 };
 
 async function startGame(channel, user, opponent, bet, client, guild, sql, interaction) {
-    
+    if (!client.activeGames) client.activeGames = new Set();
+    const activeGames = client.activeGames;
+
+    if (activeGames.has(channel.id)) {
+        const msg = "🚫 هناك لعبة جارية في هذه القناة.";
+        if (interaction) await interaction.followUp({ content: msg, ephemeral: true });
+        else channel.send(msg);
+        return;
+    }
+
     let userData = client.getLevel.get(user.id, guild.id);
     if (!userData || userData.mora < bet) {
         const msg = `❌ ليس لديك مورا كافية! (رصيدك: ${userData ? userData.mora : 0})`;
@@ -157,7 +174,7 @@ async function startGame(channel, user, opponent, bet, client, guild, sql, inter
         return;
     }
 
-    // --- اللعب الجماعي (PvP) ---
+    // --- PvP ---
     if (opponent && opponent.id !== user.id && !opponent.bot) {
         let opponentData = client.getLevel.get(opponent.id, guild.id);
         if (!opponentData || opponentData.mora < bet) {
@@ -166,6 +183,8 @@ async function startGame(channel, user, opponent, bet, client, guild, sql, inter
             else channel.send(msg);
             return;
         }
+
+        activeGames.add(channel.id);
 
         const inviteEmbed = new EmbedBuilder()
             .setTitle('🥊 تحدي حجرة ورقة مقص')
@@ -185,46 +204,46 @@ async function startGame(channel, user, opponent, bet, client, guild, sql, inter
             const response = await inviteMsg.awaitMessageComponent({ filter, time: 30000 });
             
             if (response.customId === 'rps_decline') {
+                activeGames.delete(channel.id);
                 await response.update({ content: `❌ تم رفض التحدي.`, embeds: [], components: [] });
                 return;
             }
 
             await response.deferUpdate();
             
-            // خصم المورا من الطرفين
             userData = client.getLevel.get(user.id, guild.id);
             opponentData = client.getLevel.get(opponent.id, guild.id);
             
             if (userData.mora < bet || opponentData.mora < bet) {
+                activeGames.delete(channel.id);
                 return inviteMsg.edit({ content: "❌ أحد اللاعبين صرف أمواله قبل بدء اللعبة!", embeds: [], components: [] });
             }
 
             userData.mora -= bet;
             opponentData.mora -= bet;
-            
-            // تفعيل الكولداون للمتحدي فقط (أو الاثنين حسب رغبتك، هنا للمتحدي فقط)
             if (user.id !== OWNER_ID) userData.lastRPS = Date.now();
-
             client.setLevel.run(userData);
             client.setLevel.run(opponentData);
 
             await runRPSRound(inviteMsg, user, opponent, bet, true, client, guild, sql);
 
         } catch (e) {
+            activeGames.delete(channel.id);
             await inviteMsg.edit({ content: "⏰ انتهى وقت قبول التحدي.", embeds: [], components: [] });
         }
 
     } else {
-        // --- اللعب الفردي (Solo) ---
+        // --- Solo ---
         if (opponent && opponent.bot) return channel.send("🤖 لا يمكنك تحدي البوتات في PvP، العب فردي.");
         
-        // 🔒 التحقق من الحد الأقصى للفردي
         if (bet > MAX_BET_SOLO) {
-             const msg = `🚫 الحد الأقصى للرهان الفردي (ضد البوت) هو **${MAX_BET_SOLO}** ${EMOJI_MORA}.`;
+             const msg = `🚫 الحد الأقصى للرهان الفردي هو **${MAX_BET_SOLO}** ${EMOJI_MORA}.`;
              if (interaction) await interaction.followUp({ content: msg, ephemeral: true });
              else channel.send(msg);
              return;
         }
+
+        activeGames.add(channel.id);
 
         userData.mora -= bet;
         if (user.id !== OWNER_ID) userData.lastRPS = Date.now();
@@ -258,7 +277,8 @@ async function runRPSRound(message, player1, player2, bet, isPvP, client, guild,
     const collector = message.createMessageComponentCollector({ filter, time: 30000 });
 
     collector.on('collect', async i => {
-        await i.deferUpdate();
+        // استخدام deferUpdate لتجنب تعليق الزر
+        await i.deferUpdate().catch(() => {}); 
         
         let move = '';
         if (i.customId === 'rps_rock') move = ROCK;
@@ -271,17 +291,19 @@ async function runRPSRound(message, player1, player2, bet, isPvP, client, guild,
             if (Object.keys(moves).length === 2) {
                 collector.stop('finished');
             } else {
-                await i.followUp({ content: `✅ ${i.user} اختار حركته! بانتظار الخصم...`, ephemeral: true });
+                await i.followUp({ content: `✅ ${i.user} اختار حركته! بانتظار الخصم...`, ephemeral: true }).catch(() => {});
             }
         } else {
-            // فردي: البوت يختار فوراً
             collector.stop('finished');
         }
     });
 
     collector.on('end', async (collected, reason) => {
+        // تنظيف القائمة النشطة فوراً
+        if (client.activeGames) client.activeGames.delete(message.channel.id);
+
         if (reason !== 'finished') {
-            // إعادة الأموال في حال انتهاء الوقت
+            // إعادة الأموال
             if (isPvP) {
                 let p1Data = client.getLevel.get(player1.id, guild.id);
                 let p2Data = client.getLevel.get(player2.id, guild.id);
@@ -294,7 +316,7 @@ async function runRPSRound(message, player1, player2, bet, isPvP, client, guild,
                 p1Data.mora += bet;
                 client.setLevel.run(p1Data);
             }
-            return message.edit({ content: "⏰ انتهى الوقت! تم إلغاء اللعبة وإعادة المورا.", embeds: [], components: [] });
+            return message.edit({ content: "⏰ انتهى الوقت! تم إلغاء اللعبة وإعادة المورا.", embeds: [], components: [] }).catch(() => {});
         }
 
         const p1Move = moves[player1.id];
@@ -350,10 +372,10 @@ async function runRPSRound(message, player1, player2, bet, isPvP, client, guild,
                         `✶ قـام ${p2Name} بـ اختيـار ${p2Move}\n\n` +
                         `ربـح **${winnings.toLocaleString()}** ${EMOJI_MORA}`
                     )
-                    .setThumbnail(player1.displayAvatarURL());
+                    .setThumbnail(player1.displayAvatarURL({ dynamic: true }));
 
             } else {
-                // ( 🌟 الفردي: تطبيق البفات + الصيغة المطلوبة 🌟 )
+                // الفردي مع البف
                 const multiplier = calculateMoraBuff(player1, sql);
                 winnings = Math.floor((bet * 2) * multiplier); 
                 
@@ -369,7 +391,7 @@ async function runRPSRound(message, player1, player2, bet, isPvP, client, guild,
                         `✶ قـمـت انـا بـ اختيـار ${p2Move}\n\n` +
                         `ربـحت **${winnings.toLocaleString()}** ${EMOJI_MORA} ${buffString}`
                     )
-                    .setThumbnail(player1.displayAvatarURL());
+                    .setThumbnail(player1.displayAvatarURL({ dynamic: true }));
             }
             client.setLevel.run(p1Data);
 
@@ -388,7 +410,7 @@ async function runRPSRound(message, player1, player2, bet, isPvP, client, guild,
                         `✶ قـام ${p2Name} بـ اختيـار ${p2Move}\n\n` +
                         `ربـح **${winnings.toLocaleString()}** ${EMOJI_MORA}`
                     )
-                    .setThumbnail(player2.displayAvatarURL());
+                    .setThumbnail(player2.displayAvatarURL({ dynamic: true }));
             } else {
                 // خسارة أمام البوت
                 resultEmbed.setTitle("💀 لقد خسرت!")
@@ -397,10 +419,11 @@ async function runRPSRound(message, player1, player2, bet, isPvP, client, guild,
                         `✶ قـمت بـ اختيـار ${p1Move}\n` +
                         `✶ قـمـت انـا بـ اختيـار ${p2Move}\n\n` +
                         `💸 ذهب الرهان (**${bet}** ${EMOJI_MORA}) للبوت.`
-                    );
+                    )
+                    .setThumbnail(client.user.displayAvatarURL({ dynamic: true })); // صورة البوت
             }
         }
 
-        await message.edit({ content: null, embeds: [resultEmbed], components: [] });
+        await message.edit({ content: null, embeds: [resultEmbed], components: [] }).catch(() => {});
     });
 }
