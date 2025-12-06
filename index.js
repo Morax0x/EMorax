@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 // ==================================================================
-// 1. إعداد قاعدة البيانات
+// 1. Database Setup
 // ==================================================================
 const sql = new SQLite('./mainDB.sqlite');
 sql.pragma('journal_mode = WAL');
@@ -15,45 +15,10 @@ try {
 } catch (err) {
     console.error("!!! Database Setup Fatal Error !!!");
     console.error(err);
-    // لن نوقف البوت هنا، سنحاول الاستمرار
+    process.exit(1);
 }
 
-// ==================================================================
-// 2. تحميل الخطوط (نظام آمن لمنع الكراش) 🛠️
-// ==================================================================
-try {
-    const { registerFont } = require('canvas');
-    const fontsDir = path.join(__dirname, 'fonts');
-    
-    // قائمة الخطوط المطلوبة
-    const fontsToLoad = [
-        { file: 'Bein-Normal.ttf', family: 'Bein' }, // تأكد من اسم الملف في مجلدك
-        { file: 'NotoEmoji.ttf', family: 'NotoEmoji' },
-        { file: 'bein-ar-normal.ttf', family: 'Bein' } // احتياط للاسم الثاني
-    ];
-
-    if (fs.existsSync(fontsDir)) {
-        fontsToLoad.forEach(font => {
-            const fontPath = path.join(fontsDir, font.file);
-            if (fs.existsSync(fontPath)) {
-                try {
-                    registerFont(fontPath, { family: font.family });
-                    console.log(`[Fonts] ✅ تم تحميل الخط: ${font.file}`);
-                } catch (e) {
-                    console.warn(`[Fonts] ⚠️ فشل تحميل ${font.file}: ${e.message}`);
-                }
-            }
-        });
-    } else {
-        console.warn("[Fonts] ⚠️ مجلد fonts غير موجود!");
-    }
-} catch (e) {
-    console.warn("[Fonts] ⚠️ مكتبة Canvas غير مثبتة أو حدث خطأ عام (سيتم تخطي الخطوط).");
-}
-
-// ==================================================================
-// 3. تحديثات جداول قاعدة البيانات (للأمان)
-// ==================================================================
+// ( 🌟 التأكد من وجود الأعمدة المطلوبة + عمود اللوج الجديد 🌟 )
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastFish INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN rodLevel INTEGER DEFAULT 1").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN boatLevel INTEGER DEFAULT 1").run(); } catch (e) {}
@@ -61,13 +26,16 @@ try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN currentLocation TE
 try { if(sql.open) sql.prepare("ALTER TABLE user_total_stats ADD COLUMN total_emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE user_daily_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE user_weekly_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN shopLogChannelID TEXT").run(); } catch (e) {} // ✅ تمت الإضافة
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id INTEGER PRIMARY KEY AUTOINCREMENT, guildID TEXT NOT NULL, trigger TEXT NOT NULL, response TEXT NOT NULL, images TEXT, matchType TEXT DEFAULT 'exact', cooldown INTEGER DEFAULT 0, allowedChannels TEXT, ignoredChannels TEXT, UNIQUE(guildID, trigger))").run(); } catch(e) {}
 
 // ==================================================================
-// 4. استيراد الهاندلرز
+// 2. Import Handlers
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
+const { checkLoanPayments } = require('./handlers/loan-handler.js'); // استدعاء محصل الديون
 
 const questsConfig = require('./json/quests-config.json');
 const farmAnimals = require('./json/farm-animals.json');
@@ -76,9 +44,10 @@ const { generateSingleAchievementAlert, generateQuestAlert } = require('./genera
 const { createRandomDropGiveaway, endGiveaway, getUserWeight } = require('./handlers/giveaway-handler.js');
 const { checkUnjailTask } = require('./handlers/report-handler.js'); 
 const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
+const { handleShopInteractions } = require('./handlers/shop-handler.js'); // للتأكد من تحميل الدوال
 
 // ==================================================================
-// 5. إعداد العميل (Client)
+// 3. Client Setup
 // ==================================================================
 const client = new Client({
     intents: [
@@ -382,9 +351,6 @@ function updateMarketPrices() {
         console.log(`[Market] Prices updated.`);
     } catch (err) { console.error("[Market] Error updating prices:", err.message); }
 }
-
-// ( 🌟 استدعاء دالة القروض الجديدة هنا 🌟 )
-const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
 
 async function processFarmYields() {
     if (!sql.open) return;
