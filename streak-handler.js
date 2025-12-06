@@ -6,8 +6,8 @@ const KSA_TIMEZONE = 'Asia/Riyadh';
 const EMOJI_MEDIA_STREAK = '<a:Streak:1438932297519730808>';
 const EMOJI_SHIELD = '<:Shield:1437804676224516146>';
 
-// ( 🌟 Expanded list of separators to catch old formats 🌟 )
-const ALLOWED_SEPARATORS_REGEX = ['\\|', '•', '»', '✦', '★', '❖', '✧', '✬', '〢', '┇', '-', ':'];
+// قائمة الرموز المحتملة للتنظيف القوي
+const SEPARATORS = ['\\|', '»', '•', '✦', '★', '❖', '✧', '✬', '〢', '┇', '-', ':', '\\]', '\\['];
 
 function getKSADateString(dateObject) {
     return new Date(dateObject).toLocaleString('en-CA', {
@@ -38,7 +38,6 @@ function formatTime(ms) {
 
 function calculateBuffMultiplier(member, sql) {
     if (!sql || typeof sql.prepare !== 'function') return 1.0;
-    // ( 🌟 Safety Check: Ensure member has roles 🌟 )
     if (!member || !member.roles || !member.roles.cache) return 1.0;
     
     const getUserBuffs = sql.prepare("SELECT * FROM user_buffs WHERE userID = ? AND guildID = ? AND expiresAt > ? AND buffType = 'xp'");
@@ -71,7 +70,6 @@ function calculateBuffMultiplier(member, sql) {
 
 function calculateMoraBuff(member, sql) {
     if (!sql || typeof sql.prepare !== 'function') return 1.0;
-    // ( 🌟 Safety Check: Ensure member has roles 🌟 )
     if (!member || !member.roles || !member.roles.cache) return 1.0;
 
     let totalBuffPercent = 0;
@@ -106,9 +104,12 @@ function calculateMoraBuff(member, sql) {
     return finalMultiplier;
 }
 
+// 🌟 دالة تحديث الاسم (محسنة لتنظيف أي تلاعب) 🌟
 async function updateNickname(member, sql) {
     if (!member) return;
     if (!sql || typeof sql.prepare !== 'function') return;
+    
+    // ⚠️ تنبيه: البوت لا يستطيع تغيير اسم المالك (سياسة ديسكورد)
     if (member.id === member.guild.ownerId) return;
     if (!member.guild.members.me.permissions.has(PermissionsBitField.Flags.ManageNicknames)) return;
     if (!member.manageable) return;
@@ -123,31 +124,34 @@ async function updateNickname(member, sql) {
     const streakCount = streakData?.streakCount || 0;
     const nicknameActive = streakData?.nicknameActive ?? 1;
 
+    // تنظيف الاسم من أي أرقام ستريك سابقة (بأي شكل كان)
     let baseName = member.displayName;
-
-    const separatorsPattern = ALLOWED_SEPARATORS_REGEX.join('|');
-    const regex = new RegExp(`\\s*(${separatorsPattern})\\s*\\d+\\s*.*$`, 'g');
-
-    baseName = baseName.replace(regex, '').trim();
+    
+    // Regex قوي يحذف [123] أو 123 | أو 123 » من بداية الاسم
+    // يبحث عن: (بداية السطر) -> (رقم داخل أقواس أو رقم بعده فاصل) -> (مسافة)
+    const cleanRegex = /^(\[\d+\]|\d+\s*[»|•\-:.]?)\s*/;
+    baseName = baseName.replace(cleanRegex, '').trim();
 
     let newName;
     if (streakCount > 0 && nicknameActive) {
-        newName = `${baseName} ${separator} ${streakCount} ${streakEmoji}`;
+        // الشكل المعتمد: [الرقم] الاسم
+        newName = `[${streakCount}] ${baseName}`;
     } else {
         newName = baseName;
     }
 
+    // التأكد من الطول المسموح (32 حرف)
     if (newName.length > 32) {
-        const streakText = ` ${separator} ${streakCount} ${streakEmoji}`;
-        baseName = baseName.substring(0, 32 - streakText.length);
-        newName = `${baseName}${streakText}`;
+        const prefix = `[${streakCount}] `;
+        baseName = baseName.substring(0, 32 - prefix.length);
+        newName = `${prefix}${baseName}`;
     }
 
     if (member.displayName !== newName) {
         try {
             await member.setNickname(newName);
         } catch (err) {
-            // console.error(`[Streak Nickname] Failed to update nickname for ${member.user.tag}: ${err.message}`);
+            // console.error(`[Streak Nickname] Error: ${err.message}`);
         }
     }
 }
@@ -267,13 +271,17 @@ async function handleStreakMessage(message) {
             highestStreak: 1
         };
         setStreak.run(streakData);
-        // console.log(`[Streak] New streak started for ${message.author.tag}.`);
         await updateNickname(message.member, sql);
 
     } else {
         if (streakData.separator === '|') {
             streakData.separator = '»';
             sql.prepare("UPDATE streaks SET separator = ? WHERE id = ?").run('»', id);
+        }
+
+        // 🌟 التصحيح الذاتي: التحقق من الاسم مع كل رسالة 🌟
+        if (streakData.nicknameActive === 1) {
+            await updateNickname(message.member, sql);
         }
 
         const lastDateKSA = getKSADateString(streakData.lastMessageTimestamp);
@@ -292,7 +300,6 @@ async function handleStreakMessage(message) {
             streakData.hasItemShield = 0;
             if (streakData.highestStreak < 1) streakData.highestStreak = 1;
             setStreak.run(streakData);
-            // console.log(`[Streak] Restarted for ${message.author.tag}.`);
             await updateNickname(message.member, sql);
         } else {
             const diffDays = getDayDifference(todayKSA, lastDateKSA);
@@ -322,7 +329,6 @@ async function handleStreakMessage(message) {
 
 async function handleMediaStreakMessage(message) {
     const sql = message.client.sql;
-    
     try {
         sql.prepare("ALTER TABLE media_streaks ADD COLUMN lastChannelID TEXT").run();
     } catch (e) {}
@@ -432,14 +438,12 @@ async function handleMediaStreakMessage(message) {
 
 async function checkDailyMediaStreaks(client, sql) {
     console.log("[Media Streak] 🔄 بدء الفحص اليومي لستريك الميديا...");
-    
     try {
         sql.prepare("ALTER TABLE media_streaks ADD COLUMN lastChannelID TEXT").run();
     } catch (e) {}
 
     const allStreaks = sql.prepare("SELECT * FROM media_streaks WHERE streakCount > 0").all();
     const todayKSA = getKSADateString(Date.now());
-
     const updateStreak = sql.prepare("UPDATE media_streaks SET streakCount = @streakCount, hasGracePeriod = @hasGracePeriod, hasItemShield = @hasItemShield, lastMediaTimestamp = @lastMediaTimestamp WHERE id = @id");
 
     for (const streakData of allStreaks) {
@@ -508,14 +512,12 @@ async function checkDailyMediaStreaks(client, sql) {
 
 async function sendMediaStreakReminders(client, sql) {
     console.log("[Media Streak] ⏰ إرسال تذكيرات الستريك (3 العصر)...");
-    
     try {
         sql.prepare("ALTER TABLE media_streaks ADD COLUMN lastChannelID TEXT").run();
     } catch (e) {}
 
     const todayKSA = getKSADateString(Date.now());
     const allMediaChannels = sql.prepare("SELECT * FROM media_streak_channels").all();
-    
     const activeStreaks = sql.prepare("SELECT * FROM media_streaks WHERE streakCount > 0").all();
     const usersToRemind = [];
 
@@ -551,7 +553,6 @@ async function sendMediaStreakReminders(client, sql) {
 
             if (usersForThisChannel.length > 0) {
                 const mentions = usersForThisChannel.map(s => `<@${s.userID}>`).join(' ');
-                
                 const embed = new EmbedBuilder().setTitle(`🔔 تـذكـيـر ستـريـك المـيـديـا`).setColor(Colors.Yellow)
                     .setDescription(`- نـود تـذكيـركـم بـإرسـال المـيـديـا الخـاصـة بكـم لهـذا اليـوم ${EMOJI_MEDIA_STREAK}\n\n- بـاقـي علـى نهـايـة اليـوم أقـل مـن 9 سـاعـات!`)
                     .setThumbnail('https://i.postimg.cc/8z0Xw04N/attention.png'); 
@@ -571,13 +572,11 @@ async function sendMediaStreakReminders(client, sql) {
 
 async function sendDailyMediaUpdate(client, sql) {
     console.log("[Media Streak] 📰 إرسال التقرير اليومي...");
-    
     try {
         sql.prepare("ALTER TABLE media_streak_channels ADD COLUMN lastDailyMsgID TEXT").run();
     } catch (e) {}
 
     const allMediaChannels = sql.prepare("SELECT * FROM media_streak_channels").all();
-    
     const guildsStats = {};
 
     for (const channelData of allMediaChannels) {
@@ -624,7 +623,6 @@ async function sendDailyMediaUpdate(client, sql) {
             }
 
             const sentMsg = await channel.send({ embeds: [guildsStats[guildID]] });
-            
             sql.prepare("UPDATE media_streak_channels SET lastDailyMsgID = ? WHERE guildID = ? AND channelID = ?").run(sentMsg.id, guildID, channelData.channelID);
 
         } catch (err) {
