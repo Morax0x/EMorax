@@ -290,7 +290,7 @@ async function startMemoryGame(channel, user, member, bet, client, guild, sql, i
                 client.setLevel.run(userData);
 
                 const winEmbed = new EmbedBuilder()
-                    .setTitle('🎉 ذاكرة قوية!')
+                    .setTitle('🎉 ذاكــرة قويــة!')
                     .setDescription(`✶ أحسنت! إجابة صحيحة.\n\nربـحت **${finalWinnings.toLocaleString()}** ${EMOJI_MORA} ${buffString}`)
                     .setColor(Colors.Green)
                     .setThumbnail(user.displayAvatarURL());
@@ -300,8 +300,8 @@ async function startMemoryGame(channel, user, member, bet, client, guild, sql, i
             } else {
                 // خسارة
                 const loseEmbed = new EmbedBuilder()
-                    .setTitle('❌ خطأ!')
-                    .setDescription(`✶ للأسف، مكان الإيموجي كان مختلفاً.\n\nخـسرت **${bet}** ${EMOJI_MORA}`)
+                    .setTitle('❌ذاكرة سمـكـة')
+                    .setDescription(`✶ خطـأ اختـرت ايموجـي مختلف.\n\nخـسرت **${bet}** ${EMOJI_MORA}`)
                     .setColor(Colors.Red);
 
                 await gameMsg.edit({ embeds: [loseEmbed], components: rowsFinal });
