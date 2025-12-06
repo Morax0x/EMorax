@@ -6,8 +6,7 @@ const KSA_TIMEZONE = 'Asia/Riyadh';
 const EMOJI_MEDIA_STREAK = '<a:Streak:1438932297519730808>';
 const EMOJI_SHIELD = '<:Shield:1437804676224516146>';
 
-// ( 🌟 القائمة الحصرية للفواصل المسموحة 🌟 )
-// ملاحظة: الرمز | يحتاج لـ \\ قبله لأنه رمز خاص في البرمجة
+// ( 🌟 القائمة الحصرية للفواصل المسموحة فقط 🌟 )
 const SEPARATORS_CLEAN_LIST = ['»', '•', '✦', '★', '❖', '✧', '✬', '〢', '┇', '\\|'];
 const DEFAULT_SEPARATOR = '»';
 
@@ -38,27 +37,34 @@ function formatTime(ms) {
     return "أقل من دقيقة";
 }
 
+// 🌟 دالة حساب معزز الخبرة (XP) فقط 🌟
 function calculateBuffMultiplier(member, sql) {
     if (!sql || typeof sql.prepare !== 'function') return 1.0;
     if (!member || !member.roles || !member.roles.cache) return 1.0;
     
+    // 1. جلب بفات الـ XP من المتجر
     const getUserBuffs = sql.prepare("SELECT * FROM user_buffs WHERE userID = ? AND guildID = ? AND expiresAt > ? AND buffType = 'xp'");
     let totalPercent = 0.0;
     
+    // بونص الويكند
     const day = new Date().getUTCDay();
     if (day === 5 || day === 6 || day === 0) totalPercent += 0.10;
     
+    // بفات الرتب
     let highestRoleBuff = 0;
     const userRoles = member.roles.cache.map(r => r.id);
     if (userRoles.length > 0) {
         const placeholders = userRoles.map(() => '?').join(',');
-        const roleBuffs = sql.prepare(`SELECT * FROM role_buffs WHERE roleID IN (${placeholders})`).all(...userRoles);
-        for (const buff of roleBuffs) {
-            if (buff.buffPercent > highestRoleBuff) highestRoleBuff = buff.buffPercent;
-        }
+        try {
+            const roleBuffs = sql.prepare(`SELECT * FROM role_buffs WHERE roleID IN (${placeholders})`).all(...userRoles);
+            for (const buff of roleBuffs) {
+                if (buff.buffPercent > highestRoleBuff) highestRoleBuff = buff.buffPercent;
+            }
+        } catch (e) {}
     }
     totalPercent += (highestRoleBuff / 100);
     
+    // جمع بفات المتجر
     let itemBuffTotal = 0;
     const userBuffs = getUserBuffs.all(member.id, member.guild.id, Date.now());
     for (const buff of userBuffs) {
@@ -70,6 +76,7 @@ function calculateBuffMultiplier(member, sql) {
     return 1.0 + totalPercent;
 }
 
+// 🌟 دالة حساب معزز المورا (الأموال) فقط 🌟
 function calculateMoraBuff(member, sql) {
     if (!sql || typeof sql.prepare !== 'function') return 1.0;
     if (!member || !member.roles || !member.roles.cache) return 1.0;
@@ -106,7 +113,7 @@ function calculateMoraBuff(member, sql) {
     return finalMultiplier;
 }
 
-// 🌟 دالة تحديث الاسم (باستخدام الفواصل المسموحة فقط) 🌟
+// 🌟 دالة تحديث الاسم (بالفواصل المحددة فقط) 🌟
 async function updateNickname(member, sql) {
     if (!member) return;
     if (!sql || typeof sql.prepare !== 'function') return;
@@ -119,9 +126,8 @@ async function updateNickname(member, sql) {
     const settings = sql.prepare("SELECT streakEmoji FROM settings WHERE guild = ?").get(member.guild.id);
     const streakEmoji = settings?.streakEmoji || '🔥';
 
-    // التأكد من أن الفاصلة هي واحدة من القائمة المسموحة، وإلا نستخدم الافتراضية
+    // التأكد من أن الفاصلة هي واحدة من القائمة المسموحة
     let separator = streakData?.separator;
-    // التحقق البسيط: هل الفاصلة موجودة في قائمتنا؟ (نحتاج إزالة الـ \\ من الـ | للمقارنة)
     const cleanCheckList = SEPARATORS_CLEAN_LIST.map(s => s.replace('\\', ''));
     if (!cleanCheckList.includes(separator)) {
         separator = DEFAULT_SEPARATOR;
@@ -132,16 +138,14 @@ async function updateNickname(member, sql) {
 
     let baseName = member.displayName;
 
-    // تنظيف الاسم: البحث عن أي من الفواصل المسموحة + رقم + أي شيء بعدها وحذفه
-    // Regex: \s* (مسافات) + (أحد الفواصل) + \s* (مسافات) + \d+ (أرقام) + .*$ (لنهاية السطر)
+    // 1. تنظيف: حذف النمط القديم [123] من البداية (احتياط)
+    baseName = baseName.replace(/^\[\d+\]\s*/, '').trim();
+
+    // 2. تنظيف: حذف النمط الجديد بناءً على الفواصل المحددة فقط
     const cleanRegex = new RegExp(`\\s*(${SEPARATORS_CLEAN_LIST.join('|')})\\s*\\d+.*$`, 'i');
     
-    // ننظف مرتين للتأكد من إزالة التكرار
     baseName = baseName.replace(cleanRegex, '').trim();
-    baseName = baseName.replace(cleanRegex, '').trim();
-    
-    // (إزالة الأقواس القديمة احتياطاً لمنع تشوه الاسم)
-    baseName = baseName.replace(/^\[\d+\]\s*/, '').trim();
+    baseName = baseName.replace(cleanRegex, '').trim(); // مرة ثانية للتأكيد
 
     let newName;
     if (streakCount > 0 && nicknameActive) {
@@ -282,14 +286,14 @@ async function handleStreakMessage(message) {
         await updateNickname(message.member, sql);
 
     } else {
-        // تحديث الفاصلة إذا كانت غير مسموحة
+        // تصحيح الفاصلة إذا كانت غير موجودة في القائمة
         const cleanCheckList = SEPARATORS_CLEAN_LIST.map(s => s.replace('\\', ''));
         if (!cleanCheckList.includes(streakData.separator)) {
             streakData.separator = DEFAULT_SEPARATOR;
             sql.prepare("UPDATE streaks SET separator = ? WHERE id = ?").run(DEFAULT_SEPARATOR, id);
         }
 
-        // التصحيح الذاتي للاسم
+        // التصحيح الذاتي مع كل رسالة
         if (streakData.nicknameActive === 1) {
             await updateNickname(message.member, sql);
         }
@@ -672,7 +676,7 @@ async function sendStreakWarnings(client, sql) {
 
         const embed = new EmbedBuilder().setTitle('✶ تـحـذيـر الـستريـك').setColor(Colors.Yellow)
             .setImage('https://i.postimg.cc/8z0Xw04N/attention.png') 
-            .setDescription(`- لـقـد مـضـى أكـثـر مـن 12 سـاعـة عـلـى آخـر رسـالـة لـك\n- سـتريـكك الـحـالي: ${streakData.streakCount} ${streakEmoji}\n- أمـامـك أقـل مـن 12 سـاعـة تقريباً ${formatTime(timeLeft)} لإرسـال رسـالـة جـديـدة قـبـل أن يـضـيـع!`);
+            .setDescription(`- لـقـد مـضـى أكـثـر مـن 12 سـاعـة عـلـى آخـر رسـالـة لـك\n- سـتريـكك الـحـالي: ${streakData.streakCount} ${streakEmoji}\n- أمـامـك أقـل مـن 12 سـاعـة لإرسـال رسـالـة جـديـدة قـبـل أن يـضـيـع!`);
 
         await member.send({ embeds: [embed], components: [row] }).then(() => {
             updateWarning.run(streakData.id);
