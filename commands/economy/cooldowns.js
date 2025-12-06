@@ -35,12 +35,13 @@ function formatTimeSimple(ms) {
 // قائمة الأوامر الثابتة
 const COMMANDS_TO_CHECK = [
     { name: 'daily', db_column: 'lastDaily', cooldown: 22 * 60 * 60 * 1000, label: 'راتب' },
-    { name: 'bank', db_column: 'lastInterest', cooldown: 24 * 60 * 60 * 1000, label: 'فوائد البنك' },
+    // تم إزالة فوائد البنك من هنا
     { name: 'work', db_column: 'lastWork', cooldown: 1 * 60 * 60 * 1000, label: 'عمل' },
     { name: 'rob', db_column: 'lastRob', cooldown: 1 * 60 * 60 * 1000, label: 'سرقة' },
     { name: 'rps', db_column: 'lastRPS', cooldown: 1 * 60 * 60 * 1000, label: 'حجرة' },
     { name: 'guess', db_column: 'lastGuess', cooldown: 1 * 60 * 60 * 1000, label: 'تخمين' },
     { name: 'roulette', db_column: 'lastRoulette', cooldown: 1 * 60 * 60 * 1000, label: 'روليت' },
+    { name: 'emoji', db_column: 'lastMemory', cooldown: 1 * 60 * 60 * 1000, label: 'ايموجي' }, // ✅ تمت الإضافة
     { name: 'pvp', db_column: 'lastPVP', cooldown: 5 * 60 * 1000, label: 'تحدي' },
     { name: 'transfer', db_column: 'lastTransfer', cooldown: 5 * 60 * 1000, label: 'تحويل' },
     { name: 'deposit', db_column: 'lastDeposit', cooldown: 1 * 60 * 60 * 1000, label: 'إيداع' },
@@ -116,17 +117,14 @@ module.exports = {
             }
 
             // 2. 🎣 حساب كولداون الصيد (ديناميكي)
-            // نحدد مستوى السنارة والقارب للمستخدم
             const userRodLevel = data.rodLevel || 1;
             const userBoatLevel = data.boatLevel || 1;
 
-            // نجلب بياناتهم من الكونفج
             const currentRod = fishingConfig.rods.find(r => r.level === userRodLevel) || fishingConfig.rods[0];
             const currentBoat = fishingConfig.boats.find(b => b.level === userBoatLevel) || fishingConfig.boats[0];
 
-            // نحسب الكولداون الفعلي (وقت السنارة - سرعة القارب)
             let fishCooldown = currentRod.cooldown - (currentBoat.speed_bonus || 0);
-            if (fishCooldown < 10000) fishCooldown = 10000; // الحد الأدنى
+            if (fishCooldown < 10000) fishCooldown = 10000;
 
             const lastFish = data.lastFish || 0;
             const fishTimeLeft = lastFish + fishCooldown - now;
