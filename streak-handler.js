@@ -38,6 +38,8 @@ function formatTime(ms) {
 
 function calculateBuffMultiplier(member, sql) {
     if (!sql || typeof sql.prepare !== 'function') return 1.0;
+    // ( 🌟 Safety Check: Ensure member has roles 🌟 )
+    if (!member || !member.roles || !member.roles.cache) return 1.0;
     
     const getUserBuffs = sql.prepare("SELECT * FROM user_buffs WHERE userID = ? AND guildID = ? AND expiresAt > ? AND buffType = 'xp'");
     let totalPercent = 0.0;
@@ -69,6 +71,9 @@ function calculateBuffMultiplier(member, sql) {
 
 function calculateMoraBuff(member, sql) {
     if (!sql || typeof sql.prepare !== 'function') return 1.0;
+    // ( 🌟 Safety Check: Ensure member has roles 🌟 )
+    if (!member || !member.roles || !member.roles.cache) return 1.0;
+
     let totalBuffPercent = 0;
 
     const day = new Date().getUTCDay(); 
@@ -112,7 +117,6 @@ async function updateNickname(member, sql) {
     const settings = sql.prepare("SELECT streakEmoji FROM settings WHERE guild = ?").get(member.guild.id);
     const streakEmoji = settings?.streakEmoji || '🔥';
 
-    // Force update separator if it's the old one
     let separator = streakData?.separator || '»'; 
     if (separator === '|') separator = '»';
 
@@ -121,7 +125,6 @@ async function updateNickname(member, sql) {
 
     let baseName = member.displayName;
 
-    // ( 🌟 Regex to remove ANY previous streak format 🌟 )
     const separatorsPattern = ALLOWED_SEPARATORS_REGEX.join('|');
     const regex = new RegExp(`\\s*(${separatorsPattern})\\s*\\d+\\s*.*$`, 'g');
 
@@ -661,7 +664,6 @@ async function sendStreakWarnings(client, sql) {
 
         const embed = new EmbedBuilder().setTitle('✶ تـحـذيـر الـستريـك').setColor(Colors.Yellow)
             .setImage('https://i.postimg.cc/8z0Xw04N/attention.png') 
-            // ( 🌟 Removed parentheses around the time 🌟 )
             .setDescription(`- لـقـد مـضـى أكـثـر مـن 12 سـاعـة عـلـى آخـر رسـالـة لـك\n- سـتريـكك الـحـالي: ${streakData.streakCount} ${streakEmoji}\n- أمـامـك أقـل مـن 12 سـاعـة تقريباً ${formatTime(timeLeft)} لإرسـال رسـالـة جـديـدة قـبـل أن يـضـيـع!`);
 
         await member.send({ embeds: [embed], components: [row] }).then(() => {
@@ -673,17 +675,14 @@ async function sendStreakWarnings(client, sql) {
 }
 
 module.exports = {
-    handleStreakMessage,
-    checkDailyStreaks,
-    updateNickname,
     calculateBuffMultiplier,
-    calculateMoraBuff,
-    formatTime,
-    getKSADateString,
-    getDayDifference,
-    handleMediaStreakMessage,    
+    updateNickname,
+    handleStreakMessage,
+    handleMediaStreakMessage,
+    checkDailyStreaks,
     checkDailyMediaStreaks,
     sendMediaStreakReminders,
     sendDailyMediaUpdate,
-    sendStreakWarnings
+    sendStreakWarnings,
+    calculateMoraBuff: calculateBuffMultiplier 
 };
