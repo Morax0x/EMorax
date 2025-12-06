@@ -43,7 +43,7 @@ module.exports = {
                 .setRequired(false)),
 
     name: 'rps',
-    aliases: ['حجرة', 'rock', 'r'],
+    aliases: ['حجرة', 'rock', 'r', 'حجره', 'ورقة', 'ورقه', 'مقص'],
     category: "Economy",
     description: "لعبة حجرة ورقة مقص.",
 
@@ -451,7 +451,7 @@ async function runRPSRound(message, player1, player2, bet, isPvP, client, guild,
                     .setDescription(
                         `✶ قـمت بـ اختيـار ${p1Move}\n` +
                         `✶ قـمـت انـا بـ اختيـار ${p2Move}\n\n` +
-                        `💸 ذهب الرهان (**${bet}** ${EMOJI_MORA}) للبوت.`
+                        `خـسرت رهـانك (**${bet}** ${EMOJI_MORA})`
                     )
                     .setThumbnail(client.user.displayAvatarURL({ dynamic: true }));
             }
