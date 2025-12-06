@@ -21,13 +21,17 @@ function createNotifButton(label, customId, currentStatus) {
         .setStyle(isEnabled ? ButtonStyle.Success : ButtonStyle.Danger);
 }
 
-// --- My Achievements Embed ---
+// --- My Achievements Embed (Pagination Added) ---
 async function buildMyAchievementsEmbed(interaction, sql, page = 1) {
     try {
         const completed = sql.prepare("SELECT * FROM user_achievements WHERE userID = ? AND guildID = ?").all(interaction.user.id, interaction.guild.id);
 
         if (completed.length === 0) {
-            return { embeds: [new EmbedBuilder().setTitle('🎖️ إنجازاتي').setColor(Colors.DarkRed).setDescription('لم تقم بإكمال أي إنجازات بعد.').setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png')], components: [], totalPages: 1 };
+            return { 
+                embeds: [new EmbedBuilder().setTitle('🎖️ إنجازاتي').setColor(Colors.DarkRed).setDescription('لم تقم بإكمال أي إنجازات بعد.').setImage('https://i.postimg.cc/L4Yb4zHw/almham_alywmyt-2.png')], 
+                components: [], 
+                totalPages: 1 
+            };
         }
 
         const completedIDs = new Set(completed.map(c => c.achievementID));
@@ -35,7 +39,7 @@ async function buildMyAchievementsEmbed(interaction, sql, page = 1) {
 
         const perPage = 10;
         const totalPages = Math.ceil(completedDetails.length / perPage) || 1;
-        page = Math.max(1, Math.min(page, totalPages));
+        page = Math.max(1, Math.min(page, totalPages)); // Ensure page is valid
 
         const start = (page - 1) * perPage;
         const end = start + perPage;
@@ -55,7 +59,7 @@ async function buildMyAchievementsEmbed(interaction, sql, page = 1) {
         }
         embed.setDescription(description);
 
-        return { embeds: [embed], totalPages };
+        return { embeds: [embed], totalPages: totalPages }; // Return totalPages correctly
 
     } catch (err) {
         console.error("Error building my achievements embed:", err);
@@ -75,25 +79,26 @@ async function handleQuestPanel(i, client, sql) {
     // 1. Interaction Analysis
     if (i.isStringSelectMenu()) {
         rawId = i.values[0]; 
-        // ( 🌟 New Ephemeral Reply for Menu Selection 🌟 )
         await i.deferReply({ ephemeral: true }); 
     } else if (i.isButton()) {
         rawId = i.customId;
-        // ( 🌟 Update Existing Ephemeral Message for Buttons 🌟 )
         await i.deferUpdate();
     } else {
         await i.deferReply({ ephemeral: true });
         rawId = i.customId || "";
     }
 
-    // 2. Pagination Logic
+    // 2. Pagination Logic (Extract Page Number)
     const pageMatch = rawId.match(/_(prev|next)_(\d+)$/);
     if (pageMatch) {
-        const action = pageMatch[1]; // prev or next
+        const action = pageMatch[1]; 
         const pageNum = parseInt(pageMatch[2]);
         currentPage = pageNum;
         if (action === 'prev') currentPage--;
         if (action === 'next') currentPage++;
+    } else {
+        // If coming from menu or base button, reset to page 1
+        currentPage = 1;
     }
 
     // 3. Section Determination
@@ -103,7 +108,7 @@ async function handleQuestPanel(i, client, sql) {
     else if (rawId.includes('weekly')) section = 'weekly';
     else if (rawId.includes('my_achievements')) section = 'my_achievements'; 
     else if (rawId.includes('top_achievements')) section = 'top_achievements';
-    else if (rawId.includes('achievements')) section = 'achievements';
+    else if (rawId.includes('achievements') && !rawId.includes('my_') && !rawId.includes('top_')) section = 'achievements'; // General achievements list
     else if (rawId.includes('empire')) section = 'empire';
     else if (rawId.includes('toggle_notif') || rawId.includes('notifications')) section = 'notifications';
 
@@ -111,25 +116,28 @@ async function handleQuestPanel(i, client, sql) {
 
     // A) Empire
     if (section === 'empire') {
-         // Use editReply because we deferred earlier
          return i.editReply({ content: "🚧 **قسم مهام الإمبراطورية قيد التطوير حالياً!**", embeds: [], components: [] });
     }
 
-    // B) Notifications
+    // B) Notifications (Fixed Logic)
     if (section === 'notifications') {
         let notifData = client.getQuestNotif.get(id);
         if (!notifData) {
             notifData = { id: id, userID: userId, guildID: guildId, dailyNotif: 1, weeklyNotif: 1, achievementsNotif: 1, levelNotif: 1 };
             client.setQuestNotif.run(notifData);
         }
-        if (typeof notifData.levelNotif === 'undefined') notifData.levelNotif = 1;
+        
+        // Ensure levelNotif exists (for old DB records)
+        if (notifData.levelNotif === undefined || notifData.levelNotif === null) notifData.levelNotif = 1;
 
         if (rawId.includes('toggle_notif')) {
-            if (rawId.includes('daily')) notifData.dailyNotif = notifData.dailyNotif === 1 ? 0 : 1;
-            else if (rawId.includes('weekly')) notifData.weeklyNotif = notifData.weeklyNotif === 1 ? 0 : 1;
-            else if (rawId.includes('ach')) notifData.achievementsNotif = notifData.achievementsNotif === 1 ? 0 : 1;
-            else if (rawId.includes('level')) notifData.levelNotif = notifData.levelNotif === 1 ? 0 : 1;
-            client.setQuestNotif.run(notifData);
+            // Toggle logic
+            if (rawId.includes('daily')) notifData.dailyNotif = notifData.dailyNotif ? 0 : 1;
+            else if (rawId.includes('weekly')) notifData.weeklyNotif = notifData.weeklyNotif ? 0 : 1;
+            else if (rawId.includes('ach')) notifData.achievementsNotif = notifData.achievementsNotif ? 0 : 1;
+            else if (rawId.includes('level')) notifData.levelNotif = notifData.levelNotif ? 0 : 1;
+            
+            client.setQuestNotif.run(notifData); // Save changes
         }
 
         const notifEmbed = new EmbedBuilder().setTitle('🔔 إعدادات الإشعارات').setDescription('قم بتحديد الإشعارات التي ترغب بتفعيلها أو تعطيلها.').setColor(Colors.Purple).setImage('https://i.postimg.cc/5217mTwV/almham_alywmyt-3.png');
@@ -165,11 +173,11 @@ async function handleQuestPanel(i, client, sql) {
     } else if (section === 'top_achievements') {
         data = await generateLeaderboard(sql, i.guild, 'achievements', currentPage);
     } else if (section === 'my_achievements') {
+        // ( 🌟 تم التعديل: يدعم الصفحات الآن 🌟 )
         data = await buildMyAchievementsEmbed(i, sql, currentPage);
     } else if (section === 'achievements') { 
         data = await buildAchievementsEmbed(sql, i.member, levelData, totalStats, completedAchievements, currentPage);
     } else {
-        // Fallback
         return i.editReply({ content: `❌ حدث خطأ: القسم غير معروف (${rawId}).`, ephemeral: true });
     }
 
@@ -177,7 +185,7 @@ async function handleQuestPanel(i, client, sql) {
         embeds = Array.isArray(data.embeds) ? data.embeds : [data.embed];
         files = data.files || [];
         totalPages = data.totalPages || 1;
-        currentPage = Math.max(1, Math.min(currentPage, totalPages));
+        currentPage = Math.max(1, Math.min(currentPage, totalPages)); // Safety clamp
     }
 
     // Build Pagination Buttons
