@@ -39,7 +39,7 @@ async function buildMyAchievementsEmbed(interaction, sql, page = 1) {
 
         const perPage = 10;
         const totalPages = Math.ceil(completedDetails.length / perPage) || 1;
-        page = Math.max(1, Math.min(page, totalPages)); // Ensure page is valid
+        page = Math.max(1, Math.min(page, totalPages)); 
 
         const start = (page - 1) * perPage;
         const end = start + perPage;
@@ -59,7 +59,7 @@ async function buildMyAchievementsEmbed(interaction, sql, page = 1) {
         }
         embed.setDescription(description);
 
-        return { embeds: [embed], totalPages: totalPages }; // Return totalPages correctly
+        return { embeds: [embed], totalPages: totalPages }; 
 
     } catch (err) {
         console.error("Error building my achievements embed:", err);
@@ -88,7 +88,7 @@ async function handleQuestPanel(i, client, sql) {
         rawId = i.customId || "";
     }
 
-    // 2. Pagination Logic (Extract Page Number)
+    // 2. Pagination Logic
     const pageMatch = rawId.match(/_(prev|next)_(\d+)$/);
     if (pageMatch) {
         const action = pageMatch[1]; 
@@ -97,20 +97,24 @@ async function handleQuestPanel(i, client, sql) {
         if (action === 'prev') currentPage--;
         if (action === 'next') currentPage++;
     } else {
-        // If coming from menu or base button, reset to page 1
         currentPage = 1;
     }
 
-    // 3. Section Determination
+    // 3. Section Determination (تم تعديل الترتيب لإصلاح مشكلة الإشعارات)
     let section = "unknown";
 
-    if (rawId.includes('daily')) section = 'daily';
-    else if (rawId.includes('weekly')) section = 'weekly';
+    // ⚠️ الفحص الأول: هل هي إعدادات الإشعارات؟ (الأولوية القصوى)
+    if (rawId.includes('toggle_notif') || rawId.includes('notifications')) {
+        section = 'notifications';
+    }
+    // ثم نفحص باقي الأقسام
     else if (rawId.includes('my_achievements')) section = 'my_achievements'; 
     else if (rawId.includes('top_achievements')) section = 'top_achievements';
-    else if (rawId.includes('achievements') && !rawId.includes('my_') && !rawId.includes('top_')) section = 'achievements'; // General achievements list
+    else if (rawId.includes('daily')) section = 'daily';
+    else if (rawId.includes('weekly')) section = 'weekly';
+    // "achievements" عامة يجب أن تكون بعد "my_" و "top_" و "notif"
+    else if (rawId.includes('achievements')) section = 'achievements'; 
     else if (rawId.includes('empire')) section = 'empire';
-    else if (rawId.includes('toggle_notif') || rawId.includes('notifications')) section = 'notifications';
 
     // --- Section Processing ---
 
@@ -119,7 +123,7 @@ async function handleQuestPanel(i, client, sql) {
          return i.editReply({ content: "🚧 **قسم مهام الإمبراطورية قيد التطوير حالياً!**", embeds: [], components: [] });
     }
 
-    // B) Notifications (Fixed Logic)
+    // B) Notifications
     if (section === 'notifications') {
         let notifData = client.getQuestNotif.get(id);
         if (!notifData) {
@@ -127,7 +131,6 @@ async function handleQuestPanel(i, client, sql) {
             client.setQuestNotif.run(notifData);
         }
         
-        // Ensure levelNotif exists (for old DB records)
         if (notifData.levelNotif === undefined || notifData.levelNotif === null) notifData.levelNotif = 1;
 
         if (rawId.includes('toggle_notif')) {
@@ -173,7 +176,6 @@ async function handleQuestPanel(i, client, sql) {
     } else if (section === 'top_achievements') {
         data = await generateLeaderboard(sql, i.guild, 'achievements', currentPage);
     } else if (section === 'my_achievements') {
-        // ( 🌟 تم التعديل: يدعم الصفحات الآن 🌟 )
         data = await buildMyAchievementsEmbed(i, sql, currentPage);
     } else if (section === 'achievements') { 
         data = await buildAchievementsEmbed(sql, i.member, levelData, totalStats, completedAchievements, currentPage);
@@ -185,7 +187,7 @@ async function handleQuestPanel(i, client, sql) {
         embeds = Array.isArray(data.embeds) ? data.embeds : [data.embed];
         files = data.files || [];
         totalPages = data.totalPages || 1;
-        currentPage = Math.max(1, Math.min(currentPage, totalPages)); // Safety clamp
+        currentPage = Math.max(1, Math.min(currentPage, totalPages)); 
     }
 
     // Build Pagination Buttons
