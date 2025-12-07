@@ -10,16 +10,11 @@ const EMOJI_XP = '<a:levelup:1437805366048985290>';
 // 🎲 دالة حساب الضربة الحرجة (1%)
 // ==========================================
 function calculateHit(baseDamage) {
-    // نسبة 1% (إذا الرقم العشوائي من 0-100 أقل من 1)
     const isCritical = Math.random() * 100 < 1;
-    
     let finalDamage = baseDamage;
-
     if (isCritical) {
-        // مضاعفة الضرر مرة ونصف عند الضربة الحرجة
         finalDamage = Math.floor(baseDamage * 1.5);
     }
-
     return { damage: finalDamage, isCritical };
 }
 
@@ -134,45 +129,42 @@ async function handleBossInteraction(interaction, client, sql) {
     }
 
     // =========================================================
-    // 🔥 حساب الضرر (إما سلاح أو مهارة)
+    // 🔥 حساب الضرر (إما سلاح أو مهارة) - مفصول تماماً
     // =========================================================
     let baseCalcDamage = 0;
     let toolName = "خنجر";
-    let isDefaultWeapon = false; // لتنبيه السلاح الضعيف فقط عند استخدام زر الهجوم
+    let isDefaultWeapon = false;
 
     if (isSkill && skillData) {
-        // ✅ الخيار الأول: الهجوم بالمهارة فقط
+        // ✅ هجوم المهارة فقط
         toolName = skillData.name;
-        baseCalcDamage = skillData.effectValue; // قيمة ضرر المهارة فقط
+        baseCalcDamage = skillData.effectValue;
     } else {
-        // ✅ الخيار الثاني: الهجوم بالسلاح (زر الهجوم العادي)
+        // ✅ هجوم السلاح فقط
         const userRace = getUserRace(member, sql);
-        
         if (userRace) {
             const weapon = getWeaponData(sql, member);
             if (weapon && weapon.currentLevel > 0) {
                 baseCalcDamage = weapon.currentDamage;
                 toolName = weapon.name;
             } else {
-                baseCalcDamage = 15; // ضرر الخنجر الافتراضي
+                baseCalcDamage = 15; 
                 toolName = "خنجر (افتراضي)";
-                isDefaultWeapon = true; // تفعيل التحذير فقط هنا
+                isDefaultWeapon = true;
             }
         } else {
-            // في حال لم يكن لديه عرق أصلاً
             baseCalcDamage = 15;
             toolName = "خنجر (افتراضي)";
             isDefaultWeapon = true;
         }
     }
 
-    // 🔥 تطبيق نظام الـ Critical Hit (1%) على الناتج النهائي المختار
+    // 🔥 تطبيق نسبة الحظ (1% كريتيكال)
     const hitResult = calculateHit(baseCalcDamage);
-    
     let finalDamage = hitResult.damage;
-    let isCrit = hitResult.isCritical; // هل الضربة حرجة؟
+    let isCrit = hitResult.isCritical;
 
-    // تطبيق الضرر والتحديث
+    // تحديث الداتابيس
     let newHP = boss.currentHP - finalDamage;
     if (newHP < 0) newHP = 0;
 
@@ -187,57 +179,66 @@ async function handleBossInteraction(interaction, client, sql) {
     sql.prepare("INSERT OR REPLACE INTO boss_leaderboard (guildID, userID, totalDamage) VALUES (?, ?, ?)").run(guildID, userID, (userDmgRecord ? userDmgRecord.totalDamage : 0) + finalDamage);
 
     // =========================================================
-    // 🔥🔥 نظام الجوائز 🔥🔥
+    // 🔥🔥 نظام الجوائز (موزون ومعدل) 🔥🔥
     // =========================================================
     let rewardString = "";
+    // رقم عشوائي من 0 إلى 100
     const roll = Math.random() * 100;
     
     let userData = client.getLevel.get(userID, guildID) || { ...client.defaultData, user: userID, guild: guildID };
     userData.level = parseInt(userData.level) || 1;
     userData.xp = parseInt(userData.xp) || 0;
+    userData.mora = parseInt(userData.mora) || 0; // تأكد أن المورا رقم
     
     let xpToAdd = 0;
 
-    if (roll > 99) { // كوبون
+    // التوزيع الجديد:
+    // > 98: كوبون (2%)
+    // > 90: بف XP (8%)
+    // > 80: بف مورا (10%)
+    // > 40: مورا كاش (40%) -> تم رفع النسبة لتظهر كثيراً
+    // والباقي: XP (40%)
+
+    if (roll > 98) { // كوبون
         const existingCoupon = sql.prepare("SELECT 1 FROM user_coupons WHERE userID = ? AND guildID = ?").get(userID, guildID);
         if (!existingCoupon) {
             const discount = Math.floor(Math.random() * 10) + 1;
             sql.prepare("INSERT INTO user_coupons (guildID, userID, discountPercent) VALUES (?, ?, ?)").run(guildID, userID, discount);
             rewardString = `${discount}% كـوبـون خـصـم للمتجـر`;
         } else {
+            // تعويض بف
             const duration = getRandomDuration(10, 180); 
             const percent = Math.floor(Math.random() * 46) + 5; 
             const expiresAt = Date.now() + duration;
             sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guildID, userID, percent, expiresAt, 'xp', percent / 100);
             rewardString = `${percent}% تعـزيـز ${EMOJI_XP}`;
         }
-    } else if (roll > 90) { // بف اكس بي
+
+    } else if (roll > 90) { // بف XP
         const duration = getRandomDuration(10, 180);
         const percent = Math.floor(Math.random() * 46) + 5; 
         const expiresAt = Date.now() + duration;
         sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guildID, userID, percent, expiresAt, 'xp', percent / 100);
         rewardString = `${percent}% تعـزيـز ${EMOJI_XP}`;
+
     } else if (roll > 80) { // بف مورا
         const duration = getRandomDuration(10, 180);
         const percent = Math.floor(Math.random() * 8) + 1; 
         const expiresAt = Date.now() + duration;
         sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guildID, userID, percent, expiresAt, 'mora', percent / 100);
         rewardString = `${percent}% تعـزيـز ${EMOJI_MORA}`;
-    } else if (roll > 50) {
-        const isMora = Math.random() > 0.5;
+
+    } else if (roll > 40) { // ✅ مورا (نسبة عالية الآن)
         const amount = Math.floor(Math.random() * 400) + 100;
-        if (isMora) { 
-            userData.mora += amount; 
-            rewardString = `${amount} ${EMOJI_MORA}`;
-        } else { 
-            xpToAdd = amount; 
-            rewardString = `${amount} ${EMOJI_XP}`;
-        }
-    } else {
+        userData.mora += amount; 
+        rewardString = `${amount} ${EMOJI_MORA}`;
+
+    } else { // ✅ اكس بي (نسبة متوازنة)
         xpToAdd = Math.floor(Math.random() * 500) + 20; 
         rewardString = `${xpToAdd} ${EMOJI_XP}`;
     }
 
+    // حفظ البيانات
     if (xpToAdd > 0) {
         userData.xp += xpToAdd;
         userData.totalXP += xpToAdd;
@@ -251,15 +252,16 @@ async function handleBossInteraction(interaction, client, sql) {
         }
         if (leveledUp) rewardString += `\n🆙 **Level Up!** -> ${userData.level}`;
     }
+    
+    // حفظ التعديلات (بما فيها المورا)
     client.setLevel.run(userData);
 
-    // ✅ رسالة التنبيه (تظهر فقط إذا استخدم زر الهجوم وكان السلاح ضعيفاً)
+    // ✅ رسالة التنبيه للسلاح
     let weakWeaponWarning = "";
     if (isDefaultWeapon) {
         weakWeaponWarning = "\n✬ استعـمـلت سلاح ضعيف في هجومك هذا حدد عرقك واشتري سلاحك من المتجر لتحصل على جوائز قيمة اكثر";
     }
 
-    // نص الضربة الحرجة للإعلام
     let critText = isCrit ? " 🔥 **(ضربة حرجة!)**" : "";
 
     // تحديث رسالة البوس
@@ -321,7 +323,6 @@ async function handleBossInteraction(interaction, client, sql) {
         }
     }
 
-    // ✅ الرد النهائي
     await interaction.reply({ 
         content: `✬ هـاجـمـت الزعـيـم وتسببـت بـ **${finalDamage.toLocaleString()}** ضرر${critText}\n✶ حـصـلت عـلـى: ${rewardString}${weakWeaponWarning}`, 
         flags: [MessageFlags.Ephemeral] 
