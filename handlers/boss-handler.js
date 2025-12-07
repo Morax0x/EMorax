@@ -1,5 +1,6 @@
 const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, Colors, MessageFlags } = require("discord.js");
-const { getWeaponData, getUserRace, getAllSkillData } = require('./pvp-core.js'); // تأكد من المسار (../) أو (./) حسب مكان الملف
+// ✅ المسار الصحيح
+const { getWeaponData, getUserRace, getAllSkillData } = require('./pvp-core.js');
 
 const OWNER_ID = '1145327691772481577'; 
 const HIT_COOLDOWN = 2 * 60 * 60 * 1000; 
@@ -39,7 +40,7 @@ function getBossState(current, max) {
     return "يحتضر ☠️";
 }
 
-// 🔥 دالة حساب الاكس بي المطلوبة (نفس الموجودة في السيستم حقك)
+// 🔥 دالة حساب الاكس بي المطلوبة
 function getRequiredXP(level) {
     return 5 * (level * level) + (50 * level) + 100;
 }
@@ -150,25 +151,47 @@ async function handleBossInteraction(interaction, client, sql) {
     let finalDamage = weaponDamage;
 
     // =========================================================
-    // حساب المهارات والضرر
+    // 🔥 حساب المهارات والضرر (تم التعديل للسم والمقامرة) 🔥
     // =========================================================
     if (isSkill && skillData) {
         toolName = skillData.name;
         const val = skillData.effectValue;
 
         switch (skillData.id) {
-            case 'race_dragon_skill': finalDamage = val; break;
+            case 'race_dragon_skill': 
+                // مهارة التنين: ضرر ثابت وعالي
+                finalDamage = val; 
+                break;
+
             case 'skill_gamble': 
+                // المقامرة للزعيم: 
+                // 50% تضرب (ضرر السلاح x2.5 + قيمة المهارة) -> ضربة خارقة
+                // 50% تضرب 1 فقط -> فشل
                 if (Math.random() < 0.5) {
-                    finalDamage = Math.floor(weaponDamage * (val / 100));
-                    toolName += " (فوز ساحق!)";
+                    finalDamage = Math.floor(weaponDamage * 2.5) + val;
+                    toolName += " (🎰 فوز ساحق!)";
                 } else {
-                    finalDamage = Math.floor(weaponDamage * 0.25);
-                    toolName += " (خسارة...)";
+                    finalDamage = 1;
+                    toolName += " (🎰 حظ سيء...)";
                 }
                 break;
-            case 'race_elf_skill': finalDamage = Math.floor(weaponDamage + val); break;
-            default: finalDamage = Math.floor(weaponDamage + val); break;
+
+            case 'skill_poison':
+                // التسمم للزعيم:
+                // بما انه لا يوجد أدوار، نحسبها كضربة واحدة مركزة
+                // الضرر = السلاح + (قيمة المهارة * 1.5)
+                finalDamage = Math.floor(weaponDamage + (val * 1.5));
+                toolName += " (☠️ سم مركز)";
+                break;
+
+            case 'race_elf_skill': 
+                finalDamage = Math.floor(weaponDamage + val); 
+                break;
+
+            default: 
+                // باقي المهارات: السلاح + قيمة المهارة
+                finalDamage = Math.floor(weaponDamage + val); 
+                break;
         }
     }
 
@@ -194,7 +217,7 @@ async function handleBossInteraction(interaction, client, sql) {
     sql.prepare("INSERT OR REPLACE INTO boss_leaderboard (guildID, userID, totalDamage) VALUES (?, ?, ?)").run(guildID, userID, (userDmgRecord ? userDmgRecord.totalDamage : 0) + finalDamage);
 
     // =========================================================
-    // 🔥🔥 نظام الجوائز (تم الإصلاح هنا) 🔥🔥
+    // 🔥🔥 نظام الجوائز 🔥🔥
     // =========================================================
     let rewardMsg = "";
     const roll = Math.random() * 100;
@@ -204,7 +227,6 @@ async function handleBossInteraction(interaction, client, sql) {
     // تأكد أن القيم أرقام
     userData.level = parseInt(userData.level) || 1;
     userData.xp = parseInt(userData.xp) || 0;
-    // ملاحظة: max_xp لا نحتاجه من الداتابيس لأننا سنحسبه بالمعادلة
     
     let xpToAdd = 0;
 
@@ -228,14 +250,12 @@ async function handleBossInteraction(interaction, client, sql) {
         userData.xp += xpToAdd;
         userData.totalXP += xpToAdd;
         
-        // 🔥🔥 هنا التصحيح: حساب المطلوب بناءً على اللفل الحالي 🔥🔥
         let requiredXP = getRequiredXP(userData.level);
         let leveledUp = false;
 
         while (userData.xp >= requiredXP) {
             userData.xp -= requiredXP;
             userData.level += 1;
-            // إعادة حساب المطلوب للمستوى الجديد (في حال قفز مستويين)
             requiredXP = getRequiredXP(userData.level);
             leveledUp = true;
         }
