@@ -179,7 +179,7 @@ async function handleBossInteraction(interaction, client, sql) {
     sql.prepare("INSERT OR REPLACE INTO boss_leaderboard (guildID, userID, totalDamage) VALUES (?, ?, ?)").run(guildID, userID, (userDmgRecord ? userDmgRecord.totalDamage : 0) + finalDamage);
 
     // =========================================================
-    // 🔥🔥 نظام الجوائز (موزون ومعدل) 🔥🔥
+    // 🔥🔥 نظام الجوائز (موزون ومعدل حسب المستوى) 🔥🔥
     // =========================================================
     let rewardString = "";
     // رقم عشوائي من 0 إلى 100
@@ -192,11 +192,21 @@ async function handleBossInteraction(interaction, client, sql) {
     
     let xpToAdd = 0;
 
+    // ✅ تحديد الحدود الدنيا والعليا للجوائز بناءً على المستوى
+    let minReward = 20;
+    let maxReward = 150;
+
+    // إذا اللفل فوق 10، تزيد الجوائز
+    if (userData.level > 10) {
+        minReward = 50;
+        maxReward = 500;
+    }
+
     // التوزيع الجديد:
     // > 98: كوبون (2%)
     // > 90: بف XP (8%)
     // > 80: بف مورا (10%)
-    // > 40: مورا كاش (40%) -> تم رفع النسبة لتظهر كثيراً
+    // > 40: مورا كاش (40%)
     // والباقي: XP (40%)
 
     if (roll > 98) { // كوبون
@@ -211,7 +221,7 @@ async function handleBossInteraction(interaction, client, sql) {
             const percent = Math.floor(Math.random() * 46) + 5; 
             const expiresAt = Date.now() + duration;
             sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guildID, userID, percent, expiresAt, 'xp', percent / 100);
-            rewardString = `${percent}% تعـزيـز ${EMOJI_XP}`;
+            rewardString = `${percent}% تعـزيـز خبرة ${EMOJI_XP}`;
         }
 
     } else if (roll > 90) { // بف XP
@@ -219,22 +229,22 @@ async function handleBossInteraction(interaction, client, sql) {
         const percent = Math.floor(Math.random() * 46) + 5; 
         const expiresAt = Date.now() + duration;
         sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guildID, userID, percent, expiresAt, 'xp', percent / 100);
-        rewardString = `${percent}% تعـزيـز ${EMOJI_XP}`;
+        rewardString = `${percent}% تعـزيـز خبرة${EMOJI_XP}`;
 
     } else if (roll > 80) { // بف مورا
         const duration = getRandomDuration(10, 180);
         const percent = Math.floor(Math.random() * 8) + 1; 
         const expiresAt = Date.now() + duration;
         sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guildID, userID, percent, expiresAt, 'mora', percent / 100);
-        rewardString = `${percent}% تعـزيـز ${EMOJI_MORA}`;
+        rewardString = `${percent}% تعـزيـز مورا${EMOJI_MORA}`;
 
-    } else if (roll > 40) { // ✅ مورا (نسبة عالية الآن)
-        const amount = Math.floor(Math.random() * 400) + 100;
+    } else if (roll > 40) { // ✅ مورا (تعتمد على الرينج المحدد)
+        const amount = Math.floor(Math.random() * (maxReward - minReward + 1)) + minReward;
         userData.mora += amount; 
         rewardString = `${amount} ${EMOJI_MORA}`;
 
-    } else { // ✅ اكس بي (نسبة متوازنة)
-        xpToAdd = Math.floor(Math.random() * 500) + 20; 
+    } else { // ✅ اكس بي (تعتمد على الرينج المحدد)
+        xpToAdd = Math.floor(Math.random() * (maxReward - minReward + 1)) + minReward;
         rewardString = `${xpToAdd} ${EMOJI_XP}`;
     }
 
@@ -259,10 +269,10 @@ async function handleBossInteraction(interaction, client, sql) {
     // ✅ رسالة التنبيه للسلاح
     let weakWeaponWarning = "";
     if (isDefaultWeapon) {
-        weakWeaponWarning = "\n✬ استعـمـلت سلاح ضعيف في هجومك هذا حدد عرقك واشتري سلاحك من المتجر لتحصل على جوائز قيمة اكثر";
+        weakWeaponWarning = "\n✬ استعـمـلت سلاح ضعيف في هجومك هذا حدد عرقك واشتري سلاح من المتجر لتحصل على جوائز قيمة اكثر <a:MugiStronk:1438795606872166462>";
     }
 
-    let critText = isCrit ? " 🔥 **(ضربة حرجة!)**" : "";
+    let critText = isCrit ? " 🔥 **ضربة حرجة!**" : "";
 
     // تحديث رسالة البوس
     const bossMsg = await interaction.channel.messages.fetch(boss.messageID).catch(() => null);
@@ -276,11 +286,11 @@ async function handleBossInteraction(interaction, client, sql) {
         const newEmbed = EmbedBuilder.from(bossMsg.embeds[0])
             .setColor(getRandomColor())
             .setDescription(
-                `✬ ظـهـر زعـيـم في السـاحـة تـعانـوا عـلـى قتاله واكسبوا الجوائـز !\n\n` +
-                `✬ **نـقـاط صـحـة الزعـيـم:**\n` +
+                `✬ ظـهـر زعـيـم في السـاحـة تـعاونـوا عـلـى قتاله واكسبوا الجوائـز <:trophy: 1438797232458432602>!\n\n` +
+                `✬ **نـقـاط صـحـة الزعـيـم <a:Nerf:1438795685280612423>:**\n` +
                 `${progressBar} **${hpPercent}%**\n` +
                 `╰ **${newHP.toLocaleString()}** / ${boss.maxHP.toLocaleString()} HP\n\n` +
-                `✬ **سـجـل الـمـعـركـة:**\n` +
+                `✬ **سـجـل الـمـعـركـة ⚔️:**\n` +
                 `${logDisplay}`
             ).setFields([]); 
 
@@ -301,11 +311,11 @@ async function handleBossInteraction(interaction, client, sql) {
                 .setDescription(
                     `✶ **معـلومـات الزعـيـم:**\n` +
                     `- الاسـم: **${boss.name}**\n` +
-                    `- هجمات متلـقـية: **${finalHits}**\n` +
-                    `- نقـاط الصحـة: **${boss.maxHP.toLocaleString()}**\n\n` +
-                    `✶ **اعـلـى ضـرر:**\n` +
+                    `- هجمات متلـقـية ⚔️: **${finalHits}**\n` +
+                    `- نقـاط الصحـة <a:Nerf:1438795685280612423>: **${boss.maxHP.toLocaleString()}**\n\n` +
+                    `✶ **اعـلـى ضـرر <a:buff:1438796257522094081>:**\n` +
                     `${lbText}\n\n` +
-                    `**صـاحـب الضربـة القاضيـة:**\n` +
+                    `**صـاحـب الضربـة القاضيـة 🗡️:**\n` +
                     `✬ ${member}`
                 )
                 .setColor(Colors.Gold);
