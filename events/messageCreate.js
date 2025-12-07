@@ -5,6 +5,7 @@ const { processReportLogic, sendReportError } = require("../handlers/report-hand
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
+// كوليكشن لحفظ الكولداون الخاص بالردود التلقائية
 const autoResponderCooldowns = new Collection();
 const treeCooldowns = new Set();
 
@@ -16,7 +17,6 @@ function getWeekStartDateString() {
 
 async function recordBump(client, guildID, userID) {
     const sql = client.sql;
-    // حماية إضافية داخل الدالة
     if (!sql || !sql.open) return;
 
     const dateStr = getTodayDateString();
@@ -46,7 +46,6 @@ module.exports = {
         const client = message.client;
         const sql = client.sql;
 
-        // 🔥🔥 التعديل: التحقق من أن قاعدة البيانات مفتوحة قبل البدء 🔥🔥
         if (!sql || !sql.open) return;
         
         if (!message.guild) return;
@@ -100,17 +99,15 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
 
         // ============================================================
-        // 🌟 3. معالج الاختصارات (البحث الشامل والدقيق) 🌟
+        // 3. معالج الاختصارات
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
-            // 1. البحث في قاعدة البيانات (للقناة الحالية)
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
-            // 2. البحث العام (Fallback) إذا لم يجد في القناة الحالية
             if (!shortcut) {
                  shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND shortcutWord = ? AND (channelID IS NULL OR channelID = 'null' OR channelID = '')")
                 .get(message.guild.id, shortcutWord);
@@ -118,15 +115,12 @@ module.exports = {
 
             if (shortcut) {
                 const targetName = shortcut.commandName.toLowerCase();
-
-                // 🔍 البحث الشامل في الأوامر المحملة (بالاسم أو الـ Aliases)
                 const cmd = client.commands.find(c => 
                     (c.name && c.name.toLowerCase() === targetName) || 
                     (c.aliases && c.aliases.includes(targetName))
                 );
 
                 if (cmd) {
-                    // الاختصار يعتبر "سماح" ضمني لأنه مسجل يدوياً
                     if (checkPermissions(message, cmd)) {
                         const cooldownMsg = checkCooldown(message, cmd);
                         if (cooldownMsg) {
@@ -143,9 +137,8 @@ module.exports = {
                 }
             }
         } catch (err) { console.error("[Shortcut Handler Error]", err); }
-        // ============================================================
 
-        // 4. معالج البريفكس (الصارم - Whitelist)
+        // 4. معالج البريفكس
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
@@ -153,7 +146,6 @@ module.exports = {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             
-            // البحث الشامل عن الأمر (بالاسم أو الـ Aliases)
             const command = client.commands.find(cmd => 
                 (cmd.name && cmd.name.toLowerCase() === commandName) || 
                 (cmd.aliases && cmd.aliases.includes(commandName))
@@ -161,18 +153,14 @@ module.exports = {
             
             if (command) {
                 args.prefix = Prefix;
-                
                 let isAllowed = false;
                 
-                // أ) الإدارة العليا
                 if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
                     isAllowed = true;
                 } 
-                // ب) الكازينو (لأوامر الاقتصاد فقط)
                 else if (settings && settings.casinoChannelID === message.channel.id && command.category === 'Economy') {
                     isAllowed = true;
                 }
-                // ج) السماح اليدوي (command_permissions)
                 else {
                     try {
                         const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.id);
@@ -184,7 +172,6 @@ module.exports = {
                     } catch (err) { isAllowed = true; }
                 }
 
-                // إذا لم يتحقق أي شرط، الأمر ممنوع (لن يتم تنفيذه)
                 if (isAllowed) {
                     if (checkPermissions(message, command)) {
                         const cooldownMsg = checkCooldown(message, command);
@@ -231,34 +218,53 @@ module.exports = {
             if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
         } catch (e) {}
 
-        // 6. الردود التلقائية
+        // ============================================================
+        // 🔥 6. الردود التلقائية (المحدثة مع الكولداون العام والكاتاغوري) 🔥
+        // ============================================================
         try {
             const autoResponses = sql.prepare("SELECT * FROM auto_responses WHERE guildID = ?").all(message.guild.id);
             const content = message.content.trim().toLowerCase();
+            const channelId = message.channel.id;
+            const parentId = message.channel.parentId;
 
             for (const ar of autoResponses) {
+                // 1. التحقق من تطابق الكلمة
                 let isMatch = false;
                 const trigger = ar.trigger.trim().toLowerCase();
                 if (ar.matchType === 'contains') { if (content.includes(trigger)) isMatch = true; } 
                 else { if (content === trigger) isMatch = true; }
 
                 if (isMatch) {
+                    // 2. التحقق من القنوات والكاتاغوري
                     const allowed = ar.allowedChannels ? JSON.parse(ar.allowedChannels) : [];
                     const ignored = ar.ignoredChannels ? JSON.parse(ar.ignoredChannels) : [];
-                    if (allowed.length > 0 && !allowed.includes(message.channel.id)) continue;
-                    if (ignored.includes(message.channel.id)) continue;
 
+                    // أ) قائمة التجاهل (روم أو كاتاغوري)
+                    if (ignored.length > 0) {
+                        if (ignored.includes(channelId) || (parentId && ignored.includes(parentId))) continue; 
+                    }
+
+                    // ب) قائمة السماح (روم أو كاتاغوري)
+                    if (allowed.length > 0) {
+                        const isAllowedChannel = allowed.includes(channelId);
+                        const isAllowedCategory = parentId && allowed.includes(parentId);
+                        if (!isAllowedChannel && !isAllowedCategory) continue; // غير مسموح
+                    }
+
+                    // 3. التحقق من الكولداون (العام - Global)
+                    // نستخدم مفتاح يعتمد على السيرفر والكلمة فقط (وليس العضو)
+                    const cooldownKey = `${message.guild.id}-${trigger}`;
+                    const now = Date.now();
+                    
+                    // المالك فقط يتخطى الكولداون
                     if (message.author.id !== message.guild.ownerId) {
-                        const key = `${message.guild.id}-${ar.id}-${message.author.id}`;
-                        const now = Date.now();
-                        const expirationTime = autoResponderCooldowns.get(key);
-                        if (expirationTime && now < expirationTime) continue; 
-                        if (ar.cooldown > 0) {
-                            autoResponderCooldowns.set(key, now + (ar.cooldown * 1000));
-                            setTimeout(() => autoResponderCooldowns.delete(key), ar.cooldown * 1000);
+                        if (autoResponderCooldowns.has(cooldownKey)) {
+                            const expirationTime = autoResponderCooldowns.get(cooldownKey);
+                            if (now < expirationTime) continue; // الكولداون شغال، لا ترد
                         }
                     }
 
+                    // 4. إرسال الرد
                     let responses = [];
                     try { responses = JSON.parse(ar.response); } catch (e) { responses = [ar.response]; }
                     let images = [];
@@ -271,7 +277,14 @@ module.exports = {
                     if (randomImage) payload.files = [randomImage];
                     
                     await message.reply(payload).catch(() => {});
-                    break; 
+
+                    // 5. تفعيل الكولداون (إذا كان محدداً)
+                    if (ar.cooldown > 0) {
+                        autoResponderCooldowns.set(cooldownKey, now + (ar.cooldown * 1000));
+                        setTimeout(() => autoResponderCooldowns.delete(cooldownKey), ar.cooldown * 1000);
+                    }
+
+                    break; // توقف بعد أول رد مطابق
                 }
             }
         } catch (err) { console.error("[Auto Responder Error]", err); }
@@ -317,9 +330,9 @@ module.exports = {
                 if (client.incrementQuestStats) await client.incrementQuestStats(userID, guildID, 'meow_count', 1);
                 let level = client.getLevel.get(userID, guildID);
                 if (level) {
-                     level.total_meow_count = (level.total_meow_count || 0) + 1;
-                     client.setLevel.run(level);
-                     if (client.checkAchievements) await client.checkAchievements(client, message.member, level, null);
+                      level.total_meow_count = (level.total_meow_count || 0) + 1;
+                      client.setLevel.run(level);
+                      if (client.checkAchievements) await client.checkAchievements(client, message.member, level, null);
                 }
             }
             const isMediaChannel = sql.prepare("SELECT * FROM media_streak_channels WHERE guildID = ? AND channelID = ?").get(guildID, message.channel.id);
