@@ -1,5 +1,5 @@
 const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, Colors, MessageFlags } = require("discord.js");
-const { getWeaponData, getUserRace, getAllSkillData } = require('../pvp-core.js'); // تأكد من المسار (../) أو (./) حسب مكان الملف
+const { getWeaponData, getUserRace, getAllSkillData } = require('./pvp-core.js'); // تأكد من المسار (../) أو (./) حسب مكان الملف
 
 const OWNER_ID = '1145327691772481577'; 
 const HIT_COOLDOWN = 2 * 60 * 60 * 1000; 
