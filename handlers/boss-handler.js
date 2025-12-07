@@ -1,12 +1,13 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, MessageFlags } = require("discord.js");
 const { getWeaponData, getUserRace, getAllSkillData } = require('./pvp-core.js');
 
-// 👑 الآيدي الخاص بك
+// 👑 الآيدي الخاص بك (بدون كولداون)
 const OWNER_ID = '1145327691772481577'; 
 
-const HIT_COOLDOWN = 2 * 60 * 60 * 1000; 
+const HIT_COOLDOWN = 2 * 60 * 60 * 1000; // ساعتين للأعضاء
 const EMOJI_MORA = '<:mora:1435647151349698621>'; 
 
+// دالة رسم الشريط
 function createProgressBar(current, max, length = 18) {
     const percent = Math.max(0, Math.min(1, current / max));
     const filled = Math.floor(percent * length);
@@ -14,6 +15,7 @@ function createProgressBar(current, max, length = 18) {
     return '🟥'.repeat(filled) + '⬛'.repeat(empty);
 }
 
+// دالة السجل
 function updateBossLog(boss, username, damage, type = '⚔️') {
     let logs = [];
     try { logs = JSON.parse(boss.lastLog || '[]'); } catch (e) {}
@@ -29,66 +31,80 @@ async function handleBossInteraction(interaction, client, sql) {
     const guildID = guild.id;
     const userID = user.id;
 
-    // --- تشخيص المشكلة (Debug Log) ---
-    // سيطبع هذا في التيرمينال ليعلمنا أين الخلل
-    if (customId === 'boss_attack' || customId.startsWith('boss_use_skill_')) {
-        console.log(`\n--- [DEBUG BOSS FIGHT: ${user.username}] ---`);
-        
-        // 1. فحص العرق
-        const raceDebug = getUserRace(member, sql);
-        console.log(`1. Race Found:`, raceDebug ? raceDebug.raceName : "❌ NULL (No Role found or DB mismatch)");
-
-        // 2. فحص السلاح
-        const weaponDebug = getWeaponData(sql, member);
-        console.log(`2. Weapon Found:`, weaponDebug ? `${weaponDebug.name} (Lvl: ${weaponDebug.currentLevel})` : "❌ NULL (No weapon or level 0)");
-
-        // 3. فحص المهارات
-        const skillsDebug = getAllSkillData(sql, member);
-        console.log(`3. Skills Count:`, Object.keys(skillsDebug).length);
-        console.log(`------------------------------------------\n`);
-    }
-    // ----------------------------------
-
+    // جلب بيانات الوحش
     const boss = sql.prepare("SELECT * FROM world_boss WHERE guildID = ? AND active = 1").get(guildID);
     
     if (!boss) {
         return interaction.reply({ content: "❌ **الوحش غير موجود!**", flags: [MessageFlags.Ephemeral] });
     }
 
+    // =========================================================
+    // 1. زر الحالة (Status)
+    // =========================================================
     if (customId === 'boss_status') {
         const leaderboard = sql.prepare("SELECT userID, totalDamage FROM boss_leaderboard WHERE guildID = ? ORDER BY totalDamage DESC LIMIT 5").all(guildID);
         let lbText = leaderboard.length > 0 
-            ? leaderboard.map((entry, index) => `#${index+1} <@${entry.userID}> : **${entry.totalDamage.toLocaleString()}**`).join('\n') 
+            ? leaderboard.map((entry, index) => {
+                const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index+1}`;
+                return `${medal} <@${entry.userID}> : **${entry.totalDamage.toLocaleString()}** ضرر`;
+            }).join('\n') 
             : "لا يوجد سجلات.";
 
         const statusEmbed = new EmbedBuilder()
-            .setTitle(`📊 ${boss.name}`)
+            .setTitle(`📊 تقرير المعركة: ${boss.name}`)
             .setColor(Colors.Blue)
+            .setThumbnail(boss.image || null)
             .addFields(
                 { name: "❤️ الصحة", value: `${boss.currentHP.toLocaleString()}`, inline: true },
-                { name: "⚔️ التوب", value: lbText, inline: false }
+                { name: "⚔️ الأبطال", value: lbText, inline: false }
             );
         return interaction.reply({ embeds: [statusEmbed], flags: [MessageFlags.Ephemeral] });
     }
 
+    // =========================================================
+    // 2. زر المهارات (Skills) - تم الإصلاح ✅
+    // =========================================================
     if (customId === 'boss_skill_menu') {
         const userSkills = getAllSkillData(sql, member);
+        // تصفية المهارات المتاحة
         const availableSkills = Object.values(userSkills).filter(s => s.currentLevel > 0 || s.id.startsWith('race_'));
 
         if (availableSkills.length === 0) {
-            return interaction.reply({ content: "❌ البوت لا يرى أي مهارات لديك! (تأكد من ملف pvp-core).", flags: [MessageFlags.Ephemeral] });
+            return interaction.reply({ content: "❌ ليس لديك مهارات نشطة لاستخدامها.", flags: [MessageFlags.Ephemeral] });
         }
 
         const rows = [];
         let currentRow = new ActionRowBuilder();
+        
+        // عرض أول 5 مهارات فقط لتجنب أخطاء الديسكورد
         availableSkills.slice(0, 5).forEach(skill => {
-            currentRow.addComponents(new ButtonBuilder().setCustomId(`boss_use_skill_${skill.id}`).setLabel(skill.name).setEmoji(skill.emoji || '✨').setStyle(ButtonStyle.Primary));
+            // التحقق من الايموجي لتجنب الكراش
+            let skillEmoji = '✨'; 
+            // إذا كان الايموجي نصاً وبصيغة صحيحة نستخدمه
+            if (skill.emoji && (skill.emoji.match(/<a?:.+?:\d+>/) || skill.emoji.match(/(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/))) {
+                skillEmoji = skill.emoji;
+            }
+
+            currentRow.addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`boss_use_skill_${skill.id}`)
+                    .setLabel(skill.name.substring(0, 80)) // تقصير الاسم لو طويل
+                    .setEmoji(skillEmoji)
+                    .setStyle(ButtonStyle.Primary)
+            );
         });
         rows.push(currentRow);
 
-        return interaction.reply({ content: "✨ **اختر المهارة:**", components: rows, flags: [MessageFlags.Ephemeral] });
+        return interaction.reply({ 
+            content: "✨ **اختر مهارة للهجوم:**", 
+            components: rows, 
+            flags: [MessageFlags.Ephemeral] 
+        });
     }
 
+    // =========================================================
+    // 3. معالجة الهجوم (عادي أو مهارة)
+    // =========================================================
     let isSkill = false;
     let skillData = null;
 
@@ -97,9 +113,14 @@ async function handleBossInteraction(interaction, client, sql) {
         const skillId = customId.replace('boss_use_skill_', '');
         const userSkills = getAllSkillData(sql, member);
         skillData = Object.values(userSkills).find(s => s.id === skillId);
-        if (!skillData) return interaction.reply({ content: "❌ خطأ في قراءة المهارة.", flags: [MessageFlags.Ephemeral] });
-    } else if (customId !== 'boss_attack') return;
+        
+        if (!skillData) return interaction.reply({ content: "❌ خطأ: المهارة غير موجودة.", flags: [MessageFlags.Ephemeral] });
+    
+    } else if (customId !== 'boss_attack') {
+        return; 
+    }
 
+    // ✅ التحقق من الكولداون (الأونر معفي)
     const isOwner = (userID === OWNER_ID); 
     const now = Date.now();
     
@@ -108,22 +129,23 @@ async function handleBossInteraction(interaction, client, sql) {
         if (cooldownData && (now - cooldownData.lastHit) < HIT_COOLDOWN) {
             const timeLeft = (cooldownData.lastHit + HIT_COOLDOWN) - now;
             const minutes = Math.floor(timeLeft / 60000);
-            return interaction.reply({ content: `⏳ **انتظر!** باقي ${minutes} دقيقة.`, flags: [MessageFlags.Ephemeral] });
+            return interaction.reply({ content: `⏳ **انتظر قليلاً!**\nعليك الانتظار **${minutes} دقيقة** قبل الهجوم التالي.`, flags: [MessageFlags.Ephemeral] });
         }
     }
 
-    let damage = 10; 
+    // ✅ حساب الضرر (إصلاح: استخدام الضرر الخام)
+    let damage = 10; // الافتراضي (خنجر)
     const userRace = getUserRace(member, sql);
     let weaponName = "خنجر صدئ";
 
     if (userRace) {
         const weapon = getWeaponData(sql, member);
-        // هنا التعديل: إذا وجدنا السلاح نستخدمه، وإذا لم نجد نستخدم الافتراضي
         if (weapon && weapon.currentLevel > 0) {
+            // ✅ استخدام الضرر الموجود في الداتابيس مباشرة بدون تغيير
             damage = weapon.currentDamage; 
             weaponName = weapon.name;
         } else {
-            // لديه عرق لكن ليس لديه سلاح مسجل في الداتابيس
+            // لديه عرق لكن بدون سلاح
             damage = 15; 
             weaponName = "يد عارية";
         }
@@ -132,21 +154,29 @@ async function handleBossInteraction(interaction, client, sql) {
     let logIcon = '⚔️';
     let attackDescription = "";
 
+    // تأثير المهارة على الضرر
     if (isSkill && skillData) {
+        // المهارة تزيد الضرر بنسبة مئوية بسيطة فوق ضرر السلاح
+        // أو يمكنك جعلها: damage = damage + skillData.effectValue;
         const multiplier = 1 + (skillData.effectValue / 100); 
-        damage = Math.floor(damage * multiplier * 1.2);
+        damage = Math.floor(damage * multiplier);
+        
         logIcon = skillData.emoji || '✨';
-        attackDescription = `استخدمت **${skillData.name}**!`;
+        attackDescription = `استخدمت مهارة **${skillData.name}**!`;
     } else {
         attackDescription = `هجوم بـ **${weaponName}**!`;
     }
 
+    // ضربة حرجة
     const isCrit = Math.random() < 0.2;
     if (isCrit) {
         damage = Math.floor(damage * 1.5);
-        attackDescription += " (Critical!)";
+        attackDescription += " (Critical! 🔥)";
     }
 
+    // =========================================================
+    // 4. الحفظ في الداتابيس
+    // =========================================================
     let newHP = boss.currentHP - damage;
     if (newHP < 0) newHP = 0;
 
@@ -161,33 +191,40 @@ async function handleBossInteraction(interaction, client, sql) {
     const newTotalDamage = (userDmgRecord ? userDmgRecord.totalDamage : 0) + damage;
     sql.prepare("INSERT OR REPLACE INTO boss_leaderboard (guildID, userID, totalDamage) VALUES (?, ?, ?)").run(guildID, userID, newTotalDamage);
 
+    // =========================================================
+    // 5. الجوائز
+    // =========================================================
     let rewardMsg = "";
     const roll = Math.random() * 100;
     let userData = client.getLevel.get(userID, guildID);
     if (!userData) userData = { ...client.defaultData, user: userID, guild: guildID };
-    const luckBonus = damage / 500;
+    
+    const luckBonus = damage / 800; // كلما زاد الضرر زاد الحظ قليلاً
 
-    if (roll + luckBonus > 95) { 
+    if (roll + luckBonus > 96) { 
         const discount = Math.floor(Math.random() * 10) + 1;
         sql.prepare("INSERT INTO user_coupons (guildID, userID, discountPercent) VALUES (?, ?, ?)").run(guildID, userID, discount);
-        rewardMsg = `🎫 كوبون خصم **${discount}%**`;
-    } else if (roll > 80) {
+        rewardMsg = `🎫 **أسطوري!** كوبون خصم **${discount}%**`;
+    } else if (roll > 85) {
         const isMora = Math.random() > 0.5;
-        const amount = Math.floor(Math.random() * 500) + 100;
+        const amount = Math.floor(Math.random() * 400) + 100;
         if (isMora) userData.mora += amount; else userData.xp += amount;
-        rewardMsg = `🧪 ${amount} ${isMora ? 'مورا' : 'XP'}`;
+        rewardMsg = `🧪 **نادر!** ${amount} ${isMora ? 'مورا' : 'XP'}`;
     } else if (roll > 40) {
-        const amount = Math.floor(Math.random() * 900) + 50;
+        const amount = Math.floor(Math.random() * 500) + 50;
         userData.mora += amount;
         rewardMsg = `💰 **${amount}** مورا`;
     } else {
-        const amount = Math.floor(Math.random() * 900) + 20;
+        const amount = Math.floor(Math.random() * 500) + 20;
         userData.xp += amount;
         userData.totalXP += amount;
         rewardMsg = `✨ **${amount}** خبرة`;
     }
     client.setLevel.run(userData);
 
+    // =========================================================
+    // 6. تحديث الرسالة
+    // =========================================================
     const bossMsg = await interaction.channel.messages.fetch(boss.messageID).catch(() => null);
     if (bossMsg) {
         const hpPercent = Math.floor((newHP / boss.maxHP) * 100);
@@ -195,7 +232,7 @@ async function handleBossInteraction(interaction, client, sql) {
         
         let logsArr = [];
         try { logsArr = JSON.parse(newLogStr); } catch(e){}
-        const logDisplay = logsArr.length > 0 ? logsArr.join('\n') : "انتظار...";
+        const logDisplay = logsArr.length > 0 ? logsArr.join('\n') : "انتظار الضربة الأولى...";
 
         const newEmbed = EmbedBuilder.from(bossMsg.embeds[0])
             .setDescription(`⚠️ **تحذير:** وحش أسطوري يهاجم المنطقة!\n\n` + 
@@ -228,7 +265,11 @@ async function handleBossInteraction(interaction, client, sql) {
         }
     }
 
-    await interaction.reply({ content: `⚔️ **${attackDescription}**\nسببت **${damage}** ضرر!\n🎁 ${rewardMsg}`, flags: [MessageFlags.Ephemeral] });
+    // الرد النهائي (مخفي)
+    await interaction.reply({ 
+        content: `⚔️ **${attackDescription}**\nسببت **${damage}** ضرر!\n🎁 ${rewardMsg}`, 
+        flags: [MessageFlags.Ephemeral] 
+    });
 }
 
 module.exports = { handleBossInteraction };
