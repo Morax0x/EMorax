@@ -101,7 +101,7 @@ async function handleBossInteraction(interaction, client, sql) {
                 availableSkills.slice(0, 25).map(skill => 
                     new StringSelectMenuOptionBuilder()
                         .setLabel(skill.name)
-                        .setDescription(`تأثير: ${skill.description.substring(0, 50)}...`)
+                        .setDescription(`المستوى: ${skill.currentLevel} | الضرر الأساسي: ${skill.damage || 20}`)
                         .setValue(skill.id)
                         .setEmoji(skill.emoji || '✨')
                 )
@@ -152,56 +152,48 @@ async function handleBossInteraction(interaction, client, sql) {
 
     let finalDamage = weaponDamage;
 
-    // --- حساب ضرر المهارات (منطق PvP) ---
+    // =========================================================
+    // 🔥 الجزء المعدل: حساب ضرر المهارات بناءً على اللفل 🔥
+    // =========================================================
     if (isSkill && skillData) {
         toolName = skillData.name;
         
+        // 1. تحديد الضرر الأساسي ولفل المهارة
+        const baseSkillDamage = skillData.damage || 25; // لو مافي ضرر بالداتا نعتبره 25
+        const skillLevel = skillData.currentLevel || 1;
+        
+        // 2. نسبة الزيادة لكل لفل (15%)
+        const levelMultiplier = 0.15; 
+
+        // 3. المعادلة: الأساسي * (1 + (اللفل-1 * النسبة))
+        // مثال: لفل 1 = 100% | لفل 2 = 115% | لفل 10 = 235%
+        let calculatedSkillDamage = Math.floor(baseSkillDamage * (1 + ((skillLevel - 1) * levelMultiplier)));
+
+        // 4. حالات خاصة لبعض المهارات (تضاف فوق المعادلة الأساسية)
         switch (skillData.id) {
             case 'skill_gamble': // مقامرة
-                // 50% ضربة قوية جداً (2.5x)، 50% ضربة ضعيفة (0.5x)
                 if (Math.random() < 0.5) {
-                    finalDamage = Math.floor(weaponDamage * 2.5);
-                    toolName += " (حظ أسطوري!)";
+                    calculatedSkillDamage = Math.floor(calculatedSkillDamage * 2.5); // ضربة حظ
+                    toolName += " (JACPOT!)";
                 } else {
-                    finalDamage = Math.floor(weaponDamage * 0.5);
-                    toolName += " (حظ سيء...)";
+                    calculatedSkillDamage = Math.floor(calculatedSkillDamage * 0.5); // حظ سيء
+                    toolName += " (فشل...)";
                 }
                 break;
 
-            case 'skill_poison': // تسميم
-            case 'race_dark_elf_skill': // سم الظلال
-                // ضرر السلاح + قيمة المهارة * 2 (تعويضاً عن الضرر المستمر)
-                finalDamage = Math.floor(weaponDamage + (skillData.effectValue * 3)); 
+            case 'race_demon_skill': // قوة شيطانية
+                calculatedSkillDamage = Math.floor(calculatedSkillDamage * 1.5);
                 break;
 
-            case 'race_dragon_skill': // نفس التنين (ضرر حقيقي)
-                // ضرر السلاح + قيمة عالية ثابتة
-                finalDamage = Math.floor(weaponDamage + (skillData.effectValue * 5));
+            case 'race_dragon_skill': // تنين
+                calculatedSkillDamage = Math.floor(calculatedSkillDamage * 1.8);
                 break;
 
-            case 'race_demon_skill': // عهد الدم
-                // ضرر مضاعف (بدون خصم دم من اللاعب لتبسيط البوس)
-                finalDamage = Math.floor(weaponDamage * 2.2);
-                break;
-
-            case 'race_elf_skill': // رمية مزدوجة
-                // ضربتين بقوة 70% لكل وحدة (المجموع 140%)
-                finalDamage = Math.floor(weaponDamage * 1.4);
-                break;
-
-            case 'race_vampire_skill': // التهام
-            case 'race_seraphim_skill': // حكم سماوي
-                // ضرر متوسط (لأن الشفاء لا يفيد هنا، نعوضه بضرر معقول)
-                finalDamage = Math.floor(weaponDamage * 1.3);
-                break;
-
-            default:
-                // باقي المهارات الهجومية: نسبة مئوية من السلاح
-                // (effectValue عادة يكون 10-50، فنعتبره نسبة زيادة)
-                const multiplier = 1 + (skillData.effectValue / 100);
-                finalDamage = Math.floor(weaponDamage * multiplier);
-                break;
+            // يمكنك إضافة حالات أخرى، لكن الآن الكل يعتمد على اللفل بشكل أساسي
         }
+
+        // جمع ضرر السلاح + ضرر المهارة المحسوب
+        finalDamage = weaponDamage + calculatedSkillDamage;
     }
 
     // كريتيكال (20% فرصة لزيادة 50%)
@@ -225,12 +217,25 @@ async function handleBossInteraction(interaction, client, sql) {
     const userDmgRecord = sql.prepare("SELECT totalDamage FROM boss_leaderboard WHERE guildID = ? AND userID = ?").get(guildID, userID);
     sql.prepare("INSERT OR REPLACE INTO boss_leaderboard (guildID, userID, totalDamage) VALUES (?, ?, ?)").run(guildID, userID, (userDmgRecord ? userDmgRecord.totalDamage : 0) + finalDamage);
 
-    // الجوائز
+    // =========================================================
+    // 🎁 الجزء المعدل: الجوائز ونظام التلفيل التلقائي 🎁
+    // =========================================================
     let rewardMsg = "";
     const roll = Math.random() * 100;
-    let userData = client.getLevel.get(userID, guildID) || { ...client.defaultData, user: userID, guild: guildID };
     
-    // معادلة حظ بسيطة
+    // جلب بيانات اللاعب
+    let userData = client.getLevel.get(userID, guildID) || { 
+        ...client.defaultData, 
+        user: userID, 
+        guild: guildID,
+        max_xp: 500 // قيمة افتراضية في حال كانت غير موجودة لتجنب الخطأ
+    };
+    
+    // التأكد من وجود max_xp
+    if (!userData.max_xp || userData.max_xp <= 0) userData.max_xp = (userData.level * 500) + 500;
+
+    let xpToAdd = 0;
+
     if (roll > 95) { 
         const discount = Math.floor(Math.random() * 10) + 1;
         sql.prepare("INSERT INTO user_coupons (guildID, userID, discountPercent) VALUES (?, ?, ?)").run(guildID, userID, discount);
@@ -238,18 +243,44 @@ async function handleBossInteraction(interaction, client, sql) {
     } else if (roll > 80) {
         const isMora = Math.random() > 0.5;
         const amount = Math.floor(Math.random() * 400) + 100;
-        if (isMora) userData.mora += amount; else userData.xp += amount;
-        rewardMsg = `🧪 **${amount}** ${isMora ? 'مورا' : 'XP'}`;
+        if (isMora) {
+            userData.mora += amount;
+            rewardMsg = `🧪 **${amount}** مورا`;
+        } else {
+            xpToAdd = amount;
+            rewardMsg = `🧪 **${amount}** XP`;
+        }
     } else if (roll > 40) {
         const amount = Math.floor(Math.random() * 500) + 50;
         userData.mora += amount;
         rewardMsg = `💰 **${amount}** مورا`;
     } else {
-        const amount = Math.floor(Math.random() * 500) + 20;
-        userData.xp += amount;
-        userData.totalXP += amount;
-        rewardMsg = `✨ **${amount}** خبرة`;
+        xpToAdd = Math.floor(Math.random() * 500) + 20;
+        rewardMsg = `✨ **${xpToAdd}** خبرة`;
     }
+
+    // إضافة الـ XP ومعالجة التلفيل (LOOP)
+    if (xpToAdd > 0) {
+        userData.xp += xpToAdd;
+        userData.totalXP += xpToAdd;
+
+        let leveledUp = false;
+        // حلقة تكرار: طالما الـ XP الحالي أكبر من المطلوب، ارفع لفل واخصم
+        while (userData.xp >= userData.max_xp) {
+            userData.xp -= userData.max_xp;
+            userData.level += 1;
+            // معادلة صعوبة اللفل الجديد (زيادة 20% كل لفل)
+            userData.max_xp = Math.floor(userData.max_xp * 1.2);
+            leveledUp = true;
+        }
+
+        if (leveledUp) {
+            rewardMsg += `\n🆙 **Level Up!** أصبحت بالمستوى **${userData.level}**!`;
+            // يمكنك هنا إرسال رسالة منفصلة في الشات إذا أردت
+        }
+    }
+
+    // حفظ البيانات النهائية
     client.setLevel.run(userData);
 
     // التحديث
