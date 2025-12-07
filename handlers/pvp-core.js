@@ -57,19 +57,24 @@ function getWeaponData(sql, member) {
     if (!userRace) return null;
     const weaponConfig = weaponsConfig.find(w => w.race === userRace.raceName);
     if (!weaponConfig) return null;
+    
     let userWeapon = sql.prepare("SELECT * FROM user_weapons WHERE userID = ? AND guildID = ? AND raceName = ?").get(member.id, member.guild.id, userRace.raceName);
-    let weaponLevel = userWeapon ? userWeapon.weaponLevel : 0;
-    if (weaponLevel === 0) return null;
-    const damage = weaponConfig.base_damage + (weaponConfig.damage_increment * (weaponLevel - 1));
-    return { ...weaponConfig, currentDamage: damage, currentLevel: weaponLevel };
+    
+    // إذا لم يملك السلاح أو مستواه 0 نرجع null ليتم التعامل معه كأعزل
+    if (!userWeapon || userWeapon.weaponLevel <= 0) return null;
+
+    const damage = weaponConfig.base_damage + (weaponConfig.damage_increment * (userWeapon.weaponLevel - 1));
+    return { ...weaponConfig, currentDamage: damage, currentLevel: userWeapon.weaponLevel };
 }
 
+// ✅ الدالة المصححة لجلب المهارات (تدمج مهارات الداتابيس + مهارات العرق التلقائية)
 function getAllSkillData(sql, member) {
     const userRace = getUserRace(member, sql);
-    const userSkillsData = sql.prepare("SELECT * FROM user_skills WHERE userID = ? AND guildID = ?").all(member.id, member.guild.id);
     const skillsOutput = {};
     
-    // مهارات مكتسبة
+    // 1. جلب المهارات المشتراة والمخزنة في الداتابيس
+    const userSkillsData = sql.prepare("SELECT * FROM user_skills WHERE userID = ? AND guildID = ?").all(member.id, member.guild.id);
+    
     if (userSkillsData) {
         userSkillsData.forEach(userSkill => {
             const skillConfig = skillsConfig.find(s => s.id === userSkill.skillID);
@@ -81,13 +86,24 @@ function getAllSkillData(sql, member) {
         });
     }
 
-    // مهارة العرق التلقائية
+    // 2. إضافة مهارة العرق التلقائية (حتى لو لم تكن في جدول user_skills)
     if (userRace) {
-        const raceSkillId = `race_${userRace.raceName.toLowerCase().replace(' ', '_')}_skill`;
-        // نتأكد أنها غير مضافة مسبقاً
-        if (!skillsOutput[raceSkillId]) {
-            const skillConfig = skillsConfig.find(s => s.id === raceSkillId);
-            if (skillConfig) skillsOutput[raceSkillId] = { ...skillConfig, currentLevel: 1, effectValue: skillConfig.base_value }; // المستوى 1 افتراضياً لمهارة العرق
+        // تحويل اسم العرق لصيغة الـ ID (مثلاً: Dragon -> race_dragon_skill)
+        // نستبدل المسافات بـ _ ونحولها لحروف صغيرة
+        const raceSkillId = `race_${userRace.raceName.toLowerCase().replace(/\s+/g, '_')}_skill`;
+        
+        // البحث عنها في ملف الكونفيج
+        const raceSkillConfig = skillsConfig.find(s => s.id === raceSkillId);
+
+        if (raceSkillConfig) {
+            // إذا لم تكن المهارة مضافة بالفعل (عن طريق الشراء/التطوير)، نضيفها بالمستوى 1
+            if (!skillsOutput[raceSkillId]) {
+                skillsOutput[raceSkillId] = { 
+                    ...raceSkillConfig, 
+                    currentLevel: 1, 
+                    effectValue: raceSkillConfig.base_value 
+                };
+            }
         }
     }
     return skillsOutput;
@@ -133,7 +149,19 @@ function buildSkillButtons(battleState, attackerId, page = 0) {
     const skillButtons = new ActionRowBuilder();
     
     skillsToShow.forEach(skill => {
-        skillButtons.addComponents(new ButtonBuilder().setCustomId(`pvp_skill_use_${skill.id}`).setLabel(`${skill.name}`).setEmoji(skill.emoji).setStyle(ButtonStyle.Primary).setDisabled((cooldowns[skill.id] || 0) > 0));
+        // التأكد من الايموجي
+        let emoji = skill.emoji || '✨';
+        if (!emoji.match(/<a?:.+?:\d+>/) && !emoji.match(/(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/)) {
+             emoji = '✨';
+        }
+
+        skillButtons.addComponents(new ButtonBuilder()
+            .setCustomId(`pvp_skill_use_${skill.id}`)
+            .setLabel(`${skill.name}`)
+            .setEmoji(emoji)
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled((cooldowns[skill.id] || 0) > 0)
+        );
     });
 
     const navigationButtons = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('pvp_skill_back').setLabel('العودة').setStyle(ButtonStyle.Secondary));
