@@ -16,6 +16,7 @@ function getWeekStartDateString() {
 
 async function recordBump(client, guildID, userID) {
     const sql = client.sql;
+    // حماية إضافية داخل الدالة
     if (!sql || !sql.open) return;
 
     const dateStr = getTodayDateString();
@@ -45,7 +46,9 @@ module.exports = {
         const client = message.client;
         const sql = client.sql;
 
+        // 🔥🔥 التعديل: التحقق من أن قاعدة البيانات مفتوحة قبل البدء 🔥🔥
         if (!sql || !sql.open) return;
+        
         if (!message.guild) return;
 
         // 1. كشف البومب
