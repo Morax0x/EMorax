@@ -221,7 +221,9 @@ async function handleBossInteraction(interaction, client, sql) {
             const percent = Math.floor(Math.random() * 46) + 5; 
             const expiresAt = Date.now() + duration;
             sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guildID, userID, percent, expiresAt, 'xp', percent / 100);
-            rewardString = `${percent}% تعـزيـز خبرة ${EMOJI_XP}`;
+            
+            // 🔥🔥 تم إضافة المدة هنا 🔥🔥
+            rewardString = `${percent}% تعـزيـز خبرة ${EMOJI_XP} (لمدة ${formatDuration(duration)})`;
         }
 
     } else if (roll > 90) { // بف XP
@@ -229,14 +231,18 @@ async function handleBossInteraction(interaction, client, sql) {
         const percent = Math.floor(Math.random() * 46) + 5; 
         const expiresAt = Date.now() + duration;
         sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guildID, userID, percent, expiresAt, 'xp', percent / 100);
-        rewardString = `${percent}% تعـزيـز خبرة${EMOJI_XP}`;
+        
+        // 🔥🔥 تم إضافة المدة هنا 🔥🔥
+        rewardString = `${percent}% تعـزيـز خبرة${EMOJI_XP} (لمدة ${formatDuration(duration)})`;
 
     } else if (roll > 80) { // بف مورا
         const duration = getRandomDuration(10, 180);
         const percent = Math.floor(Math.random() * 8) + 1; 
         const expiresAt = Date.now() + duration;
         sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guildID, userID, percent, expiresAt, 'mora', percent / 100);
-        rewardString = `${percent}% تعـزيـز مورا${EMOJI_MORA}`;
+        
+        // 🔥🔥 تم إضافة المدة هنا 🔥🔥
+        rewardString = `${percent}% تعـزيـز مورا${EMOJI_MORA} (لمدة ${formatDuration(duration)})`;
 
     } else if (roll > 40) { // ✅ مورا (تعتمد على الرينج المحدد)
         const amount = Math.floor(Math.random() * (maxReward - minReward + 1)) + minReward;
@@ -286,7 +292,7 @@ async function handleBossInteraction(interaction, client, sql) {
         const newEmbed = EmbedBuilder.from(bossMsg.embeds[0])
             .setColor(getRandomColor())
             .setDescription(
-                `✬ ظـهـر زعـيـم في السـاحـة تـعاونـوا عـلـى قتاله واكسبوا الجوائـز <:trophy: 1438797232458432602>!\n\n` +
+                `✬ ظـهـر زعـيـم في السـاحـة تـعاونـوا عـلـى قتاله واكسبوا الجوائـز <:trophy:1438797232458432602>!\n\n` +
                 `✬ **نـقـاط صـحـة الزعـيـم <a:Nerf:1438795685280612423>:**\n` +
                 `${progressBar} **${hpPercent}%**\n` +
                 `╰ **${newHP.toLocaleString()}** / ${boss.maxHP.toLocaleString()} HP\n\n` +
