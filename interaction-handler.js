@@ -2,12 +2,12 @@ const { Events, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder
 const { handleQuestPanel } = require('./handlers/quest-panel-handler.js');
 const { handleStreakPanel } = require('./handlers/streak-panel-handler.js');
 const { handleShopInteractions, handleShopModal, handleShopSelectMenu, handleSkillSelectMenu } = require('./handlers/shop-handler.js');
-const { handlePvpInteraction } = require('./handlers/pvp-handler.js'); // ✅ نظام القتال
+const { handlePvpInteraction } = require('./handlers/pvp-handler.js'); 
 const { getUserWeight, endGiveaway, createRandomDropGiveaway } = require('./handlers/giveaway-handler.js');
 const { handleReroll } = require('./handlers/reroll-handler.js'); 
 const { handleCustomRoleInteraction } = require('./handlers/custom-role-handler.js'); 
 const { handleReactionRole } = require('./handlers/reaction-role-handler.js'); 
-const { handleBossInteraction } = require('./handlers/boss-handler.js'); // ✅ نظام وحش العالم
+const { handleBossInteraction } = require('./handlers/boss-handler.js'); 
 
 // محاولة استيراد المزرعة إذا كانت موجودة
 let handleFarmInteractions;
@@ -158,8 +158,9 @@ module.exports = (client, sql, antiRolesCache) => {
                     await handleCustomRoleInteraction(i, client, sql);
                 }
                 
-                // ✅ أزرار وحش العالم (New)
-                else if (id === 'boss_attack' || id === 'boss_status') {
+                // ✅✅ (تعديل مهم) توجيه جميع أزرار الوحش ✅✅
+                // كانت المشكلة هنا، أضفنا التحقق من skill_menu
+                else if (id.startsWith('boss_')) { 
                     await handleBossInteraction(i, client, sql);
                 }
                 
@@ -292,7 +293,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     await handleStreakPanel(i, client, sql);
                 } 
                 // ✅ أزرار القتال (PvP / PvE)
-                else if (id.startsWith('pvp_') || id.startsWith('pvp_accept_') || id.startsWith('pvp_decline_') || id.startsWith('pvp_action_') || id.startsWith('pvp_skill_')) {
+                else if (id.startsWith('pvp_')) {
                     await handlePvpInteraction(i, client, sql);
                 } 
                 
@@ -348,7 +349,12 @@ module.exports = (client, sql, antiRolesCache) => {
             } else if (i.isStringSelectMenu()) {
                 const id = i.customId;
                 
-                if (id === 'farm_shop_select' && handleFarmInteractions) {
+                // ✅✅ (تعديل مهم) قائمة مهارات الوحش ✅✅
+                if (id === 'boss_execute_skill') {
+                    await handleBossInteraction(i, client, sql);
+                }
+
+                else if (id === 'farm_shop_select' && handleFarmInteractions) {
                     await handleFarmInteractions(i, client, sql);
                 }
                 
@@ -369,9 +375,9 @@ module.exports = (client, sql, antiRolesCache) => {
                     await handleReroll(i, client, sql);
                 } else if (id.startsWith('quest_panel_menu')) {
                     await handleQuestPanel(i, client, sql);
-                } else if (id === 'streak_panel_menu' || id === 'streak_panel_select_sep') {
+                } else if (id.startsWith('streak_panel_')) {
                     await handleStreakPanel(i, client, sql);
-                } else if (id === 'pvp_skill_select') {
+                } else if (id.startsWith('pvp_')) { // pvp_skill_select
                     await handlePvpInteraction(i, client, sql);
                 } 
 
