@@ -4,42 +4,6 @@ const farmAnimals = require('../../json/farm-animals.json');
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const ITEMS_PER_PAGE = 9;
 
-const EMOJI_ASSET_LARGE = {
-    'APPLE': '<:aapple:1435884007484293161>',
-    'ANDROID': '<:android:1435885726519656578>',
-    'TESLA': '🚗',
-    'GOLD': '🪙',
-    'LAND': '🏞️',
-    'BITCOIN': '💰',
-    'SPACEX': '🚀',
-    'SILVER': '🥈',
-    'ART': '🎨',
-};
-
-const EMOJI_ASSET_SMALL = {
-    'APPLE': '🍎',
-    'ANDROID': '🤖',
-    'TESLA': '🚗',
-    'GOLD': '🪙',
-    'LAND': '🏞️',
-    'BITCOIN': '💰',
-    'SPACEX': '🚀',
-    'SILVER': '🥈',
-    'ART': '🎨',
-};
-
-const EMOJI_ASSET_IMAGES = {
-    'TESLA': 'https://i.postimg.cc/Dyp3YSCw/tesla.png',
-    'APPLE': 'https://i.postimg.cc/mkQN11tp/Apple-logo-grey-svg.png',
-    'GOLD': 'https://i.postimg.cc/gJMPFrY7/gold.png',
-    'SPACEX': 'https://i.postimg.cc/8kJ1QB6k/Space-X-Logo-Black.png',
-    'ANDROID': 'https://i.postimg.cc/yYytwkvZ/Android-Logo-2014-2019.png',
-    'SILVER': 'https://i.postimg.cc/bYHmv4b9/pngimg-com-silver-PNG17188.png',
-    'LAND': 'https://i.postimg.cc/bYHmv4b9/pngimg-com-silver-PNG17188.png',
-    'BITCOIN': 'https://i.postimg.cc/HWZ732CH/ss.png',
-    'ART': 'https://i.postimg.cc/K8Xjspp1/3ecc929e25adc64531f0db7fe65f678f-removebg-preview.png',
-};
-
 function buildGridView(allItems, pageIndex) {
     const startIndex = pageIndex * ITEMS_PER_PAGE;
     const itemsOnPage = allItems.slice(startIndex, startIndex + ITEMS_PER_PAGE);
@@ -124,7 +88,7 @@ module.exports = {
         .setDescription('يعرض متجر المزرعة لشراء الحيوانات.'),
 
     name: 'farm',
-    aliases: ['مزرعة', 'حيوانات'],
+    aliases: ['المزرعة', 'مزرعه','مزرعة', 'حيوانات'],
     category: "Economy",
     description: 'يعرض متجر المزرعة لشراء الحيوانات.',
 
