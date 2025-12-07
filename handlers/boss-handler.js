@@ -139,10 +139,10 @@ async function handleBossInteraction(interaction, client, sql) {
     }
 
     // ===========================================
-    // 🔥🔥 Crit (5%) 🔥🔥 - تم التعديل هنا
+    // 🔥🔥 Crit (5%) 🔥🔥
     // ===========================================
     let isCrit = false;
-    if (Math.random() < 0.05) { // 0.05 تعني 5%
+    if (Math.random() < 0.05) { 
         finalDamage = Math.floor(finalDamage * 1.5);
         isCrit = true;
     }
@@ -151,7 +151,8 @@ async function handleBossInteraction(interaction, client, sql) {
     let newHP = boss.currentHP - finalDamage;
     if (newHP < 0) newHP = 0;
 
-    const newLogStr = updateBossLog(boss, member.displayName, toolName, finalDamage);
+    // ✅ التعديل هنا: استخدام member.user.displayName بدلاً من member.displayName
+    const newLogStr = updateBossLog(boss, member.user.displayName, toolName, finalDamage);
     
     // التحديث مع التأكد من وجود totalHits
     sql.prepare("UPDATE world_boss SET currentHP = ?, lastLog = ?, totalHits = COALESCE(totalHits, 0) + 1 WHERE guildID = ?").run(newHP, newLogStr, guildID);
@@ -176,7 +177,6 @@ async function handleBossInteraction(interaction, client, sql) {
     let xpToAdd = 0;
 
     if (roll > 98) { 
-        // التحقق من عدم وجود كوبون سابقاً
         const existingCoupon = sql.prepare("SELECT 1 FROM user_coupons WHERE userID = ? AND guildID = ?").get(userID, guildID);
         
         if (!existingCoupon) {
@@ -184,7 +184,6 @@ async function handleBossInteraction(interaction, client, sql) {
             sql.prepare("INSERT INTO user_coupons (guildID, userID, discountPercent) VALUES (?, ?, ?)").run(guildID, userID, discount);
             rewardMsg = `🎫 **كوبون خصم ${discount}%**`;
         } else {
-            // إذا معه كوبون، نعطيه "بف اكس بي" كتعويض
             const duration = getRandomDuration(10, 180); 
             const percent = Math.floor(Math.random() * 46) + 5; 
             const expiresAt = Date.now() + duration;
