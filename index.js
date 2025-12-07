@@ -556,12 +556,9 @@ client.on(Events.ClientReady, async () => {
     setInterval(calculateInterest, 60 * 60 * 1000); calculateInterest();
     setInterval(updateMarketPrices, 60 * 60 * 1000); updateMarketPrices();
     
-    // ( 🌟 دالة القروض المفصولة 🌟 )
-    setInterval(() => checkLoanPayments(client, sql), 60 * 60 * 1000); // كل ساعة
-
-    // 🔥🔥 ✅ استبدال دالة المزرعة القديمة بالجديدة ✅ 🔥🔥
-    // تم إزالة التشغيل المبدئي لمنع الإزعاج عند التشغيل، سيبدأ الفحص بعد ساعة
-    setInterval(() => checkFarmIncome(client, sql), 60 * 60 * 1000); 
+    // 🔥 تحديث مهم: تشغيل فحص القروض والمزرعة كل 5 دقائق لضمان دقة النظام الجديد
+    setInterval(() => checkLoanPayments(client, sql), 5 * 60 * 1000); 
+    setInterval(() => checkFarmIncome(client, sql), 5 * 60 * 1000); 
 
     setInterval(() => checkDailyStreaks(client, sql), 3600000); checkDailyStreaks(client, sql);
     setInterval(() => checkDailyMediaStreaks(client, sql), 3600000); checkDailyMediaStreaks(client, sql);
