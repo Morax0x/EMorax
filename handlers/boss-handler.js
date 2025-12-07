@@ -149,12 +149,12 @@ async function handleBossInteraction(interaction, client, sql) {
                 toolName = weapon.name;
             } else {
                 baseCalcDamage = 15; 
-                toolName = "خنجر (افتراضي)";
+                toolName = "خنجر";
                 isDefaultWeapon = true;
             }
         } else {
             baseCalcDamage = 15;
-            toolName = "خنجر (افتراضي)";
+            toolName = "خنجر";
             isDefaultWeapon = true;
         }
     }
