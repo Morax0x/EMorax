@@ -19,38 +19,25 @@ try {
 }
 
 // ==================================================================
-// 2. تحديثات الجداول
+// 2. تحديثات الجداول (لضمان وجود الأعمدة)
 // ==================================================================
-
-// --- جداول نظام الوحش والكوبونات ---
+// (نفس جداولك السابقة لضمان عدم حدوث أخطاء)
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS world_boss (guildID TEXT PRIMARY KEY, currentHP INTEGER, maxHP INTEGER, name TEXT, image TEXT, active INTEGER DEFAULT 0, messageID TEXT, channelID TEXT)").run(); } catch(e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE world_boss ADD COLUMN lastLog TEXT DEFAULT '[]'").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS boss_cooldowns (guildID TEXT, userID TEXT, lastHit INTEGER, PRIMARY KEY (guildID, userID))").run(); } catch(e) {}
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS user_coupons (id INTEGER PRIMARY KEY AUTOINCREMENT, guildID TEXT, userID TEXT, discountPercent INTEGER, isUsed INTEGER DEFAULT 0)").run(); } catch(e) {}
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS boss_leaderboard (guildID TEXT, userID TEXT, totalDamage INTEGER DEFAULT 0, PRIMARY KEY(guildID, userID))").run(); } catch(e) {}
-
-// أعمدة الصيد
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastFish INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN rodLevel INTEGER DEFAULT 1").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN boatLevel INTEGER DEFAULT 1").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN currentLocation TEXT DEFAULT 'beach'").run(); } catch (e) {}
-
-// عمود لعبة الإيموجي (الذاكرة)
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastMemory INTEGER DEFAULT 0").run(); } catch (e) {}
-
-// إحصائيات الإيموجي
 try { if(sql.open) sql.prepare("ALTER TABLE user_total_stats ADD COLUMN total_emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE user_daily_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE user_weekly_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
-
-// إعدادات القنوات الجديدة
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN shopLogChannelID TEXT").run(); } catch (e) {} 
-
-// الردود التلقائية
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id INTEGER PRIMARY KEY AUTOINCREMENT, guildID TEXT NOT NULL, trigger TEXT NOT NULL, response TEXT NOT NULL, images TEXT, matchType TEXT DEFAULT 'exact', cooldown INTEGER DEFAULT 0, allowedChannels TEXT, ignoredChannels TEXT, UNIQUE(guildID, trigger))").run(); } catch(e) {}
-
-// ✅ جدول التأكد من دخل المزرعة (لمنع التكرار عند الريستارت)
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS farm_last_payout (id TEXT PRIMARY KEY, lastPayoutDate INTEGER)").run(); } catch (e) {}
 
 // ==================================================================
@@ -60,12 +47,9 @@ const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateN
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
 const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
 const { handleBossInteraction } = require('./handlers/boss-handler.js');
-// ✅ استدعاء هاندلر المزرعة الجديد
 const { checkFarmIncome } = require('./handlers/farm-income-handler.js');
-
 const questsConfig = require('./json/quests-config.json');
 const farmAnimals = require('./json/farm-animals.json');
-
 const { generateSingleAchievementAlert, generateQuestAlert } = require('./generators/achievement-generator.js'); 
 const { createRandomDropGiveaway, endGiveaway, getUserWeight } = require('./handlers/giveaway-handler.js');
 const { checkUnjailTask } = require('./handlers/report-handler.js'); 
@@ -90,7 +74,6 @@ const client = new Client({
 client.commands = new Collection();
 client.cooldowns = new Collection();
 client.talkedRecently = new Map();
-const voiceXPCooldowns = new Map();
 client.recentMessageTimestamps = new Collection(); 
 const RECENT_MESSAGE_WINDOW = 2 * 60 * 60 * 1000; 
 const botToken = process.env.DISCORD_BOT_TOKEN;
@@ -109,9 +92,22 @@ client.generateSingleAchievementAlert = generateSingleAchievementAlert;
 client.generateQuestAlert = generateQuestAlert;
 
 if (sql.open) {
+    // إعداد البيانات الافتراضية
+    client.defaultData = { 
+        user: null, guild: null, xp: 0, level: 1, totalXP: 0, mora: 0, lastWork: 0, lastDaily: 0, dailyStreak: 0, bank: 0, 
+        lastInterest: 0, totalInterestEarned: 0, hasGuard: 0, guardExpires: 0, lastCollected: 0, totalVCTime: 0, 
+        lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, 
+        total_meow_count: 0, boost_count: 0, lastPVP: 0, lastFarmYield: 0,
+        lastFish: 0, rodLevel: 1, boatLevel: 1, currentLocation: 'beach',
+        lastMemory: 0
+    };
+
     client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
-    
-    client.setLevel = sql.prepare(`
+
+    // ============================================================
+    // 🔥🔥 التعديل الأهم: دالة الحفظ الآمنة (SAFE SAVE) 🔥🔥
+    // ============================================================
+    const realSetLevel = sql.prepare(`
         INSERT OR REPLACE INTO levels (
             user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, 
             lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, 
@@ -126,14 +122,31 @@ if (sql.open) {
             @currentLocation, @lastMemory
         );
     `);
-    
-    client.defaultData = { 
-        user: null, guild: null, xp: 0, level: 1, totalXP: 0, mora: 0, lastWork: 0, lastDaily: 0, dailyStreak: 0, bank: 0, 
-        lastInterest: 0, totalInterestEarned: 0, hasGuard: 0, guardExpires: 0, lastCollected: 0, totalVCTime: 0, 
-        lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, 
-        total_meow_count: 0, boost_count: 0, lastPVP: 0, lastFarmYield: 0,
-        lastFish: 0, rodLevel: 1, boatLevel: 1, currentLocation: 'beach',
-        lastMemory: 0
+
+    // نقوم بعمل "تغليف" (Wrapper) للدالة لكي تدمج البيانات قبل الحفظ
+    client.setLevel = {
+        run: (newData) => {
+            if (!newData.user || !newData.guild) return;
+            
+            // 1. جلب البيانات القديمة من الداتابيس
+            const currentData = client.getLevel.get(newData.user, newData.guild);
+            
+            // 2. دمج البيانات: (الافتراضية + القديمة + الجديدة)
+            // هذا الترتيب يضمن أننا لا نفقد أي حقل
+            const mergedData = { 
+                ...client.defaultData, 
+                ...(currentData || {}), 
+                ...newData 
+            };
+            
+            // 3. التأكد من أن جميع القيم موجودة وليست undefined (لتجنب أخطاء SQL)
+            for (const key of Object.keys(client.defaultData)) {
+                if (mergedData[key] === undefined) mergedData[key] = client.defaultData[key];
+            }
+
+            // 4. الحفظ الآمن
+            return realSetLevel.run(mergedData);
+        }
     };
 
     client.getDailyStats = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?");
@@ -556,7 +569,7 @@ client.on(Events.ClientReady, async () => {
     setInterval(calculateInterest, 60 * 60 * 1000); calculateInterest();
     setInterval(updateMarketPrices, 60 * 60 * 1000); updateMarketPrices();
     
-    // 🔥 تحديث مهم: تشغيل فحص القروض والمزرعة كل 5 دقائق لضمان دقة النظام الجديد
+    // تشغيل الفحص كل 5 دقائق
     setInterval(() => checkLoanPayments(client, sql), 5 * 60 * 1000); 
     setInterval(() => checkFarmIncome(client, sql), 5 * 60 * 1000); 
 
@@ -592,7 +605,6 @@ client.on(Events.ClientReady, async () => {
     sendDailyMediaUpdate(client, sql);
 }); 
 
-// ( 🌟 Pass Cache to Interaction Handler 🌟 )
 require('./interaction-handler.js')(client, sql, client.antiRolesCache);
 
 const eventsPath = path.join(__dirname, 'events');
