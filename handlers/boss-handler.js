@@ -2,7 +2,7 @@ const { EmbedBuilder, ActionRowBuilder, Colors, MessageFlags } = require("discor
 const { getWeaponData, getUserRace, getAllSkillData } = require('./pvp-core.js');
 
 const OWNER_ID = '1145327691772481577'; 
-const HIT_COOLDOWN = 2 * 60 * 60 * 1000; 
+const HIT_COOLDOWN = 1 * 60 * 60 * 1000; 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const EMOJI_XP = '<a:levelup:1437805366048985290>';
 
