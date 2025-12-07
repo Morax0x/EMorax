@@ -37,20 +37,20 @@ function formatTime(ms) {
     return "أقل من دقيقة";
 }
 
-// 🌟 دالة حساب معزز الخبرة (XP) فقط 🌟
+// 🌟 دالة حساب معزز الخبرة (XP) فقط - للفل 🌟
 function calculateBuffMultiplier(member, sql) {
     if (!sql || typeof sql.prepare !== 'function') return 1.0;
     if (!member || !member.roles || !member.roles.cache) return 1.0;
     
-    // 1. جلب بفات الـ XP من المتجر
+    // البحث عن buffType = 'xp' حصراً
     const getUserBuffs = sql.prepare("SELECT * FROM user_buffs WHERE userID = ? AND guildID = ? AND expiresAt > ? AND buffType = 'xp'");
     let totalPercent = 0.0;
     
-    // بونص الويكند
+    // بونص الويكند للخبرة
     const day = new Date().getUTCDay();
     if (day === 5 || day === 6 || day === 0) totalPercent += 0.10;
     
-    // بفات الرتب
+    // بفات الرتب للخبرة
     let highestRoleBuff = 0;
     const userRoles = member.roles.cache.map(r => r.id);
     if (userRoles.length > 0) {
@@ -64,7 +64,7 @@ function calculateBuffMultiplier(member, sql) {
     }
     totalPercent += (highestRoleBuff / 100);
     
-    // جمع بفات المتجر
+    // جمع بفات المتجر (XP)
     let itemBuffTotal = 0;
     const userBuffs = getUserBuffs.all(member.id, member.guild.id, Date.now());
     for (const buff of userBuffs) {
@@ -83,23 +83,27 @@ function calculateMoraBuff(member, sql) {
 
     let totalBuffPercent = 0;
 
+    // بونص الويكند للمورا (10%) - موجود
     const day = new Date().getUTCDay(); 
     if (day === 5 || day === 6 || day === 0) {
         totalBuffPercent += 10; 
     }
 
+    // بفات الرتب للمورا
     const userRoles = member.roles.cache.map(r => r.id);
     const guildID = member.guild.id;
+    try {
+        const allBuffRoles = sql.prepare("SELECT * FROM role_mora_buffs WHERE guildID = ?").all(guildID);
+        let roleBuffSum = 0;
+        for (const roleId of userRoles) {
+            const buffRole = allBuffRoles.find(r => r.roleID === roleId);
+            if (buffRole) roleBuffSum += buffRole.buffPercent;
+        }
+        totalBuffPercent += roleBuffSum;
+    } catch (e) {}
 
-    const allBuffRoles = sql.prepare("SELECT * FROM role_mora_buffs WHERE guildID = ?").all(guildID);
-
-    let roleBuffSum = 0;
-    for (const roleId of userRoles) {
-        const buffRole = allBuffRoles.find(r => r.roleID === roleId);
-        if (buffRole) roleBuffSum += buffRole.buffPercent;
-    }
-    totalBuffPercent += roleBuffSum;
-
+    // بفات المتجر للمورا (buffType = 'mora' حصراً)
+    // لن يدخل هنا أي بف تم شراؤه كـ 'xp'
     const tempBuffs = sql.prepare("SELECT * FROM user_buffs WHERE guildID = ? AND userID = ? AND buffType = 'mora' AND expiresAt > ?")
         .all(guildID, member.id, Date.now());
 
@@ -126,10 +130,11 @@ async function updateNickname(member, sql) {
     const settings = sql.prepare("SELECT streakEmoji FROM settings WHERE guild = ?").get(member.guild.id);
     const streakEmoji = settings?.streakEmoji || '🔥';
 
-    // التأكد من أن الفاصلة هي واحدة من القائمة المسموحة
+    // 1. تحديد الفاصلة (إذا كانت غير موجودة في القائمة، نرجع للأساسية)
     let separator = streakData?.separator;
-    const cleanCheckList = SEPARATORS_CLEAN_LIST.map(s => s.replace('\\', ''));
-    if (!cleanCheckList.includes(separator)) {
+    // تنظيف الـ \ من القائمة للمقارنة
+    const checkList = SEPARATORS_CLEAN_LIST.map(s => s.replace('\\', ''));
+    if (!checkList.includes(separator)) {
         separator = DEFAULT_SEPARATOR;
     }
 
@@ -138,14 +143,15 @@ async function updateNickname(member, sql) {
 
     let baseName = member.displayName;
 
-    // 1. تنظيف: حذف النمط القديم [123] من البداية (احتياط)
+    // 2. تنظيف الاسم من الأرقام القديمة والفواصل
+    // يحذف [123] في البداية
     baseName = baseName.replace(/^\[\d+\]\s*/, '').trim();
-
-    // 2. تنظيف: حذف النمط الجديد بناءً على الفواصل المحددة فقط
-    const cleanRegex = new RegExp(`\\s*(${SEPARATORS_CLEAN_LIST.join('|')})\\s*\\d+.*$`, 'i');
     
+    // يحذف " فاصلة + رقم + أي شيء بعدها " في النهاية
+    const cleanRegex = new RegExp(`\\s*(${SEPARATORS_CLEAN_LIST.join('|')})\\s*\\d+.*$`, 'i');
     baseName = baseName.replace(cleanRegex, '').trim();
-    baseName = baseName.replace(cleanRegex, '').trim(); // مرة ثانية للتأكيد
+    // تكرار للتأكد من التنظيف العميق
+    baseName = baseName.replace(cleanRegex, '').trim();
 
     let newName;
     if (streakCount > 0 && nicknameActive) {
@@ -286,14 +292,14 @@ async function handleStreakMessage(message) {
         await updateNickname(message.member, sql);
 
     } else {
-        // تصحيح الفاصلة إذا كانت غير موجودة في القائمة
+        // التحقق من الفاصلة وإعادتها للافتراضي إذا كانت غير مسموحة
         const cleanCheckList = SEPARATORS_CLEAN_LIST.map(s => s.replace('\\', ''));
         if (!cleanCheckList.includes(streakData.separator)) {
             streakData.separator = DEFAULT_SEPARATOR;
             sql.prepare("UPDATE streaks SET separator = ? WHERE id = ?").run(DEFAULT_SEPARATOR, id);
         }
 
-        // التصحيح الذاتي مع كل رسالة
+        // فحص الاسم وتصحيحه (Anti-Cheat)
         if (streakData.nicknameActive === 1) {
             await updateNickname(message.member, sql);
         }
@@ -676,7 +682,7 @@ async function sendStreakWarnings(client, sql) {
 
         const embed = new EmbedBuilder().setTitle('✶ تـحـذيـر الـستريـك').setColor(Colors.Yellow)
             .setImage('https://i.postimg.cc/8z0Xw04N/attention.png') 
-            .setDescription(`- لـقـد مـضـى أكـثـر مـن 12 سـاعـة عـلـى آخـر رسـالـة لـك\n- سـتريـكك الـحـالي: ${streakData.streakCount} ${streakEmoji}\n- أمـامـك أقـل مـن 12 سـاعـة لإرسـال رسـالـة جـديـدة قـبـل أن يـضـيـع!`);
+            .setDescription(`- لـقـد مـضـى أكـثـر مـن 12 سـاعـة عـلـى آخـر رسـالـة لـك\n- سـتريـكك الـحـالي: ${streakData.streakCount} ${streakEmoji}\n- أمـامـك أقـل مـن 12 سـاعـة تقريباً ${formatTime(timeLeft)} لإرسـال رسـالـة جـديـدة قـبـل أن يـضـيـع!`);
 
         await member.send({ embeds: [embed], components: [row] }).then(() => {
             updateWarning.run(streakData.id);
@@ -696,5 +702,5 @@ module.exports = {
     sendMediaStreakReminders,
     sendDailyMediaUpdate,
     sendStreakWarnings,
-    calculateMoraBuff: calculateBuffMultiplier 
+    calculateMoraBuff: calculateMoraBuff 
 };
