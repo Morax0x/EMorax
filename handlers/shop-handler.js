@@ -97,6 +97,210 @@ function getAllUserAvailableSkills(member, sql) {
 
 function getBuyableItems() { return shopItems.filter(it => !['upgrade_weapon', 'upgrade_skill', 'exchange_xp', 'upgrade_rod', 'fishing_gear_menu'].includes(it.id)); }
 
+// ============================================================================
+// 🔥🔥 نظام الكوبونات والخصومات 🔥🔥
+// ============================================================================
+
+async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalPrice, client, sql, callbackType) {
+    const member = interaction.member;
+    const guildID = interaction.guild.id;
+    const userID = member.id;
+
+    // 1. البحث عن كوبون الزعيم (غير مستخدم)
+    const bossCoupon = sql.prepare("SELECT * FROM user_coupons WHERE guildID = ? AND userID = ? AND isUsed = 0 LIMIT 1").get(guildID, userID);
+
+    // 2. البحث عن كوبون الرتبة
+    const roleCouponsConfig = sql.prepare("SELECT * FROM role_coupons_config WHERE guildID = ?").all(guildID);
+    let bestRoleCoupon = null;
+
+    // البحث عن أعلى خصم رتبة يملكه اللاعب
+    for (const config of roleCouponsConfig) {
+        if (member.roles.cache.has(config.roleID)) {
+            if (!bestRoleCoupon || config.discountPercent > bestRoleCoupon.discountPercent) {
+                bestRoleCoupon = config;
+            }
+        }
+    }
+
+    // التحقق من صلاحية كوبون الرتبة (15 يوم)
+    let isRoleCouponReady = false;
+    if (bestRoleCoupon) {
+        const usageData = sql.prepare("SELECT lastUsedTimestamp FROM user_role_coupon_usage WHERE guildID = ? AND userID = ?").get(guildID, userID);
+        const fifteenDaysMs = 15 * 24 * 60 * 60 * 1000;
+        
+        if (!usageData || (Date.now() - usageData.lastUsedTimestamp > fifteenDaysMs)) {
+            isRoleCouponReady = true;
+        } else {
+            bestRoleCoupon = null; // في فترة التهدئة
+        }
+    }
+
+    // إذا لم يوجد أي كوبون، شراء مباشر بالسعر الأصلي
+    if (!bossCoupon && !bestRoleCoupon) {
+        return processFinalPurchase(interaction, itemData, quantity, totalPrice, 0, 'none', client, sql, callbackType);
+    }
+
+    // --- بناء رسالة التخيير ---
+    const row = new ActionRowBuilder();
+    let couponMessage = "";
+    let finalPriceWithBoss = totalPrice;
+    let finalPriceWithRole = totalPrice;
+
+    // خيار 1: كوبون الزعيم
+    if (bossCoupon) {
+        finalPriceWithBoss = Math.floor(totalPrice * (1 - (bossCoupon.discountPercent / 100)));
+        couponMessage += `✶ لديـك كـوبـون خـصم (زعيم) بقيـمـة: **${bossCoupon.discountPercent}%** هل تريـد استعمـالـه؟\n✬ اذا استعملته ستدفـع: **${finalPriceWithBoss.toLocaleString()}** ${EMOJI_MORA} - بدلاً مـن: **${totalPrice.toLocaleString()}**\n\n`;
+        
+        row.addComponents(
+            new ButtonBuilder().setCustomId('use_boss_coupon').setLabel('استعمـال (زعيم)').setStyle(ButtonStyle.Success).setEmoji('🎫')
+        );
+    }
+
+    // خيار 2: كوبون الرتبة (إذا لم يكن هناك كوبون زعيم أو كخيار ثانٍ)
+    // ملاحظة: الكود يدعم عرض الخيارين لو توفروا، واللاعب يختار
+    if (bestRoleCoupon && isRoleCouponReady) {
+        finalPriceWithRole = Math.floor(totalPrice * (1 - (bestRoleCoupon.discountPercent / 100)));
+        couponMessage += `✶ لديـك كـوبـون خـصم (رتبة) بقيـمـة: **${bestRoleCoupon.discountPercent}%** هل تريـد استعمـالـه؟\n✬ اذا استعملته ستدفـع: **${finalPriceWithRole.toLocaleString()}** ${EMOJI_MORA} - بدلاً مـن: **${totalPrice.toLocaleString()}**\n\n`;
+        
+        row.addComponents(
+            new ButtonBuilder().setCustomId('use_role_coupon').setLabel('استعمـال (رتبة)').setStyle(ButtonStyle.Success).setEmoji('🛡️')
+        );
+    }
+
+    // خيار 3: تخطي
+    row.addComponents(
+        new ButtonBuilder().setCustomId('skip_coupon').setLabel('تخـطـي').setStyle(ButtonStyle.Primary)
+    );
+
+    const replyData = {
+        content: `**🛍️ خيـارات الـدفع:**\n\n${couponMessage}`,
+        components: [row],
+        ephemeral: true,
+        fetchReply: true
+    };
+
+    let msg;
+    if (interaction.replied || interaction.deferred) {
+        msg = await interaction.followUp(replyData);
+    } else {
+        msg = await interaction.reply(replyData);
+    }
+
+    const filter = i => i.user.id === userID;
+    const collector = msg.createMessageComponentCollector({ filter, componentType: 2, time: 60000 });
+
+    collector.on('collect', async i => {
+        if (i.customId === 'skip_coupon') {
+            await processFinalPurchase(i, itemData, quantity, totalPrice, 0, 'none', client, sql, callbackType);
+        }
+        else if (i.customId === 'use_boss_coupon') {
+            // حذف الكوبون بعد الاستخدام
+            sql.prepare("DELETE FROM user_coupons WHERE id = ?").run(bossCoupon.id);
+            await processFinalPurchase(i, itemData, quantity, finalPriceWithBoss, bossCoupon.discountPercent, 'boss', client, sql, callbackType);
+        }
+        else if (i.customId === 'use_role_coupon') {
+            // تسجيل وقت الاستخدام (لحساب الـ 15 يوم)
+            sql.prepare("INSERT OR REPLACE INTO user_role_coupon_usage (guildID, userID, lastUsedTimestamp) VALUES (?, ?, ?)").run(guildID, userID, Date.now());
+            await processFinalPurchase(i, itemData, quantity, finalPriceWithRole, bestRoleCoupon.discountPercent, 'role', client, sql, callbackType);
+        }
+        collector.stop();
+    });
+}
+
+// الدالة النهائية لتنفيذ الشراء (خصم المال + إعطاء الغرض)
+async function processFinalPurchase(interaction, itemData, quantity, finalPrice, discountUsed, couponType, client, sql, callbackType) {
+    let userData = client.getLevel.get(interaction.user.id, interaction.guild.id);
+    if (!userData) userData = { ...client.defaultData, user: interaction.user.id, guild: interaction.guild.id };
+
+    if (userData.mora < finalPrice) {
+        const msg = { content: `❌ **عذراً، لا تملك مورا كافية!**\nالمطلوب: ${finalPrice.toLocaleString()} ${EMOJI_MORA}`, components: [] };
+        if (interaction.replied || interaction.deferred) return interaction.editReply(msg);
+        return interaction.reply({ ...msg, flags: MessageFlags.Ephemeral });
+    }
+
+    // 1. خصم المال
+    userData.mora -= finalPrice;
+    userData.shop_purchases = (userData.shop_purchases || 0) + 1;
+    client.setLevel.run(userData);
+
+    // 2. تسليم الغرض حسب النوع
+    if (callbackType === 'item') {
+        if (itemData.id === 'personal_guard_1d') {
+            userData.hasGuard = (userData.hasGuard || 0) + 3; userData.guardExpires = 0;
+            client.setLevel.run(userData);
+        }
+        else if (itemData.id === 'streak_shield') {
+            const setStreak = sql.prepare("INSERT OR REPLACE INTO streaks (id, guildID, userID, streakCount, lastMessageTimestamp, hasGracePeriod, hasItemShield, nicknameActive, hasReceivedFreeShield, separator, dmNotify, highestStreak) VALUES (@id, @guildID, @userID, @streakCount, @lastMessageTimestamp, @hasGracePeriod, @hasItemShield, @nicknameActive, @hasReceivedFreeShield, @separator, @dmNotify, @highestStreak);");
+            const existingStreak = sql.prepare("SELECT * FROM streaks WHERE userID = ? AND guildID = ?").get(interaction.user.id, interaction.guild.id);
+            const fullStreakData = { id: existingStreak?.id || `${interaction.guild.id}-${interaction.user.id}`, guildID: interaction.guild.id, userID: interaction.user.id, streakCount: existingStreak?.streakCount || 0, lastMessageTimestamp: existingStreak?.lastMessageTimestamp || 0, hasGracePeriod: existingStreak?.hasGracePeriod || 0, hasItemShield: 1, nicknameActive: existingStreak?.nicknameActive ?? 1, hasReceivedFreeShield: existingStreak?.hasReceivedFreeShield || 0, separator: existingStreak?.separator || '|', dmNotify: existingStreak?.dmNotify ?? 1, highestStreak: existingStreak?.highestStreak || 0 };
+            setStreak.run(fullStreakData);
+        }
+        else if (itemData.id === 'streak_shield_media') {
+            const setMediaStreak = sql.prepare("INSERT OR REPLACE INTO media_streaks (id, guildID, userID, streakCount, lastMediaTimestamp, hasGracePeriod, hasItemShield, hasReceivedFreeShield, dmNotify, highestStreak) VALUES (@id, @guildID, @userID, @streakCount, @lastMediaTimestamp, @hasGracePeriod, @hasItemShield, @hasReceivedFreeShield, @dmNotify, @highestStreak);");
+            const existingMediaStreak = sql.prepare("SELECT * FROM media_streaks WHERE userID = ? AND guildID = ?").get(interaction.user.id, interaction.guild.id);
+            const fullMediaStreakData = { id: existingMediaStreak?.id || `${interaction.guild.id}-${interaction.user.id}`, guildID: interaction.guild.id, userID: interaction.user.id, streakCount: existingMediaStreak?.streakCount || 0, lastMediaTimestamp: existingMediaStreak?.lastMediaTimestamp || 0, hasGracePeriod: existingMediaStreak?.hasGracePeriod || 0, hasItemShield: 1, hasReceivedFreeShield: existingMediaStreak?.hasReceivedFreeShield || 0, dmNotify: existingMediaStreak?.dmNotify ?? 1, highestStreak: existingMediaStreak?.highestStreak || 0 };
+            setMediaStreak.run(fullMediaStreakData);
+        }
+        else if (itemData.id === 'vip_role_3d') {
+            const settings = sql.prepare("SELECT vipRoleID FROM settings WHERE guild = ?").get(interaction.guild.id);
+            if (settings && settings.vipRoleID) {
+                const member = await interaction.guild.members.fetch(interaction.user.id);
+                await member.roles.add(settings.vipRoleID);
+                const expiresAt = Date.now() + (3 * 24 * 60 * 60 * 1000);
+                sql.prepare("INSERT OR REPLACE INTO temporary_roles (userID, guildID, roleID, expiresAt) VALUES (?, ?, ?, ?)").run(interaction.user.id, interaction.guild.id, settings.vipRoleID, expiresAt);
+            }
+        }
+        else if (itemData.id === 'change_race') {
+            // منطق تغيير العرق (إزالة الرتبة القديمة وتطبيق الديبف) تم تنفيذه مسبقاً، هنا نعيد التذكير بالرسالة
+            let removedRoleName = "لا يوجد";
+            try {
+                const allRaceRoles = sql.prepare("SELECT roleID, raceName FROM race_roles WHERE guildID = ?").all(interaction.guild.id);
+                const raceRoleIDs = allRaceRoles.map(r => r.roleID);
+                const userRaceRole = interaction.member.roles.cache.find(r => raceRoleIDs.includes(r.id));
+                if (userRaceRole) { await interaction.member.roles.remove(userRaceRole); removedRoleName = userRaceRole.name; }
+            } catch (err) {}
+            const expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000);
+            sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(interaction.guild.id, interaction.user.id, -5, expiresAt, 'xp', -0.05);
+            sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(interaction.guild.id, interaction.user.id, -5, expiresAt, 'mora', -0.05);
+        }
+    } 
+    else if (callbackType === 'weapon') {
+        const newLevel = itemData.currentLevel + 1;
+        if (itemData.isBuy) sql.prepare("INSERT INTO user_weapons (userID, guildID, raceName, weaponLevel) VALUES (?, ?, ?, ?)").run(interaction.user.id, interaction.guild.id, itemData.raceName, newLevel);
+        else sql.prepare("UPDATE user_weapons SET weaponLevel = ? WHERE id = ?").run(newLevel, itemData.dbId);
+    } 
+    else if (callbackType === 'skill') {
+        const newLevel = itemData.currentLevel + 1;
+        if (itemData.isBuy) sql.prepare("INSERT INTO user_skills (userID, guildID, skillID, skillLevel) VALUES (?, ?, ?, ?)").run(interaction.user.id, interaction.guild.id, itemData.skillId, newLevel);
+        else sql.prepare("UPDATE user_skills SET skillLevel = ? WHERE id = ?").run(newLevel, itemData.dbId);
+    }
+
+    // 3. رسالة النجاح
+    let successMsg = `✅ **تمت العملية بنجاح!**\n📦 **العنصر:** ${itemData.name || itemData.raceName || 'Unknown'}\n💰 **المبلغ المدفوع:** ${finalPrice.toLocaleString()} ${EMOJI_MORA}`;
+    
+    if (discountUsed > 0) {
+        successMsg += `\n📉 **تم تطبيق خصم:** ${discountUsed}% (كوبون ${couponType === 'boss' ? 'زعيم' : 'رتبة'})`;
+    }
+
+    if (interaction.replied || interaction.deferred) await interaction.editReply({ content: successMsg, components: [] });
+    else await interaction.reply({ content: successMsg, components: [], flags: MessageFlags.Ephemeral });
+
+    // Log
+    sendShopLog(client, interaction.guild.id, interaction.member, itemData.name || itemData.raceName || "Unknown", finalPrice, `شراء ${discountUsed > 0 ? '(مع كوبون)' : ''}`);
+    
+    // تحديث الواجهات بعد الشراء
+    if (callbackType === 'weapon') await _handleWeaponUpgrade(interaction, client, sql); // إعادة تحميل واجهة السلاح
+    if (callbackType === 'skill') {
+        // إعادة تحميل واجهة المهارات
+        const allUserSkills = getAllUserAvailableSkills(interaction.member, sql);
+        const skillIndex = allUserSkills.findIndex(s => s.id === itemData.skillId);
+        const updatedEmbed = buildSkillEmbedWithPagination(allUserSkills, skillIndex, sql, interaction);
+        await interaction.followUp({ ...updatedEmbed, flags: MessageFlags.Ephemeral });
+    }
+}
+
+// ============================================================================
+
 // --- Builders ---
 function buildPaginatedItemEmbed(selectedItemId) {
     const buyableItems = getBuyableItems();
@@ -305,23 +509,17 @@ async function _handleWeaponUpgrade(i, client, sql) {
             
             let price = (currentLevel === 0) ? weaponConfig.base_price : weaponConfig.base_price + (weaponConfig.price_increment * currentLevel);
             
-            if (userData.mora < price) {
-                return await i.followUp({ content: `❌ رصيدك غير كافي! تحتاج إلى **${price.toLocaleString()}** ${EMOJI_MORA}`, flags: MessageFlags.Ephemeral });
-            }
-            
-            userData.mora -= price; 
-            userData.shop_purchases = (userData.shop_purchases || 0) + 1; 
-            client.setLevel.run(userData);
-            
-            const newLevel = currentLevel + 1;
-            if (isBuy) sql.prepare("INSERT INTO user_weapons (userID, guildID, raceName, weaponLevel) VALUES (?, ?, ?, ?)").run(userId, guildId, exactRaceName, newLevel);
-            else sql.prepare("UPDATE user_weapons SET weaponLevel = ? WHERE id = ?").run(newLevel, userWeapon.id);
-            
-            currentLevel = newLevel;
-            await i.followUp({ content: `🎉 تم التطوير بنجاح!`, flags: MessageFlags.Ephemeral });
-            
-            // Log
-            sendShopLog(client, guildId, i.member, `سلاح: ${weaponConfig.name} (Lv.${newLevel})`, price, "شراء/تطوير");
+            // 🔥 تطبيق الكوبونات هنا 🔥
+            const itemData = {
+                raceName: exactRaceName,
+                newLevel: currentLevel + 1,
+                isBuy: isBuy,
+                dbId: userWeapon ? userWeapon.id : null,
+                name: weaponConfig.name,
+                currentLevel: currentLevel
+            };
+            await handlePurchaseWithCoupons(i, itemData, 1, price, client, sql, 'weapon');
+            return; // التوقف هنا لأن الدالة ستكمل الباقي
         }
 
         const newDamage = weaponConfig.base_damage + (weaponConfig.damage_increment * (currentLevel - (currentLevel > 0 ? 1 : 0)));
@@ -356,18 +554,18 @@ async function _handleSkillUpgrade(i, client, sql) {
         let currentLevel = userSkill ? userSkill.skillLevel : 0; let price = 0;
         if (currentLevel >= skillConfig.max_level) return await i.followUp({ content: '❌ لقد وصلت للحد الأقصى للتطوير بالفعل!', flags: MessageFlags.Ephemeral });
         price = (currentLevel === 0) ? skillConfig.base_price : skillConfig.base_price + (skillConfig.price_increment * currentLevel);
-        if (userData.mora < price) return await i.followUp({ content: `❌ رصيدك غير كافي!`, flags: MessageFlags.Ephemeral });
-        userData.mora -= price; userData.shop_purchases = (userData.shop_purchases || 0) + 1; client.setLevel.run(userData);
-        const newLevel = currentLevel + 1;
-        if (isBuy) sql.prepare("INSERT INTO user_skills (userID, guildID, skillID, skillLevel) VALUES (?, ?, ?, ?)").run(userId, guildId, skillId, newLevel);
-        else sql.prepare("UPDATE user_skills SET skillLevel = ? WHERE id = ?").run(newLevel, userSkill.id);
         
-        // Log
-        sendShopLog(client, guildId, i.member, `مهارة: ${skillConfig.name} (Lv.${newLevel})`, price, "شراء/تطوير");
+        // 🔥 تطبيق الكوبونات هنا 🔥
+        const itemData = {
+            skillId: skillId,
+            newLevel: currentLevel + 1,
+            isBuy: isBuy,
+            dbId: userSkill ? userSkill.id : null,
+            name: skillConfig.name,
+            currentLevel: currentLevel
+        };
+        await handlePurchaseWithCoupons(i, itemData, 1, price, client, sql, 'skill');
 
-        const allUserSkills = getAllUserAvailableSkills(i.member, sql); const currentPageIndex = allUserSkills.findIndex(s => s.id === skillId);
-        const updatedEmbed = buildSkillEmbedWithPagination(allUserSkills, currentPageIndex, sql, i);
-        await i.editReply(updatedEmbed); await i.followUp({ content: `🎉 تم التطوير بنجاح!`, flags: MessageFlags.Ephemeral });
     } catch (error) { console.error("خطأ في زر تطوير المهارة:", error); if (i.replied || i.deferred) await i.followUp({ content: '❌ حدث خطأ.', flags: MessageFlags.Ephemeral }); }
 }
 
@@ -385,92 +583,41 @@ async function _handleShopButton(i, client, sql) {
              if (userLoan) return await i.reply({ content: `عـليـك قـرض قـم بـسداده اولا`, flags: MessageFlags.Ephemeral });
         }
 
-        if (userData.mora < item.price) return await i.reply({ content: `❌ رصيدك غير كافي!`, flags: MessageFlags.Ephemeral });
-        if (item.id.startsWith('xp_buff_')) {
-            const getActiveBuff = sql.prepare("SELECT * FROM user_buffs WHERE userID = ? AND guildID = ? AND buffType = 'xp' AND expiresAt > ?");
-            const activeBuff = getActiveBuff.get(userId, guildId, Date.now());
-            if (activeBuff) {
-                const replaceButton = new ButtonBuilder().setCustomId(`replace_buff_${item.id}`).setLabel("إلغاء القديم وشراء الجديد").setStyle(ButtonStyle.Danger);
-                const cancelButton = new ButtonBuilder().setCustomId('cancel_purchase').setLabel("إلغاء").setStyle(ButtonStyle.Secondary);
-                const row = new ActionRowBuilder().addComponents(replaceButton, cancelButton);
-                return await i.reply({ content: `⚠️ لديك معزز خبرة فعال بالفعل!`, components: [row], embeds: [], flags: MessageFlags.Ephemeral });
-            }
-        }
-        userData.mora -= item.price;
-        let successMessage = `✅ تم شراء **${item.name}** بنجاح!`;
-        switch (item.id) {
-            case 'personal_guard_1d': userData.hasGuard = (userData.hasGuard || 0) + 3; userData.guardExpires = 0; successMessage = `✅ تم توقيع عقد الحراسة!`;
-            // ( 🌟 التحقق من الحارس وتأكيد الاستبدال 🌟 )
-            if (userData.hasGuard > 0) {
-                // نعيد الفلوس لأننا سنطلب تأكيد
-                userData.mora += item.price; 
-                const replaceButton = new ButtonBuilder().setCustomId(`replace_guard`).setLabel("توقيع عقد جديد").setStyle(ButtonStyle.Danger);
-                const cancelButton = new ButtonBuilder().setCustomId('cancel_purchase').setLabel("إلغاء").setStyle(ButtonStyle.Secondary);
-                const row = new ActionRowBuilder().addComponents(replaceButton, cancelButton);
-                return await i.reply({ content: `⚠️ **لديك حارس بالفعل!**\nهو يحميك حالياً من **${userData.hasGuard}** محاولات سرقة.\n\nهل تريد إلغاء العقد القديم وتوقيع عقد جديد (3 محاولات) بـ **${item.price}**؟`, components: [row], ephemeral: true });
-            }
-            break;
-
-            case 'streak_shield': {
-                const setStreak = sql.prepare("INSERT OR REPLACE INTO streaks (id, guildID, userID, streakCount, lastMessageTimestamp, hasGracePeriod, hasItemShield, nicknameActive, hasReceivedFreeShield, separator, dmNotify, highestStreak) VALUES (@id, @guildID, @userID, @streakCount, @lastMessageTimestamp, @hasGracePeriod, @hasItemShield, @nicknameActive, @hasReceivedFreeShield, @separator, @dmNotify, @highestStreak);");
-                const existingStreak = sql.prepare("SELECT * FROM streaks WHERE userID = ? AND guildID = ?").get(userId, guildId);
-                if (existingStreak && existingStreak.hasItemShield === 1) { userData.mora += item.price; return await i.reply({ content: '🔥 لديك درع ستريك جاهز بالفعل!', flags: MessageFlags.Ephemeral }); }
-                const fullStreakData = { id: existingStreak?.id || `${guildId}-${userId}`, guildID: guildId, userID: userId, streakCount: existingStreak?.streakCount || 0, lastMessageTimestamp: existingStreak?.lastMessageTimestamp || 0, hasGracePeriod: existingStreak?.hasGracePeriod || 0, hasItemShield: 1, nicknameActive: existingStreak?.nicknameActive ?? 1, hasReceivedFreeShield: existingStreak?.hasReceivedFreeShield || 0, separator: existingStreak?.separator || '|', dmNotify: existingStreak?.dmNotify ?? 1, highestStreak: existingStreak?.highestStreak || 0 };
-                setStreak.run(fullStreakData); break;
-            }
-            case 'streak_shield_media': {
-                const setMediaStreak = sql.prepare("INSERT OR REPLACE INTO media_streaks (id, guildID, userID, streakCount, lastMediaTimestamp, hasGracePeriod, hasItemShield, hasReceivedFreeShield, dmNotify, highestStreak) VALUES (@id, @guildID, @userID, @streakCount, @lastMediaTimestamp, @hasGracePeriod, @hasItemShield, @hasReceivedFreeShield, @dmNotify, @highestStreak);");
-                const existingMediaStreak = sql.prepare("SELECT * FROM media_streaks WHERE userID = ? AND guildID = ?").get(userId, guildId);
-                if (existingMediaStreak && existingMediaStreak.hasItemShield === 1) { userData.mora += item.price; return await i.reply({ content: '📸 لديك درع ستريك ميديا جاهز بالفعل!', flags: MessageFlags.Ephemeral }); }
-                const fullMediaStreakData = { id: existingMediaStreak?.id || `${guildId}-${userId}`, guildID: guildId, userID: userId, streakCount: existingMediaStreak?.streakCount || 0, lastMediaTimestamp: existingMediaStreak?.lastMediaTimestamp || 0, hasGracePeriod: existingMediaStreak?.hasGracePeriod || 0, hasItemShield: 1, hasReceivedFreeShield: existingMediaStreak?.hasReceivedFreeShield || 0, dmNotify: existingMediaStreak?.dmNotify ?? 1, highestStreak: existingMediaStreak?.highestStreak || 0 };
-                setMediaStreak.run(fullMediaStreakData); break;
-            }
-            
-            // 🌟 تعديل البفات (XP فقط) 🌟
-            case 'xp_buff_1d_3': // صغير
-                sql.prepare("INSERT INTO user_buffs (userID, guildID, buffType, multiplier, expiresAt, buffPercent) VALUES (?, ?, ?, ?, ?, ?)").run(userId, guildId, 'xp', 0.45, Date.now() + (24 * 60 * 60 * 1000), 45); 
-                break;
-            case 'xp_buff_1d_7': // متوسط
-                sql.prepare("INSERT INTO user_buffs (userID, guildID, buffType, multiplier, expiresAt, buffPercent) VALUES (?, ?, ?, ?, ?, ?)").run(userId, guildId, 'xp', 0.70, Date.now() + (48 * 60 * 60 * 1000), 70); 
-                break;
-            case 'xp_buff_2d_10': // كبير
-                sql.prepare("INSERT INTO user_buffs (userID, guildID, buffType, multiplier, expiresAt, buffPercent) VALUES (?, ?, ?, ?, ?, ?)").run(userId, guildId, 'xp', 0.90, Date.now() + (72 * 60 * 60 * 1000), 90); 
-                break;
-
-            case 'vip_role_3d':
-                const settings = sql.prepare("SELECT vipRoleID FROM settings WHERE guild = ?").get(guildId);
-                const VIP_ROLE_ID = settings ? settings.vipRoleID : null;
-                if (!VIP_ROLE_ID) { userData.mora += item.price; return await i.reply({ content: '❌ لم يقم أي إداري بتحديد رتبة الـ VIP.', flags: MessageFlags.Ephemeral }); }
-                const member = await i.guild.members.fetch(userId);
-                await member.roles.add(VIP_ROLE_ID);
-                const expiresAt = Date.now() + (3 * 24 * 60 * 60 * 1000);
-                sql.prepare("INSERT OR REPLACE INTO temporary_roles (userID, guildID, roleID, expiresAt) VALUES (?, ?, ?, ?)").run(userId, guildId, VIP_ROLE_ID, expiresAt);
-                successMessage = `✅ تم شراء **${item.name}**!`; break;
-            case 'discord_effect_5': case 'discord_effect_10': case 'nitro_basic': case 'nitro_gaming':
-                const owner = await client.users.fetch(OWNER_ID);
-                if (owner) { owner.send(`🔔 تنبيه شراء!\n\nالعضو: ${i.user.tag} (${i.user.id})\nاشترى: **${item.name}**\nالمبلغ: ${item.price.toLocaleString()} ${EMOJI_MORA}`).catch(console.error); }
-                successMessage = `✅ تمت عملية الشراء! فضلاً، قم بفتح "مجلس خاص" (تكت) لاستلام طلبك.`; break;
-            case 'change_race': {
-                let removedRoleName = "لا يوجد";
-                try {
-                    const allRaceRoles = sql.prepare("SELECT roleID, raceName FROM race_roles WHERE guildID = ?").all(i.guild.id);
-                    const raceRoleIDs = allRaceRoles.map(r => r.roleID);
-                    const userRaceRole = i.member.roles.cache.find(r => raceRoleIDs.includes(r.id));
-                    if (userRaceRole) { await i.member.roles.remove(userRaceRole); removedRoleName = userRaceRole.name; }
-                } catch (err) { console.error("[Shop Change Race] Failed to remove race role:", err); }
-                const durationMs = (item.duration || 7) * 24 * 60 * 60 * 1000; const expiresAt = Date.now() + durationMs; const debuffPercent = -5; const debuffMultiplier = -0.05; 
-                try { sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(i.guild.id, i.user.id, debuffPercent, expiresAt, 'xp', debuffMultiplier);
-                      sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(i.guild.id, i.user.id, debuffPercent, expiresAt, 'mora', debuffMultiplier);
-                } catch (dbErr) { console.error("[Shop Change Race] Failed to insert debuffs:", dbErr); }
-                successMessage = `🧬 **تم تغيير العرق!**\nتمت إزالة رتبة: **${removedRoleName}**.\n**تحذير:** تخفيض **${debuffPercent}%** (XP/Mora) لمدة 7 أيام.`; break;
-            }
-        }
-        userData.shop_purchases = (userData.shop_purchases || 0) + 1;
-        client.setLevel.run(userData);
-        await i.reply({ content: `${successMessage}\nرصيدك المتبقي: **${userData.mora.toLocaleString()}** ${EMOJI_MORA}`, components: [], embeds: [], flags: MessageFlags.Ephemeral });
+        // استثناء العناصر غير القابلة للخصم (النيترو، الايفكتات، شراء الخبرة)
+        const NON_DISCOUNTABLE = [...RESTRICTED_ITEMS, 'xp_buff_1d_3', 'xp_buff_1d_7', 'xp_buff_2d_10'];
         
-        // Log
-        sendShopLog(client, guildId, i.member, item.name, item.price, "شراء");
+        // إذا كان العنصر مستثنى، نشتري مباشرة بدون كوبونات
+        if (NON_DISCOUNTABLE.includes(item.id) || item.id.startsWith('xp_buff_')) {
+             if (userData.mora < item.price) return await i.reply({ content: `❌ رصيدك غير كافي!`, flags: MessageFlags.Ephemeral });
+             if (item.id.startsWith('xp_buff_')) {
+                const getActiveBuff = sql.prepare("SELECT * FROM user_buffs WHERE userID = ? AND guildID = ? AND buffType = 'xp' AND expiresAt > ?");
+                const activeBuff = getActiveBuff.get(userId, guildId, Date.now());
+                if (activeBuff) {
+                    const replaceButton = new ButtonBuilder().setCustomId(`replace_buff_${item.id}`).setLabel("إلغاء القديم وشراء الجديد").setStyle(ButtonStyle.Danger);
+                    const cancelButton = new ButtonBuilder().setCustomId('cancel_purchase').setLabel("إلغاء").setStyle(ButtonStyle.Secondary);
+                    const row = new ActionRowBuilder().addComponents(replaceButton, cancelButton);
+                    return await i.reply({ content: `⚠️ لديك معزز خبرة فعال بالفعل!`, components: [row], embeds: [], flags: MessageFlags.Ephemeral });
+                }
+             }
+             // تنفيذ الشراء المباشر للعناصر المستثناة
+             if (RESTRICTED_ITEMS.includes(item.id)) {
+                 if (userData.mora < item.price) return await i.reply({ content: `❌ رصيدك غير كافي!`, flags: MessageFlags.Ephemeral });
+                 userData.mora -= item.price;
+                 const owner = await client.users.fetch(OWNER_ID);
+                 if (owner) { owner.send(`🔔 تنبيه شراء!\n\nالعضو: ${i.user.tag} (${i.user.id})\nاشترى: **${item.name}**\nالمبلغ: ${item.price.toLocaleString()} ${EMOJI_MORA}`).catch(console.error); }
+                 userData.shop_purchases = (userData.shop_purchases || 0) + 1;
+                 client.setLevel.run(userData);
+                 await i.reply({ content: `✅ تمت عملية الشراء! فضلاً، قم بفتح "مجلس خاص" (تكت) لاستلام طلبك.`, flags: MessageFlags.Ephemeral });
+                 sendShopLog(client, guildId, i.member, item.name, item.price, "شراء");
+                 return;
+             }
+             // تنفيذ الشراء للبفات
+             await processFinalPurchase(i, item, 1, item.price, 0, 'none', client, sql, 'item');
+             return;
+        }
+
+        // 🔥 لباقي العناصر (Shields, Roles, etc.) نستخدم الكوبونات 🔥
+        await handlePurchaseWithCoupons(i, item, 1, item.price, client, sql, 'item');
 
     } catch (error) { console.error("خطأ في زر المتجر:", error); if (i.replied || i.deferred) await i.followUp({ content: '❌ حدث خطأ.', flags: MessageFlags.Ephemeral }); else await i.reply({ content: '❌ حدث خطأ.', flags: MessageFlags.Ephemeral }); }
 }
