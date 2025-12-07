@@ -46,7 +46,7 @@ function formatDuration(ms) {
 async function handleBossInteraction(interaction, client, sql) {
     if (!interaction.isButton()) return;
 
-    // 🔥🔥 إصلاح تلقائي لقاعدة البيانات (يضيف العمود الناقص تلقائياً) 🔥🔥
+    // 🔥🔥 إصلاح تلقائي لقاعدة البيانات 🔥🔥
     try {
         sql.prepare("SELECT totalHits FROM world_boss LIMIT 1").get();
     } catch (err) {
@@ -138,9 +138,11 @@ async function handleBossInteraction(interaction, client, sql) {
         finalDamage = Math.floor(weaponDamage + val); 
     }
 
-    // Crit (20%)
+    // ===========================================
+    // 🔥🔥 Crit (5%) 🔥🔥 - تم التعديل هنا
+    // ===========================================
     let isCrit = false;
-    if (Math.random() < 0.2) {
+    if (Math.random() < 0.05) { // 0.05 تعني 5%
         finalDamage = Math.floor(finalDamage * 1.5);
         isCrit = true;
     }
@@ -183,8 +185,8 @@ async function handleBossInteraction(interaction, client, sql) {
             rewardMsg = `🎫 **كوبون خصم ${discount}%**`;
         } else {
             // إذا معه كوبون، نعطيه "بف اكس بي" كتعويض
-            const duration = getRandomDuration(10, 180); // 10 دقيقة - 3 ساعات
-            const percent = Math.floor(Math.random() * 46) + 5; // 5% - 50%
+            const duration = getRandomDuration(10, 180); 
+            const percent = Math.floor(Math.random() * 46) + 5; 
             const expiresAt = Date.now() + duration;
             
             sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guildID, userID, percent, expiresAt, 'xp', percent / 100);
@@ -261,7 +263,6 @@ async function handleBossInteraction(interaction, client, sql) {
                 lbText = leaderboard.map((entry, index) => `${index + 1}. <@${entry.userID}>: **${entry.totalDamage.toLocaleString()}**`).join('\n');
             }
             
-            // جلب البيانات النهائية مع التحقق
             let finalHits = 0;
             try {
                 const finalBossData = sql.prepare("SELECT totalHits FROM world_boss WHERE guildID = ?").get(guildID);
