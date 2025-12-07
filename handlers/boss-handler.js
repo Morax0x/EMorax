@@ -4,7 +4,7 @@ const { getWeaponData, getUserRace, getAllSkillData } = require('./pvp-core.js')
 const OWNER_ID = '1145327691772481577'; 
 const HIT_COOLDOWN = 2 * 60 * 60 * 1000; 
 
-// قائمة المهارات الهجومية فقط (لأن البوس ما ينفع معه درع أو شفاء)
+// قائمة المهارات الهجومية فقط
 const OFFENSIVE_SKILLS_ONLY = [
     'skill_poison', 'skill_gamble', 'race_dragon_skill', 'race_seraphim_skill', 
     'race_demon_skill', 'race_elf_skill', 'race_dark_elf_skill', 'race_vampire_skill', 
@@ -145,25 +145,20 @@ async function handleBossInteraction(interaction, client, sql) {
     let finalDamage = weaponDamage;
 
     // =========================================================
-    // 🔥🔥 تصحيح حساب الضرر ليتطابق مع الـ JSON والـ PvP 🔥🔥
+    // 🔥🔥 حساب الضرر والمهارات 🔥🔥
     // =========================================================
     if (isSkill && skillData) {
         toolName = skillData.name;
-        
-        // skillData.effectValue تأتي محسوبة جاهزة (Base + Increment * Level) من pvp-core.js
         const val = skillData.effectValue;
 
         switch (skillData.id) {
             case 'race_dragon_skill': 
-                // نوع: TrueDMG (ضرر ثابت بغض النظر عن السلاح)
                 finalDamage = val; 
                 break;
 
             case 'skill_gamble': 
-                // نوع: RNG (مقامرة)
-                // 150% من السلاح إذا نجح، 25% إذا فشل
                 if (Math.random() < 0.5) {
-                    finalDamage = Math.floor(weaponDamage * (val / 100)); // val هنا 150
+                    finalDamage = Math.floor(weaponDamage * (val / 100));
                     toolName += " (فوز ساحق!)";
                 } else {
                     finalDamage = Math.floor(weaponDamage * 0.25);
@@ -172,28 +167,24 @@ async function handleBossInteraction(interaction, client, sql) {
                 break;
 
             case 'race_elf_skill': 
-                // نوع: Multi-Hit (مجموع الضربتين = سلاح + قيمة)
                 finalDamage = Math.floor(weaponDamage + val);
                 break;
 
             case 'race_demon_skill': 
             case 'race_seraphim_skill':
             case 'race_vampire_skill':
-            case 'race_dark_elf_skill': // سم
-            case 'skill_poison': // سم
-                // كل هذه المهارات تعتمد على: سلاح + قيمة المهارة
-                // (في البوس لا نطبق تأثيرات السم المستمر أو الريكويل لتبسيط المعركة، نكتفي بالضرر الفوري الكامل)
+            case 'race_dark_elf_skill':
+            case 'skill_poison':
                 finalDamage = Math.floor(weaponDamage + val);
                 break;
 
             default:
-                // أي مهارة هجومية أخرى: سلاح + قيمة المهارة
                 finalDamage = Math.floor(weaponDamage + val);
                 break;
         }
     }
 
-    // Crit (اختياري 20%)
+    // Crit (20%)
     let isCrit = false;
     if (Math.random() < 0.2) {
         finalDamage = Math.floor(finalDamage * 1.5);
@@ -214,13 +205,17 @@ async function handleBossInteraction(interaction, client, sql) {
     const userDmgRecord = sql.prepare("SELECT totalDamage FROM boss_leaderboard WHERE guildID = ? AND userID = ?").get(guildID, userID);
     sql.prepare("INSERT OR REPLACE INTO boss_leaderboard (guildID, userID, totalDamage) VALUES (?, ?, ?)").run(guildID, userID, (userDmgRecord ? userDmgRecord.totalDamage : 0) + finalDamage);
 
-    // الجوائز (معادلة التلفيل التلقائي)
+    // الجوائز (معادلة التلفيل)
     let rewardMsg = "";
     const roll = Math.random() * 100;
     
     let userData = client.getLevel.get(userID, guildID) || { ...client.defaultData, user: userID, guild: guildID };
-    if (!userData.max_xp) userData.max_xp = 500;
-
+    
+    // 🔥🔥 تصحيح المشكلة: تحويل القيم لأرقام لضمان الجمع الصحيح 🔥🔥
+    userData.level = parseInt(userData.level) || 0;
+    userData.xp = parseInt(userData.xp) || 0;
+    userData.max_xp = parseInt(userData.max_xp) || 500;
+    
     let xpToAdd = 0;
 
     if (roll > 95) { 
@@ -245,7 +240,7 @@ async function handleBossInteraction(interaction, client, sql) {
         let leveledUp = false;
         while (userData.xp >= userData.max_xp) {
             userData.xp -= userData.max_xp;
-            userData.level += 1;
+            userData.level += 1; // الآن سيتم الجمع بشكل صحيح
             userData.max_xp = Math.floor(userData.max_xp * 1.2);
             leveledUp = true;
         }
