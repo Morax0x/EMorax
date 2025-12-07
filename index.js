@@ -194,9 +194,16 @@ client.checkQuests = async function(client, member, stats, questType, dateKey) {
                 sql.prepare("INSERT INTO user_quest_claims (claimID, userID, guildID, questID, dateStr) VALUES (?, ?, ?, ?, ?)").run(claimID, member.id, member.guild.id, quest.id, dateKey);
                 let levelData = client.getLevel.get(member.id, member.guild.id);
                 if (!levelData) levelData = { ...client.defaultData, user: member.id, guild: member.guild.id };
+                
+                // 🔥 FIX: إجبار اللفل والخبرة لتكون أرقام لمنع الدمج النصي (مشكلة الـ 77)
+                levelData.level = parseInt(levelData.level) || 1;
+                levelData.xp = parseInt(levelData.xp) || 0;
                 levelData.mora = (levelData.mora || 0) + quest.reward.mora;
+
                 levelData.xp += quest.reward.xp;
                 levelData.totalXP += quest.reward.xp;
+                
+                // معادلة التلفيل
                 const nextXP = 5 * (levelData.level ** 2) + (50 * levelData.level) + 100;
                 if (levelData.xp >= nextXP) {
                     const oldLevel = levelData.level;
@@ -255,9 +262,15 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
                 sql.prepare("INSERT INTO user_achievements (userID, guildID, achievementID, timestamp) VALUES (?, ?, ?, ?)").run(member.id, member.guild.id, ach.id, Date.now());
                 let ld = levelData || client.getLevel.get(member.id, member.guild.id);
                 if (!ld) ld = { ...client.defaultData, user: member.id, guild: member.guild.id };
+                
+                // 🔥 FIX: إجبار اللفل والخبرة لتكون أرقام لمنع الدمج النصي (مشكلة الـ 77)
+                ld.level = parseInt(ld.level) || 1;
+                ld.xp = parseInt(ld.xp) || 0;
                 ld.mora = (ld.mora || 0) + ach.reward.mora;
+                
                 ld.xp += ach.reward.xp;
                 ld.totalXP += ach.reward.xp;
+                
                 const nextXP = 5 * (ld.level ** 2) + (50 * ld.level) + 100;
                 if (ld.xp >= nextXP) {
                     ld.xp -= nextXP;
@@ -308,7 +321,7 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         if (stat === 'replies_sent') totalStats.total_replies_sent = (totalStats.total_replies_sent || 0) + amount;
         if (stat === 'mentions_received') totalStats.total_mentions_received = (totalStats.total_mentions_received || 0) + amount;
         if (stat === 'vc_minutes') totalStats.total_vc_minutes = (totalStats.total_vc_minutes || 0) + amount;
-           
+            
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
         client.setTotalStats.run({
@@ -358,6 +371,11 @@ client.checkRoleAchievement = async function(member, roleId, achievementId) {
             sql.prepare("INSERT INTO user_achievements (userID, guildID, achievementID, timestamp) VALUES (?, ?, ?, ?)").run(userID, guildID, ach.id, Date.now());
             let ld = client.getLevel.get(userID, guildID);
             if (!ld) ld = { ...client.defaultData, user: userID, guild: guildID };
+            
+            // 🔥 FIX: أمان إضافي هنا أيضاً
+            ld.level = parseInt(ld.level) || 1;
+            ld.xp = parseInt(ld.xp) || 0;
+
             ld.mora = (ld.mora || 0) + ach.reward.mora;
             ld.xp += ach.reward.xp;
             ld.totalXP += ach.reward.xp;
@@ -611,8 +629,6 @@ client.on(Events.ClientReady, async () => {
 }); 
 
 // ( 🌟 Pass Cache to Interaction Handler 🌟 )
-// تأكد أنك ستستدعي handleBossInteraction داخل interaction-handler.js لاحقاً، أو تضيفها هنا كـ event listener مباشر إذا فضلت،
-// لكن الأفضل هو إضافتها في ملف interaction-handler.js لترتيب الكود.
 require('./interaction-handler.js')(client, sql, client.antiRolesCache);
 
 const eventsPath = path.join(__dirname, 'events');
