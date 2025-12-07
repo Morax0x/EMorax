@@ -64,8 +64,9 @@ try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id IN
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
-const { checkLoanPayments } = require('./handlers/loan-handler.js'); // 🆕 محصل الديون المفصول
+const { checkLoanPayments } = require('./handlers/loan-handler.js'); // 🆕 محصل الديون
 const { handleBossInteraction } = require('./handlers/boss-handler.js'); // 🆕 هاندلر الوحش
+const { checkFarmIncome } = require('./handlers/farm-income-handler.js'); // 🆕✅ هاندلر دخل المزرعة الجديد
 
 const questsConfig = require('./json/quests-config.json');
 const farmAnimals = require('./json/farm-animals.json');
@@ -417,33 +418,6 @@ function updateMarketPrices() {
     } catch (err) { console.error("[Market] Error updating prices:", err.message); }
 }
 
-async function processFarmYields() {
-    if (!sql.open) return;
-    try {
-        const now = Date.now();
-        const ONE_DAY = 24 * 60 * 60 * 1000;
-        const farmers = sql.prepare("SELECT DISTINCT userID, guildID FROM user_farm").all();
-        for (const farmer of farmers) {
-            let userData = client.getLevel.get(farmer.userID, farmer.guildID);
-            if (!userData) continue;
-            if ((now - (userData.lastFarmYield || 0)) >= ONE_DAY) {
-                const userAnimals = sql.prepare("SELECT animalID, COUNT(*) as count FROM user_farm WHERE userID = ? AND guildID = ? GROUP BY animalID").all(farmer.userID, farmer.guildID);
-                let totalIncome = 0;
-                for (const row of userAnimals) {
-                    const animalInfo = farmAnimals.find(a => a.id === row.animalID);
-                    if (animalInfo) totalIncome += (animalInfo.income_per_day * row.count);
-                }
-                if (totalIncome > 0) {
-                    userData.mora += totalIncome;
-                    userData.lastFarmYield = now;
-                    client.setLevel.run(userData);
-                    console.log(`[Farm] Gave ${totalIncome} mora to user ${farmer.userID}`);
-                }
-            }
-        }
-    } catch (err) { console.error("[Farm] Error processing yields:", err); }
-}
-
 async function checkTemporaryRoles(client) {
     if (!sql.open) return;
     const now = Date.now();
@@ -595,7 +569,10 @@ client.on(Events.ClientReady, async () => {
     // ( 🌟 دالة القروض المفصولة 🌟 )
     setInterval(() => checkLoanPayments(client, sql), 60 * 60 * 1000); // كل ساعة
 
-    setInterval(processFarmYields, 60 * 60 * 1000); processFarmYields();
+    // 🔥🔥 ✅ استبدال دالة المزرعة القديمة بالجديدة ✅ 🔥🔥
+    setInterval(() => checkFarmIncome(client, sql), 60 * 60 * 1000); 
+    checkFarmIncome(client, sql); // تشغيل مبدئي
+
     setInterval(() => checkDailyStreaks(client, sql), 3600000); checkDailyStreaks(client, sql);
     setInterval(() => checkDailyMediaStreaks(client, sql), 3600000); checkDailyMediaStreaks(client, sql);
     setInterval(() => checkUnjailTask(client), 5 * 60 * 1000); checkUnjailTask(client);
