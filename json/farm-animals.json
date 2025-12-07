@@ -4,80 +4,80 @@
     "name": "دجاجة",
     "emoji": "🐔",
     "price": 500,
-    "income_per_day": 50,
+    "income_per_day": 25,
     "lifespan_days": 30,
     "image": "https://i.postimg.cc/mgQJWVRm/78b1e5ce6f0910118abc6928f859c4a4-removebg-preview.png"
-  },
-  {
-    "id": "cow",
-    "name": "بقرة",
-    "emoji": "🐄",
-    "price": 2500,
-    "income_per_day": 150,
-    "lifespan_days": 70,
-    "image": "https://i.postimg.cc/3r0HbXyP/cwo.png"
-  },
-  {
-    "id": "sheep",
-    "name": "خروف",
-    "emoji": "🐑",
-    "price": 1800,
-    "income_per_day": 140,
-    "lifespan_days": 45,
-    "image": "https://i.postimg.cc/bwpxBRvd/image-removebg-preview.png"
-  },
-  {
-    "id": "llama",
-    "name": "لاما",
-    "emoji": "🦙",
-    "price": 4000,
-    "income_per_day": 150,
-    "lifespan_days": 70,
-    "image": "https://i.postimg.cc/0y8FxDNT/pngtree-llama-face-vector-png-image-6891155.png"
-  },
-  {
-    "id": "goat",
-    "name": "ماعز",
-    "emoji": "🐐",
-    "price": 1500,
-    "income_per_day": 120,
-    "lifespan_days": 35,
-    "image": "https://i.postimg.cc/FHsWwvWX/km-KRmp3K-400x400-removebg-preview.png"
-  },
-  {
-    "id": "horse",
-    "name": "حصان",
-    "emoji": "🐎",
-    "price": 6000,
-    "income_per_day": 200,
-    "lifespan_days": 90,
-    "image": "https://i.postimg.cc/7hrGTxGH/Centorea-image.png"
-  },
-  {
-    "id": "bee",
-    "name": "نحلة",
-    "emoji": "🐝",
-    "price": 1000,
-    "income_per_day": 80,
-    "lifespan_days": 20,
-    "image": "https://i.postimg.cc/wTFFXPq9/thunder-bee-girl-transparent-anime-honey-bee-girl-11563246392mcnzun2ais-removebg-preview.png"
-  },
-  {
-    "id": "lion",
-    "name": "أسد",
-    "emoji": "🦁",
-    "price": 15000,
-    "income_per_day": 300,
-    "lifespan_days": 120,
-    "image": "https://i.postimg.cc/ydvXm3Kd/Lions.png"
   },
   {
     "id": "fish",
     "name": "سمكة",
     "emoji": "🐟",
     "price": 800,
-    "income_per_day": 60,
+    "income_per_day": 40,
     "lifespan_days": 25,
     "image": "https://i.postimg.cc/MKKZ3MSv/fish.png"
+  },
+  {
+    "id": "bee",
+    "name": "نحلة",
+    "emoji": "🐝",
+    "price": 1000,
+    "income_per_day": 60,
+    "lifespan_days": 20,
+    "image": "https://i.postimg.cc/wTFFXPq9/thunder-bee-girl-transparent-anime-honey-bee-girl-11563246392mcnzun2ais-removebg-preview.png"
+  },
+  {
+    "id": "goat",
+    "name": "ماعز",
+    "emoji": "🐐",
+    "price": 1500,
+    "income_per_day": 55,
+    "lifespan_days": 35,
+    "image": "https://i.postimg.cc/FHsWwvWX/km-KRmp3K-400x400-removebg-preview.png"
+  },
+  {
+    "id": "sheep",
+    "name": "خروف",
+    "emoji": "🐑",
+    "price": 1800,
+    "income_per_day": 55,
+    "lifespan_days": 45,
+    "image": "https://i.postimg.cc/bwpxBRvd/image-removebg-preview.png"
+  },
+  {
+    "id": "cow",
+    "name": "بقرة",
+    "emoji": "🐄",
+    "price": 2500,
+    "income_per_day": 50,
+    "lifespan_days": 65,
+    "image": "https://i.postimg.cc/3r0HbXyP/cwo.png"
+  },
+  {
+    "id": "llama",
+    "name": "لاما",
+    "emoji": "🦙",
+    "price": 4000,
+    "income_per_day": 75,
+    "lifespan_days": 70,
+    "image": "https://i.postimg.cc/0y8FxDNT/pngtree-llama-face-vector-png-image-6891155.png"
+  },
+  {
+    "id": "horse",
+    "name": "حصان",
+    "emoji": "🐎",
+    "price": 6000,
+    "income_per_day": 90,
+    "lifespan_days": 90,
+    "image": "https://i.postimg.cc/7hrGTxGH/Centorea-image.png"
+  },
+  {
+    "id": "lion",
+    "name": "أسد",
+    "emoji": "🦁",
+    "price": 15000,
+    "income_per_day": 150,
+    "lifespan_days": 120,
+    "image": "https://i.postimg.cc/ydvXm3Kd/Lions.png"
   }
 ]
