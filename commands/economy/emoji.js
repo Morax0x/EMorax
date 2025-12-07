@@ -3,7 +3,7 @@ const { calculateMoraBuff } = require('../../streak-handler.js');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const MIN_BET = 50;
-const MAX_BET_SOLO = 250; // حد أقصى للرهان
+const MAX_BET_SOLO = 100; // حد أقصى للرهان
 const COOLDOWN_MS = 1 * 60 * 60 * 1000; // ساعة واحدة
 const MEMORY_TIME = 3000; // 3 ثواني للحفظ
 
