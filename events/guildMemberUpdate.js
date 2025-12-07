@@ -9,6 +9,10 @@ module.exports = {
     name: Events.GuildMemberUpdate,
     async execute(oldMember, newMember) {
         const client = newMember.client;
+
+        // 🔥🔥 التعديل: التحقق من أن قاعدة البيانات مفتوحة قبل البدء 🔥🔥
+        if (!client.sql || !client.sql.open) return;
+
         const sql = client.sql;
         const guildID = newMember.guild.id;
         const userID = newMember.id;
