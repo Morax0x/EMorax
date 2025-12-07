@@ -19,8 +19,18 @@ try {
 }
 
 // ==================================================================
-// 2. تحديثات الجداول (الأعمدة الجديدة)
+// 2. تحديثات الجداول (والجداول الجديدة 🆕)
 // ==================================================================
+
+// --- جداول نظام الوحش والكوبونات (جديد) ---
+// 1. جدول الوحش
+try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS world_boss (guildID TEXT PRIMARY KEY, currentHP INTEGER, maxHP INTEGER, name TEXT, image TEXT, active INTEGER DEFAULT 0, messageID TEXT, channelID TEXT)").run(); } catch(e) {}
+// 2. جدول كولداون الضربات
+try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS boss_cooldowns (guildID TEXT, userID TEXT, lastHit INTEGER, PRIMARY KEY (guildID, userID))").run(); } catch(e) {}
+// 3. جدول الكوبونات (للجوائز المستقبلية)
+try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS user_coupons (id INTEGER PRIMARY KEY AUTOINCREMENT, guildID TEXT, userID TEXT, discountPercent INTEGER, isUsed INTEGER DEFAULT 0)").run(); } catch(e) {}
+// ----------------------------------------
+
 // أعمدة الصيد
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastFish INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN rodLevel INTEGER DEFAULT 1").run(); } catch (e) {}
@@ -48,6 +58,7 @@ try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id IN
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
 const { checkLoanPayments } = require('./handlers/loan-handler.js'); // 🆕 محصل الديون المفصول
+const { handleBossInteraction } = require('./handlers/boss-handler.js'); // 🆕 هاندلر الوحش
 
 const questsConfig = require('./json/quests-config.json');
 const farmAnimals = require('./json/farm-animals.json');
@@ -290,7 +301,7 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         if (stat === 'replies_sent') totalStats.total_replies_sent = (totalStats.total_replies_sent || 0) + amount;
         if (stat === 'mentions_received') totalStats.total_mentions_received = (totalStats.total_mentions_received || 0) + amount;
         if (stat === 'vc_minutes') totalStats.total_vc_minutes = (totalStats.total_vc_minutes || 0) + amount;
-          
+           
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
         client.setTotalStats.run({
@@ -593,6 +604,8 @@ client.on(Events.ClientReady, async () => {
 }); 
 
 // ( 🌟 Pass Cache to Interaction Handler 🌟 )
+// تأكد أنك ستستدعي handleBossInteraction داخل interaction-handler.js لاحقاً، أو تضيفها هنا كـ event listener مباشر إذا فضلت،
+// لكن الأفضل هو إضافتها في ملف interaction-handler.js لترتيب الكود.
 require('./interaction-handler.js')(client, sql, client.antiRolesCache);
 
 const eventsPath = path.join(__dirname, 'events');
