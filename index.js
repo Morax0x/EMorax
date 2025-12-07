@@ -18,14 +18,6 @@ try {
     process.exit(1);
 }
 
-// 🔥 إصلاح سريع للقيم الفارغة لتجنب كراش toLocaleString 🔥
-try {
-    if (sql.open) {
-        sql.prepare("UPDATE levels SET mora = 0 WHERE mora IS NULL").run();
-        sql.prepare("UPDATE levels SET xp = 0 WHERE xp IS NULL").run();
-    }
-} catch (e) {}
-
 // ==================================================================
 // 2. تحديثات الجداول
 // ==================================================================
@@ -282,6 +274,7 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
     }
 }
 
+// Increment Stats
 client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
     if (!client.sql.open) return;
 
@@ -370,6 +363,7 @@ client.checkRoleAchievement = async function(member, roleId, achievementId) {
             let ld = client.getLevel.get(userID, guildID);
             if (!ld) ld = { ...client.defaultData, user: userID, guild: guildID };
             
+            // 🔥 FIX: أمان إضافي هنا أيضاً
             ld.level = parseInt(ld.level) || 1;
             ld.xp = parseInt(ld.xp) || 0;
 
@@ -566,9 +560,8 @@ client.on(Events.ClientReady, async () => {
     setInterval(() => checkLoanPayments(client, sql), 60 * 60 * 1000); // كل ساعة
 
     // 🔥🔥 ✅ استبدال دالة المزرعة القديمة بالجديدة ✅ 🔥🔥
-    // هذا الهاندلر ذكي ويتحقق من الوقت قبل الإرسال، لذا لن يزعج الأعضاء عند الريستارت
+    // تم إزالة التشغيل المبدئي لمنع الإزعاج عند التشغيل، سيبدأ الفحص بعد ساعة
     setInterval(() => checkFarmIncome(client, sql), 60 * 60 * 1000); 
-    checkFarmIncome(client, sql); // تشغيل مبدئي (آمن)
 
     setInterval(() => checkDailyStreaks(client, sql), 3600000); checkDailyStreaks(client, sql);
     setInterval(() => checkDailyMediaStreaks(client, sql), 3600000); checkDailyMediaStreaks(client, sql);
