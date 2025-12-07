@@ -18,23 +18,16 @@ try {
     process.exit(1);
 }
 
-// 🔥🔥 إصلاح البيانات التلقائي (يمنع الكراش بسبب القيم الفارغة) 🔥🔥
+// 🔥 إصلاح سريع للقيم الفارغة لتجنب كراش toLocaleString 🔥
 try {
     if (sql.open) {
-        // تحويل القيم الفارغة إلى 0 لمنع خطأ toLocaleString
         sql.prepare("UPDATE levels SET mora = 0 WHERE mora IS NULL").run();
-        sql.prepare("UPDATE levels SET bank = 0 WHERE bank IS NULL").run();
         sql.prepare("UPDATE levels SET xp = 0 WHERE xp IS NULL").run();
-        sql.prepare("UPDATE levels SET totalXP = 0 WHERE totalXP IS NULL").run();
-        sql.prepare("UPDATE levels SET level = 1 WHERE level IS NULL").run();
-        console.log("[Database] ✅ تم إصلاح القيم الفارغة (NULL) بنجاح.");
     }
-} catch (e) {
-    console.error("[Database Fix] Warning:", e.message);
-}
+} catch (e) {}
 
 // ==================================================================
-// 2. تحديثات الجداول (والجداول الجديدة 🆕)
+// 2. تحديثات الجداول
 // ==================================================================
 
 // --- جداول نظام الوحش والكوبونات ---
@@ -60,12 +53,12 @@ try { if(sql.open) sql.prepare("ALTER TABLE user_weekly_stats ADD COLUMN emojis_
 
 // إعدادات القنوات الجديدة
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN shopLogChannelID TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN shopLogChannelID TEXT").run(); } catch (e) {} 
 
 // الردود التلقائية
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id INTEGER PRIMARY KEY AUTOINCREMENT, guildID TEXT NOT NULL, trigger TEXT NOT NULL, response TEXT NOT NULL, images TEXT, matchType TEXT DEFAULT 'exact', cooldown INTEGER DEFAULT 0, allowedChannels TEXT, ignoredChannels TEXT, UNIQUE(guildID, trigger))").run(); } catch(e) {}
 
-// جدول التأكد من دخل المزرعة (الجديد)
+// ✅ جدول التأكد من دخل المزرعة (لمنع التكرار عند الريستارت)
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS farm_last_payout (id TEXT PRIMARY KEY, lastPayoutDate INTEGER)").run(); } catch (e) {}
 
 // ==================================================================
@@ -74,8 +67,9 @@ try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS farm_last_payout (id 
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
 const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
-const { handleBossInteraction } = require('./handlers/boss-handler.js'); 
-const { checkFarmIncome } = require('./handlers/farm-income-handler.js'); 
+const { handleBossInteraction } = require('./handlers/boss-handler.js');
+// ✅ استدعاء هاندلر المزرعة الجديد
+const { checkFarmIncome } = require('./handlers/farm-income-handler.js');
 
 const questsConfig = require('./json/quests-config.json');
 const farmAnimals = require('./json/farm-animals.json');
@@ -147,7 +141,7 @@ if (sql.open) {
         lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, 
         total_meow_count: 0, boost_count: 0, lastPVP: 0, lastFarmYield: 0,
         lastFish: 0, rodLevel: 1, boatLevel: 1, currentLocation: 'beach',
-        lastMemory: 0 
+        lastMemory: 0
     };
 
     client.getDailyStats = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?");
@@ -288,7 +282,6 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
     }
 }
 
-// Increment Stats
 client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
     if (!client.sql.open) return;
 
@@ -570,11 +563,12 @@ client.on(Events.ClientReady, async () => {
     setInterval(updateMarketPrices, 60 * 60 * 1000); updateMarketPrices();
     
     // ( 🌟 دالة القروض المفصولة 🌟 )
-    setInterval(() => checkLoanPayments(client, sql), 60 * 60 * 1000); 
+    setInterval(() => checkLoanPayments(client, sql), 60 * 60 * 1000); // كل ساعة
 
-    // ( 🌟 دالة المزرعة الجديدة 🌟 )
+    // 🔥🔥 ✅ استبدال دالة المزرعة القديمة بالجديدة ✅ 🔥🔥
+    // هذا الهاندلر ذكي ويتحقق من الوقت قبل الإرسال، لذا لن يزعج الأعضاء عند الريستارت
     setInterval(() => checkFarmIncome(client, sql), 60 * 60 * 1000); 
-    checkFarmIncome(client, sql); 
+    checkFarmIncome(client, sql); // تشغيل مبدئي (آمن)
 
     setInterval(() => checkDailyStreaks(client, sql), 3600000); checkDailyStreaks(client, sql);
     setInterval(() => checkDailyMediaStreaks(client, sql), 3600000); checkDailyMediaStreaks(client, sql);
