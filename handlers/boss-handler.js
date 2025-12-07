@@ -45,6 +45,16 @@ function formatDuration(ms) {
 
 async function handleBossInteraction(interaction, client, sql) {
     if (!interaction.isButton()) return;
+
+    // 🔥🔥 إصلاح تلقائي لقاعدة البيانات (يضيف العمود الناقص تلقائياً) 🔥🔥
+    try {
+        sql.prepare("SELECT totalHits FROM world_boss LIMIT 1").get();
+    } catch (err) {
+        if (err.message.includes("no such column: totalHits")) {
+            sql.prepare("ALTER TABLE world_boss ADD COLUMN totalHits INTEGER DEFAULT 0").run();
+            console.log("[Auto-Fix] ✅ تم إضافة العمود الناقص totalHits إلى قاعدة البيانات.");
+        }
+    }
     
     const { customId, guild, user, member } = interaction;
     const guildID = guild.id;
@@ -140,6 +150,8 @@ async function handleBossInteraction(interaction, client, sql) {
     if (newHP < 0) newHP = 0;
 
     const newLogStr = updateBossLog(boss, member.displayName, toolName, finalDamage);
+    
+    // التحديث مع التأكد من وجود totalHits
     sql.prepare("UPDATE world_boss SET currentHP = ?, lastLog = ?, totalHits = COALESCE(totalHits, 0) + 1 WHERE guildID = ?").run(newHP, newLogStr, guildID);
     
     if (!isOwner) {
@@ -150,7 +162,7 @@ async function handleBossInteraction(interaction, client, sql) {
     sql.prepare("INSERT OR REPLACE INTO boss_leaderboard (guildID, userID, totalDamage) VALUES (?, ?, ?)").run(guildID, userID, (userDmgRecord ? userDmgRecord.totalDamage : 0) + finalDamage);
 
     // =========================================================
-    // 🔥🔥 نظام الجوائز الجديد (بفات + كوبون غير مكرر) 🔥🔥
+    // 🔥🔥 نظام الجوائز 🔥🔥
     // =========================================================
     let rewardMsg = "";
     const roll = Math.random() * 100;
@@ -160,13 +172,6 @@ async function handleBossInteraction(interaction, client, sql) {
     userData.xp = parseInt(userData.xp) || 0;
     
     let xpToAdd = 0;
-
-    // --- احتمالات الجوائز ---
-    // 98-100: كوبون (إذا لم يملك)
-    // 90-98: بف اكس بي
-    // 80-90: بف مورا
-    // 50-80: مورا أو اكس بي (كمية كبيرة)
-    // 0-50: مورا أو اكس بي (كمية عادية)
 
     if (roll > 98) { 
         // التحقق من عدم وجود كوبون سابقاً
@@ -186,7 +191,7 @@ async function handleBossInteraction(interaction, client, sql) {
             rewardMsg = `🆙 **تعزيز XP ${percent}%** لمدة \`${formatDuration(duration)}\``;
         }
 
-    } else if (roll > 90) { // بف اكس بي (5% - 50%)
+    } else if (roll > 90) { // بف اكس بي
         const duration = getRandomDuration(10, 180);
         const percent = Math.floor(Math.random() * 46) + 5; 
         const expiresAt = Date.now() + duration;
@@ -194,7 +199,7 @@ async function handleBossInteraction(interaction, client, sql) {
         sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guildID, userID, percent, expiresAt, 'xp', percent / 100);
         rewardMsg = `🆙 **تعزيز XP ${percent}%** لمدة \`${formatDuration(duration)}\``;
 
-    } else if (roll > 80) { // بف مورا (1% - 8%)
+    } else if (roll > 80) { // بف مورا
         const duration = getRandomDuration(10, 180);
         const percent = Math.floor(Math.random() * 8) + 1; 
         const expiresAt = Date.now() + duration;
@@ -256,8 +261,12 @@ async function handleBossInteraction(interaction, client, sql) {
                 lbText = leaderboard.map((entry, index) => `${index + 1}. <@${entry.userID}>: **${entry.totalDamage.toLocaleString()}**`).join('\n');
             }
             
-            const finalBossData = sql.prepare("SELECT totalHits FROM world_boss WHERE guildID = ?").get(guildID);
-            const finalHits = finalBossData ? (finalBossData.totalHits + 1) : 1; 
+            // جلب البيانات النهائية مع التحقق
+            let finalHits = 0;
+            try {
+                const finalBossData = sql.prepare("SELECT totalHits FROM world_boss WHERE guildID = ?").get(guildID);
+                finalHits = finalBossData ? (finalBossData.totalHits) : 1; 
+            } catch (e) { finalHits = 1; }
 
             newEmbed.setTitle(`✥ تـمـت هزيـمـة الزعـيـم ${boss.name}`)
                 .setDescription(
