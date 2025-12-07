@@ -25,10 +25,17 @@ try {
 // --- جداول نظام الوحش والكوبونات (جديد) ---
 // 1. جدول الوحش
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS world_boss (guildID TEXT PRIMARY KEY, currentHP INTEGER, maxHP INTEGER, name TEXT, image TEXT, active INTEGER DEFAULT 0, messageID TEXT, channelID TEXT)").run(); } catch(e) {}
+// 🆕 إضافة عمود السجل للوحش
+try { if(sql.open) sql.prepare("ALTER TABLE world_boss ADD COLUMN lastLog TEXT DEFAULT '[]'").run(); } catch (e) {}
+
 // 2. جدول كولداون الضربات
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS boss_cooldowns (guildID TEXT, userID TEXT, lastHit INTEGER, PRIMARY KEY (guildID, userID))").run(); } catch(e) {}
+
 // 3. جدول الكوبونات (للجوائز المستقبلية)
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS user_coupons (id INTEGER PRIMARY KEY AUTOINCREMENT, guildID TEXT, userID TEXT, discountPercent INTEGER, isUsed INTEGER DEFAULT 0)").run(); } catch(e) {}
+
+// 🆕 4. جدول ترتيب الوحش (Leaderboard)
+try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS boss_leaderboard (guildID TEXT, userID TEXT, totalDamage INTEGER DEFAULT 0, PRIMARY KEY(guildID, userID))").run(); } catch(e) {}
 // ----------------------------------------
 
 // أعمدة الصيد
