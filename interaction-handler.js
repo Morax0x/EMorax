@@ -7,6 +7,8 @@ const { getUserWeight, endGiveaway, createRandomDropGiveaway } = require('./hand
 const { handleReroll } = require('./handlers/reroll-handler.js'); 
 const { handleCustomRoleInteraction } = require('./handlers/custom-role-handler.js'); 
 const { handleReactionRole } = require('./handlers/reaction-role-handler.js'); 
+const { handleBossInteraction } = require('./handlers/boss-handler.js'); // 🆕 تمت إضافة استيراد وحش العالم
+
 // (Import farm-handler if it exists, otherwise rely on shop-handler)
 let handleFarmInteractions;
 try { ({ handleFarmInteractions } = require('./handlers/farm-handler.js')); } catch(e) {}
@@ -148,6 +150,11 @@ module.exports = (client, sql, antiRolesCache) => {
                     await handleCustomRoleInteraction(i, client, sql);
                 }
                 
+                // 🆕 ✅ World Boss Buttons
+                else if (id === 'boss_attack' || id === 'boss_status') {
+                    await handleBossInteraction(i, client, sql);
+                }
+                
                 // ✅ Farm Buttons
                 else if ((id === 'farm_collect' || id === 'farm_buy_menu') && handleFarmInteractions) {
                     await handleFarmInteractions(i, client, sql);
@@ -163,7 +170,7 @@ module.exports = (client, sql, antiRolesCache) => {
                 ) {
                     await handleShopInteractions(i, client, sql);
                 }
-                
+                 
                 else if (id === 'g_builder_content') {
                     const data = giveawayBuilders.get(i.user.id) || {};
                     const modal = new ModalBuilder().setCustomId('g_content_modal').setTitle('إعداد المحتوى (1/2)');
@@ -292,8 +299,8 @@ module.exports = (client, sql, antiRolesCache) => {
                     data.rewardsInput = rewardsInput;
                     let xpReward = 0, moraReward = 0;
                     rewardsInput.split('|').forEach(p => {
-                         if (p.trim().toLowerCase().startsWith('xp:')) xpReward = parseInt(p.split(':')[1]) || 0;
-                         if (p.trim().toLowerCase().startsWith('mora:')) moraReward = parseInt(p.split(':')[1]) || 0;
+                          if (p.trim().toLowerCase().startsWith('xp:')) xpReward = parseInt(p.split(':')[1]) || 0;
+                          if (p.trim().toLowerCase().startsWith('mora:')) moraReward = parseInt(p.split(':')[1]) || 0;
                     });
                     data.xpReward = xpReward; data.moraReward = moraReward;
                     giveawayBuilders.set(i.user.id, data);
@@ -308,6 +315,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     data.buttonEmoji = i.fields.getTextInputValue('g_emoji') || null;
                     giveawayBuilders.set(i.user.id, data);
                     await updateBuilderEmbed(i, data);
+
                 }
                 // ( 🌟 Market/Farm/XP Modals 🌟 )
                 else if (await handleShopModal(i, client, sql)) {
