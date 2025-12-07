@@ -159,7 +159,9 @@ module.exports = {
         }
 
         const filter = i => i.user.id === user.id && i.customId === 'cast_rod';
-        const collector = msg.createMessageComponentCollector({ filter, time: 30000, max: 1 });
+        
+        // 🔥🔥 التعديل هنا: جعلنا الوقت 60000 ملي ثانية (60 ثانية) 🔥🔥
+        const collector = msg.createMessageComponentCollector({ filter, time: 60000, max: 1 });
 
         collector.on('collect', async i => {
             await i.deferUpdate();
@@ -245,7 +247,7 @@ module.exports = {
                         }
 
                         if (pvpCore.startPveBattle) {
-                            // 🔥 حذف المستخدم قبل بدء القتال لأنه سينتقل لسيستم آخر
+                            // 🔥 حذف المستخدم قبل بدء القتال
                             activeFishingSessions.delete(user.id);
                             await pvpCore.startPveBattle(j, client, sql, j.member, monster, playerWeapon);
                             return; 
