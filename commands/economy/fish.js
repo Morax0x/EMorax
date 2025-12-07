@@ -46,6 +46,9 @@ const COLOR_GAME_OPTIONS = [
     { id: 'yellow', emoji: '🟡' }, { id: 'purple', emoji: '🟣' }, { id: 'white', emoji: '⚪' }
 ];
 
+// 🔥🔥 القائمة المؤقتة لمنع التكرار (Anti-Spam) 🔥🔥
+const activeFishingSessions = new Set();
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('صيد')
@@ -75,7 +78,15 @@ module.exports = {
             return interactionOrMessage.reply(payload);
         };
 
-        // 1. جلب بيانات المستخدم
+        // 🔥 1. التحقق من وجود جلسة نشطة (الحماية)
+        if (activeFishingSessions.has(user.id)) {
+            return reply({ 
+                content: "⚠️ **لديك رحلة صيد جارية بالفعل!** لا يمكنك إرسال طلب آخر حتى تنتهي.", 
+                ephemeral: true 
+            });
+        }
+
+        // 2. جلب بيانات المستخدم
         let userData = client.getLevel.get(user.id, guild.id);
         if (!userData) {
             userData = { 
@@ -122,6 +133,9 @@ module.exports = {
             });
         }
 
+        // 🔥 إضافة المستخدم للقائمة النشطة
+        activeFishingSessions.add(user.id);
+
         if (isSlash) await interactionOrMessage.deferReply();
 
         // واجهة الانتظار
@@ -135,7 +149,14 @@ module.exports = {
             new ButtonBuilder().setCustomId('cast_rod').setLabel('رمي السنارة').setStyle(ButtonStyle.Primary).setEmoji('🎣')
         );
 
-        const msg = await reply({ embeds: [startEmbed], components: [startRow] });
+        let msg;
+        try {
+            msg = await reply({ embeds: [startEmbed], components: [startRow] });
+        } catch (err) {
+            // في حال فشل الإرسال نحذف المستخدم
+            activeFishingSessions.delete(user.id);
+            return;
+        }
 
         const filter = i => i.user.id === user.id && i.customId === 'cast_rod';
         const collector = msg.createMessageComponentCollector({ filter, time: 30000, max: 1 });
@@ -195,6 +216,10 @@ module.exports = {
                         const failEmbed = new EmbedBuilder().setTitle("❌ أفلتت السنارة!").setDescription(`سحـبت السنـارة من المـكان الغـلط ضغـطت زر ${wrongEmoji}`).setColor(Colors.Red);
                         userData.lastFish = Date.now();
                         client.setLevel.run(userData);
+                        
+                        // 🔥 حذف المستخدم عند الفشل
+                        activeFishingSessions.delete(user.id);
+                        
                         await j.editReply({ embeds: [failEmbed], components: [] });
                         return;
                     }
@@ -220,6 +245,8 @@ module.exports = {
                         }
 
                         if (pvpCore.startPveBattle) {
+                            // 🔥 حذف المستخدم قبل بدء القتال لأنه سينتقل لسيستم آخر
+                            activeFishingSessions.delete(user.id);
                             await pvpCore.startPveBattle(j, client, sql, j.member, monster, playerWeapon);
                             return; 
                         } else {
@@ -250,11 +277,6 @@ module.exports = {
                         
                         if (possibleFish.length > 0) {
                             const fish = possibleFish[Math.floor(Math.random() * possibleFish.length)];
-                            
-                            // ❌❌ تم إزالة كود الحفظ في قاعدة البيانات ❌❌
-                            // sql.prepare(`INSERT INTO user_portfolio ...`).run(...); 
-                            // (الآن السمك لا يُخزن كـ item)
-
                             caughtFish.push(fish);
                             totalValue += fish.price;
                         }
@@ -274,7 +296,6 @@ module.exports = {
                         let rarityStar = "";
                         if (info.rarity >= 5) rarityStar = "🌟"; else if (info.rarity === 4) rarityStar = "✨";
                         
-                        // ( 🌟 التعديل هنا: نقل العدد للنهاية 🌟 )
                         description += `✶ ${info.emoji} ${name} ${rarityStar} **x${info.count}**\n`;
                     }
                     description += `\n✶ قيـمـة الصيد: \`${totalValue.toLocaleString()}\` ${EMOJI_MORA}`;
@@ -285,6 +306,9 @@ module.exports = {
                         .setColor(Colors.Green)
                         .setThumbnail('https://i.postimg.cc/Wz0g0Zg0/fishing.png')
                         .setFooter({ text: `السنارة: ${currentRod.name} (Lvl ${currentRod.level})` });
+
+                    // 🔥 حذف المستخدم عند النجاح
+                    activeFishingSessions.delete(user.id);
 
                     await j.editReply({ embeds: [resultEmbed], components: [] });
                 });
@@ -297,15 +321,29 @@ module.exports = {
                             .setDescription("تأخرت في السحب! حاول مرة أخرى لاحقاً.")
                             .setColor(Colors.Red);
                         
-                        // نحدث الوقت حتى لو فشل (عشان الكولداون)
                         userData.lastFish = Date.now();
                         client.setLevel.run(userData);
+
+                        // 🔥 حذف المستخدم عند انتهاء الوقت
+                        activeFishingSessions.delete(user.id);
 
                         await i.editReply({ embeds: [failEmbed], components: [] }).catch(() => {});
                     }
                 });
 
             }, waitTime);
+        });
+
+        // 🔥 التعامل مع حالة عدم ضغط زر "رمي السنارة" في البداية
+        collector.on('end', async (collected) => {
+            if (collected.size === 0) {
+                activeFishingSessions.delete(user.id);
+                const cancelEmbed = new EmbedBuilder()
+                    .setDescription("💤 ألغيت الرحلة لعدم الاستجابة.")
+                    .setColor(Colors.Grey);
+                if (isSlash) await interactionOrMessage.editReply({ embeds: [cancelEmbed], components: [] }).catch(() => {});
+                else await msg.edit({ embeds: [cancelEmbed], components: [] }).catch(() => {});
+            }
         });
     }
 };
