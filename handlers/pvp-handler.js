@@ -1,6 +1,6 @@
 const { MessageFlags, EmbedBuilder, ActionRowBuilder, ButtonBuilder, Colors } = require("discord.js");
 const core = require('./pvp-core.js'); 
-const { calculateMoraBuff } = require('../streak-handler.js'); // تأكد أن المسار صحيح
+const { calculateMoraBuff } = require('../streak-handler.js'); // ✅ مسار الخروج للمجلد الرئيسي لجلب streak-handler
 
 /**
  * دالة ذكاء اصطناعي بسيطة للوحش (PvE Monster Turn)
@@ -330,7 +330,6 @@ async function handlePvpTurn(i, client, sql) {
                     defender.hp -= trueDamage;
                     actionLog = `🔥 ${attackerName} أطلق نفس التنين! (**${trueDamage}** ضرر حقيقي).`;
                     break;
-                // ... (باقي المهارات كما هي في الكود الأصلي) ...
                 default:
                     const raceDmg = Math.floor((attacker.weapon ? attacker.weapon.currentDamage : 10) * (skill.effectValue / 100));
                     defender.hp -= raceDmg;
