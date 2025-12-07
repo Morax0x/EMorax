@@ -146,30 +146,29 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
     let finalPriceWithBoss = totalPrice;
     let finalPriceWithRole = totalPrice;
 
-    // خيار 1: كوبون الزعيم
+    // خيار 1: كوبون الزعيم (تم إزالة كلمة "زعيم" من النص)
     if (bossCoupon) {
         finalPriceWithBoss = Math.floor(totalPrice * (1 - (bossCoupon.discountPercent / 100)));
-        couponMessage += `✶ لديـك كـوبـون خـصم (زعيم) بقيـمـة: **${bossCoupon.discountPercent}%** هل تريـد استعمـالـه؟\n✬ اذا استعملته ستدفـع: **${finalPriceWithBoss.toLocaleString()}** ${EMOJI_MORA} - بدلاً مـن: **${totalPrice.toLocaleString()}**\n\n`;
+        couponMessage += `✶ لديـك كـوبـون خـصم بقيـمـة: **${bossCoupon.discountPercent}%** هل تريـد استعمـالـه؟\n✬ اذا استعملته ستدفـع: **${finalPriceWithBoss.toLocaleString()}** ${EMOJI_MORA} - بدلاً مـن: **${totalPrice.toLocaleString()}**\n\n`;
         
         row.addComponents(
-            new ButtonBuilder().setCustomId('use_boss_coupon').setLabel('استعمـال (زعيم)').setStyle(ButtonStyle.Success).setEmoji('🎫')
+            new ButtonBuilder().setCustomId('use_boss_coupon').setLabel(`استعمـال (${bossCoupon.discountPercent}%)`).setStyle(ButtonStyle.Success).setEmoji('🎫')
         );
     }
 
-    // خيار 2: كوبون الرتبة (إذا لم يكن هناك كوبون زعيم أو كخيار ثانٍ)
-    // ملاحظة: الكود يدعم عرض الخيارين لو توفروا، واللاعب يختار
+    // خيار 2: كوبون الرتبة (تم إزالة كلمة "رتبة" من النص)
     if (bestRoleCoupon && isRoleCouponReady) {
         finalPriceWithRole = Math.floor(totalPrice * (1 - (bestRoleCoupon.discountPercent / 100)));
-        couponMessage += `✶ لديـك كـوبـون خـصم (رتبة) بقيـمـة: **${bestRoleCoupon.discountPercent}%** هل تريـد استعمـالـه؟\n✬ اذا استعملته ستدفـع: **${finalPriceWithRole.toLocaleString()}** ${EMOJI_MORA} - بدلاً مـن: **${totalPrice.toLocaleString()}**\n\n`;
+        couponMessage += `✶ لديـك كـوبـون خـصم بقيـمـة: **${bestRoleCoupon.discountPercent}%** هل تريـد استعمـالـه؟\n✬ اذا استعملته ستدفـع: **${finalPriceWithRole.toLocaleString()}** ${EMOJI_MORA} - بدلاً مـن: **${totalPrice.toLocaleString()}**\n\n`;
         
         row.addComponents(
-            new ButtonBuilder().setCustomId('use_role_coupon').setLabel('استعمـال (رتبة)').setStyle(ButtonStyle.Success).setEmoji('🛡️')
+            new ButtonBuilder().setCustomId('use_role_coupon').setLabel(`استعمـال (${bestRoleCoupon.discountPercent}%)`).setStyle(ButtonStyle.Success).setEmoji('🛡️')
         );
     }
 
     // خيار 3: تخطي
     row.addComponents(
-        new ButtonBuilder().setCustomId('skip_coupon').setLabel('تخـطـي').setStyle(ButtonStyle.Primary)
+        new ButtonBuilder().setCustomId('skip_coupon').setLabel('تخـطـي (دفع كامل)').setStyle(ButtonStyle.Primary)
     );
 
     const replyData = {
@@ -192,12 +191,12 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
     collector.on('collect', async i => {
         if (i.customId === 'skip_coupon') {
             await processFinalPurchase(i, itemData, quantity, totalPrice, 0, 'none', client, sql, callbackType);
-        }
+        } 
         else if (i.customId === 'use_boss_coupon') {
             // حذف الكوبون بعد الاستخدام
             sql.prepare("DELETE FROM user_coupons WHERE id = ?").run(bossCoupon.id);
             await processFinalPurchase(i, itemData, quantity, finalPriceWithBoss, bossCoupon.discountPercent, 'boss', client, sql, callbackType);
-        }
+        } 
         else if (i.customId === 'use_role_coupon') {
             // تسجيل وقت الاستخدام (لحساب الـ 15 يوم)
             sql.prepare("INSERT OR REPLACE INTO user_role_coupon_usage (guildID, userID, lastUsedTimestamp) VALUES (?, ?, ?)").run(guildID, userID, Date.now());
@@ -251,7 +250,6 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             }
         }
         else if (itemData.id === 'change_race') {
-            // منطق تغيير العرق (إزالة الرتبة القديمة وتطبيق الديبف) تم تنفيذه مسبقاً، هنا نعيد التذكير بالرسالة
             let removedRoleName = "لا يوجد";
             try {
                 const allRaceRoles = sql.prepare("SELECT roleID, raceName FROM race_roles WHERE guildID = ?").all(interaction.guild.id);
@@ -279,7 +277,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     let successMsg = `✅ **تمت العملية بنجاح!**\n📦 **العنصر:** ${itemData.name || itemData.raceName || 'Unknown'}\n💰 **المبلغ المدفوع:** ${finalPrice.toLocaleString()} ${EMOJI_MORA}`;
     
     if (discountUsed > 0) {
-        successMsg += `\n📉 **تم تطبيق خصم:** ${discountUsed}% (كوبون ${couponType === 'boss' ? 'زعيم' : 'رتبة'})`;
+        successMsg += `\n📉 **تم تطبيق خصم:** ${discountUsed}%`;
     }
 
     if (interaction.replied || interaction.deferred) await interaction.editReply({ content: successMsg, components: [] });
@@ -289,9 +287,8 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     sendShopLog(client, interaction.guild.id, interaction.member, itemData.name || itemData.raceName || "Unknown", finalPrice, `شراء ${discountUsed > 0 ? '(مع كوبون)' : ''}`);
     
     // تحديث الواجهات بعد الشراء
-    if (callbackType === 'weapon') await _handleWeaponUpgrade(interaction, client, sql); // إعادة تحميل واجهة السلاح
+    if (callbackType === 'weapon') await _handleWeaponUpgrade(interaction, client, sql); 
     if (callbackType === 'skill') {
-        // إعادة تحميل واجهة المهارات
         const allUserSkills = getAllUserAvailableSkills(interaction.member, sql);
         const skillIndex = allUserSkills.findIndex(s => s.id === itemData.skillId);
         const updatedEmbed = buildSkillEmbedWithPagination(allUserSkills, skillIndex, sql, interaction);
@@ -519,7 +516,7 @@ async function _handleWeaponUpgrade(i, client, sql) {
                 currentLevel: currentLevel
             };
             await handlePurchaseWithCoupons(i, itemData, 1, price, client, sql, 'weapon');
-            return; // التوقف هنا لأن الدالة ستكمل الباقي
+            return; 
         }
 
         const newDamage = weaponConfig.base_damage + (weaponConfig.damage_increment * (currentLevel - (currentLevel > 0 ? 1 : 0)));
