@@ -19,9 +19,34 @@ try {
 }
 
 // ==================================================================
+// 🛠️ هام جداً: إصلاح البيانات التالفة (يحول القيم الفارغة لأصفار)
+// ==================================================================
+if (sql.open) {
+    try {
+        console.log("🔄 جاري فحص وصيانة قاعدة البيانات...");
+        // إصلاح المستويات والخبرة
+        sql.prepare("UPDATE levels SET xp = 0 WHERE xp IS NULL").run();
+        sql.prepare("UPDATE levels SET level = 1 WHERE level IS NULL OR level = 0").run();
+        sql.prepare("UPDATE levels SET totalXP = 0 WHERE totalXP IS NULL").run();
+        
+        // إصلاح الاقتصاد
+        sql.prepare("UPDATE levels SET mora = 0 WHERE mora IS NULL").run();
+        sql.prepare("UPDATE levels SET bank = 0 WHERE bank IS NULL").run();
+        
+        // إصلاح العدادات والإحصائيات
+        sql.prepare("UPDATE levels SET dailyStreak = 0 WHERE dailyStreak IS NULL").run();
+        sql.prepare("UPDATE levels SET total_meow_count = 0 WHERE total_meow_count IS NULL").run();
+        sql.prepare("UPDATE levels SET boost_count = 0 WHERE boost_count IS NULL").run();
+        
+        console.log("✅ تمت عملية الصيانة: البوت جاهز للعمل بدون أخطاء.");
+    } catch (err) {
+        console.error("⚠️ حدث خطأ بسيط أثناء الصيانة (يمكن تجاهله):", err.message);
+    }
+}
+
+// ==================================================================
 // 2. تحديثات الجداول (لضمان وجود الأعمدة)
 // ==================================================================
-// (نفس جداولك السابقة لضمان عدم حدوث أخطاء)
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS world_boss (guildID TEXT PRIMARY KEY, currentHP INTEGER, maxHP INTEGER, name TEXT, image TEXT, active INTEGER DEFAULT 0, messageID TEXT, channelID TEXT)").run(); } catch(e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE world_boss ADD COLUMN lastLog TEXT DEFAULT '[]'").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS boss_cooldowns (guildID TEXT, userID TEXT, lastHit INTEGER, PRIMARY KEY (guildID, userID))").run(); } catch(e) {}
@@ -105,7 +130,7 @@ if (sql.open) {
     client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
 
     // ============================================================
-    // 🔥🔥 التعديل الأهم: دالة الحفظ الآمنة (SAFE SAVE) 🔥🔥
+    // 🔥🔥 دالة الحفظ الآمنة (SAFE SAVE) 🔥🔥
     // ============================================================
     const realSetLevel = sql.prepare(`
         INSERT OR REPLACE INTO levels (
