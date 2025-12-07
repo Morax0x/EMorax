@@ -2,14 +2,14 @@ const { Events, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder
 const { handleQuestPanel } = require('./handlers/quest-panel-handler.js');
 const { handleStreakPanel } = require('./handlers/streak-panel-handler.js');
 const { handleShopInteractions, handleShopModal, handleShopSelectMenu, handleSkillSelectMenu } = require('./handlers/shop-handler.js');
-const { handlePvpInteraction } = require('./handlers/pvp-handler.js');
+const { handlePvpInteraction } = require('./handlers/pvp-handler.js'); // ✅ نظام القتال
 const { getUserWeight, endGiveaway, createRandomDropGiveaway } = require('./handlers/giveaway-handler.js');
 const { handleReroll } = require('./handlers/reroll-handler.js'); 
 const { handleCustomRoleInteraction } = require('./handlers/custom-role-handler.js'); 
 const { handleReactionRole } = require('./handlers/reaction-role-handler.js'); 
-const { handleBossInteraction } = require('./handlers/boss-handler.js'); // 🆕 تمت إضافة استيراد وحش العالم
+const { handleBossInteraction } = require('./handlers/boss-handler.js'); // ✅ نظام وحش العالم
 
-// (Import farm-handler if it exists, otherwise rely on shop-handler)
+// محاولة استيراد المزرعة إذا كانت موجودة
 let handleFarmInteractions;
 try { ({ handleFarmInteractions } = require('./handlers/farm-handler.js')); } catch(e) {}
 
@@ -18,6 +18,7 @@ const ms = require('ms');
 const processingInteractions = new Set();
 const giveawayBuilders = new Map(); 
 
+// دالة مساعدة لتحديث إيمبد بناء القيفاواي
 async function updateBuilderEmbed(interaction, data) {
     const embed = new EmbedBuilder()
         .setTitle("✥ لوحة إنشاء قيفاواي ✥")
@@ -69,6 +70,7 @@ module.exports = (client, sql, antiRolesCache) => {
 
     client.on(Events.InteractionCreate, async i => {
 
+        // التحقق من حالة قاعدة البيانات
         if (!sql.open && !i.isAutocomplete()) {
              if (!i.replied && !i.deferred) {
                  return i.reply({ content: "⚠️ قاعدة البيانات يتم تحديثها حالياً، الرجاء الانتظار...", ephemeral: true }).catch(() => {});
@@ -76,8 +78,7 @@ module.exports = (client, sql, antiRolesCache) => {
              return;
         }
 
-        console.log(`[Interaction] Received: ${i.type}, ID: ${i.customId || i.commandName}`);
-
+        // منع التكرار السريع (Anti-Spam Click)
         if (processingInteractions.has(i.user.id)) {
             if (!i.isModalSubmit()) {
                  return i.reply({ content: '⏳ | الرجاء الانتظار...', ephemeral: true }).catch(() => {});
@@ -90,7 +91,9 @@ module.exports = (client, sql, antiRolesCache) => {
 
         try {
 
-            // --- 1. Slash Commands ---
+            // ====================================================
+            // 1. Slash Commands
+            // ====================================================
             if (i.isChatInputCommand()) {
                 const command = i.client.commands.get(i.commandName);
                 if (!command) {
@@ -98,6 +101,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     return; 
                 }
                 
+                // التحقق من الصلاحيات الخاصة بالقنوات
                 let isAllowed = false;
                 if (i.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
                 else {
@@ -126,7 +130,9 @@ module.exports = (client, sql, antiRolesCache) => {
                 return; 
             }
 
-            // --- 2. Autocomplete ---
+            // ====================================================
+            // 2. Autocomplete & Context Menu
+            // ====================================================
             if (i.isAutocomplete()) {
                 const command = i.client.commands.get(i.commandName);
                 if (!command) return;
@@ -134,7 +140,6 @@ module.exports = (client, sql, antiRolesCache) => {
                 return; 
             }
 
-            // --- 3. Context Menu ---
             if (i.isContextMenuCommand()) {
                 const command = i.client.commands.get(i.commandName);
                 if (!command) return;
@@ -142,25 +147,28 @@ module.exports = (client, sql, antiRolesCache) => {
                 return; 
             }
 
-            // --- 4. Buttons ---
+            // ====================================================
+            // 3. Buttons Interactions
+            // ====================================================
             if (i.isButton()) {
                 const id = i.customId;
 
+                // رتب خاصة
                 if (id.startsWith('customrole_')) {
                     await handleCustomRoleInteraction(i, client, sql);
                 }
                 
-                // 🆕 ✅ World Boss Buttons
+                // ✅ أزرار وحش العالم (New)
                 else if (id === 'boss_attack' || id === 'boss_status') {
                     await handleBossInteraction(i, client, sql);
                 }
                 
-                // ✅ Farm Buttons
+                // ✅ أزرار المزرعة
                 else if ((id === 'farm_collect' || id === 'farm_buy_menu') && handleFarmInteractions) {
                     await handleFarmInteractions(i, client, sql);
                 }
 
-                // ✅ Shop/Fish/Market Buttons
+                // ✅ أزرار المتجر / الصيد / السوق / تطوير الأدوات
                 else if (
                     id.startsWith('buy_') || id.startsWith('upgrade_') || id.startsWith('shop_') || 
                     id.startsWith('replace_buff_') || id === 'cancel_purchase' || id === 'open_xp_modal' ||
@@ -171,6 +179,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     await handleShopInteractions(i, client, sql);
                 }
                  
+                // ✅ أزرار بناء القيفاواي (Builder)
                 else if (id === 'g_builder_content') {
                     const data = giveawayBuilders.get(i.user.id) || {};
                     const modal = new ModalBuilder().setCustomId('g_content_modal').setTitle('إعداد المحتوى (1/2)');
@@ -275,18 +284,26 @@ module.exports = (client, sql, antiRolesCache) => {
                         } catch (err) { return i.reply({ content: "⚠️ أنت مسجل بالفعل.", ephemeral: true }); }
                     } catch (error) { return i.reply({ content: "❌ حدث خطأ.", ephemeral: true }); }
 
-                } else if (id.startsWith('panel_') || id.startsWith('quests_')) {
+                } 
+                // ✅ أزرار لوحات التحكم والمهمات والستريك
+                else if (id.startsWith('panel_') || id.startsWith('quests_')) {
                     await handleQuestPanel(i, client, sql);
                 } else if (id.startsWith('streak_panel_')) {
                     await handleStreakPanel(i, client, sql);
-                } else if (id.startsWith('pvp_')) {
+                } 
+                // ✅ أزرار القتال (PvP / PvE)
+                else if (id.startsWith('pvp_') || id.startsWith('pvp_accept_') || id.startsWith('pvp_decline_') || id.startsWith('pvp_action_') || id.startsWith('pvp_skill_')) {
                     await handlePvpInteraction(i, client, sql);
-                } else if (id.startsWith('customrole_')) { 
+                } 
+                
+                else if (id.startsWith('customrole_')) { 
                     await handleCustomRoleInteraction(i, client, sql);
                 }
                 return; 
 
-            // --- 5. Modals ---
+            // ====================================================
+            // 4. Modals Submissions
+            // ====================================================
             } else if (i.isModalSubmit()) {
                 if (i.customId === 'g_content_modal') {
                     await i.deferUpdate();
@@ -317,7 +334,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     await updateBuilderEmbed(i, data);
 
                 }
-                // ( 🌟 Market/Farm/XP Modals 🌟 )
+                // ✅ مودال المتجر والخبرة
                 else if (await handleShopModal(i, client, sql)) {
                     // Handled
                 } else if (i.customId.startsWith('customrole_modal_')) { 
@@ -325,7 +342,9 @@ module.exports = (client, sql, antiRolesCache) => {
                 }
                 return; 
 
-            // --- 6. Select Menus ---
+            // ====================================================
+            // 5. Select Menus
+            // ====================================================
             } else if (i.isStringSelectMenu()) {
                 const id = i.customId;
                 
@@ -360,7 +379,7 @@ module.exports = (client, sql, antiRolesCache) => {
             }
 
         } catch (error) {
-            // Ignore Unknown Message (10008)
+            // تجاهل خطأ الرسالة غير المعروفة (لأنه قد يحدث عند الحذف السريع)
             if (error.code !== 10008) {
                 console.error("خطأ فادح في معالج التفاعلات:", error);
                 if (!i.replied && !i.deferred) {
