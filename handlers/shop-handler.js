@@ -11,7 +11,6 @@ const rootDir = process.cwd();
 const { rods: rodsConfig, boats: boatsConfig, baits: baitsConfig } = require(path.join(rootDir, 'json', 'fishing-config.json'));
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
-// ( 🌟 تعريف OWNER_ID هنا في النطاق العام ليراه الملف بالكامل 🌟 )
 const OWNER_ID = "1145327691772481577"; 
 const XP_EXCHANGE_RATE = 3;
 const BANNER_URL = 'https://i.postimg.cc/NMkWVyLV/line.png';
@@ -427,7 +426,7 @@ async function _handleShopButton(i, client, sql) {
                 setMediaStreak.run(fullMediaStreakData); break;
             }
             
-            // 🌟 تعديل البفات (النسبة والمدة) 🌟
+            // 🌟 تعديل البفات (XP فقط) 🌟
             case 'xp_buff_1d_3': // صغير
                 sql.prepare("INSERT INTO user_buffs (userID, guildID, buffType, multiplier, expiresAt, buffPercent) VALUES (?, ?, ?, ?, ?, ?)").run(userId, guildId, 'xp', 0.45, Date.now() + (24 * 60 * 60 * 1000), 45); 
                 break;
@@ -581,6 +580,7 @@ async function _handleBuySellModal(i, client, sql, types) {
                  userData.shop_purchases = (userData.shop_purchases || 0) + 1;
                  client.setLevel.run(userData);
                  const embed = new EmbedBuilder().setTitle('✅ تم الشراء').setColor(Colors.Green).setDescription(`📦 **${quantity}** × ${animal.name}\n💵 التكلفة: **${totalCost.toLocaleString()}** ${EMOJI_MORA}`).setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
+                 // لا يوجد لوج هنا (حسب الطلب)
                  return await i.editReply({ embeds: [embed] });
              } else {
                  const farmCount = sql.prepare("SELECT COUNT(*) as count FROM user_farm WHERE userID = ? AND guildID = ? AND animalID = ?").get(i.user.id, i.guild.id, animal.id).count;
@@ -591,6 +591,7 @@ async function _handleBuySellModal(i, client, sql, types) {
                  userData.mora += totalGain;
                  client.setLevel.run(userData);
                  const embed = new EmbedBuilder().setTitle('✅ تم البيع').setColor(Colors.Green).setDescription(`📦 **${quantity}** × ${animal.name}\n💵 الربح: **${totalGain.toLocaleString()}** ${EMOJI_MORA}`).setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
+                 // لا يوجد لوج هنا (حسب الطلب)
                  return await i.editReply({ embeds: [embed] });
              }
         }
@@ -615,9 +616,7 @@ async function _handleBuySellModal(i, client, sql, types) {
              
              const embed = new EmbedBuilder().setTitle('✅ تم الشراء').setColor(Colors.Green).setDescription(`📦 **${quantity}** × ${item.name}\n💵 التكلفة: **${totalCost.toLocaleString()}** ${EMOJI_MORA}`).setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
              await i.editReply({ embeds: [embed] });
-
-             // Log
-             sendShopLog(client, i.guild.id, i.member, `${item.name} (x${quantity})`, totalCost, "شراء (سوق)");
+             // لا يوجد لوج هنا (حسب الطلب)
 
         } else {
              let pfItem = getPortfolio.get(i.user.id, i.guild.id, item.id);
@@ -633,9 +632,7 @@ async function _handleBuySellModal(i, client, sql, types) {
              
              const embed = new EmbedBuilder().setTitle('✅ تم البيع').setColor(Colors.Green).setDescription(`📦 **${quantity}** × ${item.name}\n💵 الربح: **${totalGain.toLocaleString()}** ${EMOJI_MORA}`).setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
              await i.editReply({ embeds: [embed] });
-
-             // Log
-             sendShopLog(client, i.guild.id, i.member, `${item.name} (x${quantity})`, totalGain, "بيع (سوق)");
+             // لا يوجد لوج هنا (حسب الطلب)
         }
     } catch (error) { console.error(error); await i.editReply("❌ حدث خطأ."); }
 }
@@ -743,7 +740,6 @@ async function handleShopInteractions(i, client, sql) {
         xpModal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('xp_amount_input').setLabel('الكمية').setStyle(TextInputStyle.Short).setRequired(true)));
         await i.showModal(xpModal);
     }
-    // ( 🌟 زر استبدال الحارس 🌟 )
     else if (i.customId === 'replace_guard') {
         await _handleReplaceGuard(i, client, sql);
     }
