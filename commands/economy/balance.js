@@ -30,7 +30,8 @@ module.exports = {
 
     async execute(interactionOrMessage, args) {
 
-        const isSlash = !!!!interactionOrMessage.isChatInputCommand;;
+        // تصحيح: إزالة علامات التعجب الزائدة والفاصلة المنقوطة المكررة
+        const isSlash = interactionOrMessage.isChatInputCommand;
 
         let interaction, message, member, client, guild;
         let user; 
@@ -72,9 +73,14 @@ module.exports = {
             const getScore = client.getLevel;
             let data = getScore.get(user.id, guild.id);
 
-            if (!data) data = { mora: 0, bank: 0 };
-            if (typeof data.mora === 'undefined') data.mora = 0;
-            if (typeof data.bank === 'undefined') data.bank = 0;
+            // تأمين البيانات في حال كانت غير موجودة
+            if (!data) {
+                data = { mora: 0, bank: 0 };
+            }
+
+            // استخدام || 0 لضمان أن القيمة رقم وليست null
+            const safeMora = data.mora || 0;
+            const safeBank = data.bank || 0;
 
             const canvas = Canvas.createCanvas(1000, 400); 
             const context = canvas.getContext('2d');
@@ -99,8 +105,10 @@ module.exports = {
             // ( 🌟 تم التحديث هنا لاستخدام الخط الجديد 🌟 )
             context.font = '48px "Bein"'; 
 
-            context.fillText(data.mora.toLocaleString(), 335, 235); 
-            context.fillText(data.bank.toLocaleString(), 335, 340); 
+            // 🔥 هنا الإصلاح الجذري لمشكلة toLocaleString 🔥
+            // نستخدم المتغيرات الآمنة safeMora و safeBank
+            context.fillText(safeMora.toLocaleString(), 335, 235); 
+            context.fillText(safeBank.toLocaleString(), 335, 340); 
 
             const attachment = new AttachmentBuilder(canvas.toBuffer(), { name: 'mora-card.png' });
 
