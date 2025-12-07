@@ -97,7 +97,7 @@ module.exports = {
             // ❤️ تغيير الصحة
             let newHP = interaction.options.getInteger('amount');
             if (newHP < 0) newHP = 0;
-            if (newHP > boss.maxHP) newHP = boss.maxHP; // اختياري: هل تسمح بزيادة عن الماكس؟ هنا حددتها بالماكس
+            if (newHP > boss.maxHP) newHP = boss.maxHP; 
 
             sql.prepare("UPDATE world_boss SET currentHP = ? WHERE guildID = ?").run(newHP, guildID);
 
@@ -105,8 +105,9 @@ module.exports = {
             const hpPercent = Math.floor((newHP / boss.maxHP) * 100);
             const progressBar = createProgressBar(newHP, boss.maxHP, 18);
             
+            // 🛠️🛠️ تم التصحيح هنا: إضافة \ قبل النجمات 🛠️🛠️
             const newEmbed = EmbedBuilder.from(bossMsg.embeds[0])
-                .setDescription(bossMsg.embeds[0].description.replace(/📊 **الحالة:**.*?\n.*/s, `📊 **الحالة:** ${hpPercent}% متبقي\n${progressBar}`));
+                .setDescription(bossMsg.embeds[0].description.replace(/📊 \*\*الحالة:\*\*.*?\n.*/s, `📊 **الحالة:** ${hpPercent}% متبقي\n${progressBar}`));
             
             // تحديث حقل الصحة
             const fields = newEmbed.data.fields;
