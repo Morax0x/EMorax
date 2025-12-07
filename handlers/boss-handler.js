@@ -100,20 +100,26 @@ async function handleBossInteraction(interaction, client, sql) {
         // ✅ رسالة الخطأ الخاصة بعدم وجود مهارة
         if (!skillData) {
             return interaction.reply({ 
-                content: "✶ حـدد عرقـك وطور مهارة عرقـك من المتجـر لتوجه ضربات اقوى وتحصل على جوائز قيمة", 
+                content: "✶ حـدد عرقـك وطور مهارة عرقـك من المتجـر لتوجه ضربات اقوى وتحصل على جوائز قيمة <a:MugiStronk:1438795606872166462>", 
                 flags: [MessageFlags.Ephemeral] 
             });
         }
     } else if (customId !== 'boss_attack') return;
 
     // 3. الكولداون
-    const isOwner = (userID === OWNER_ID); 
+const isOwner = (userID === OWNER_ID); 
     const now = Date.now();
     if (!isOwner) {
         const cooldownData = sql.prepare("SELECT lastHit FROM boss_cooldowns WHERE guildID = ? AND userID = ?").get(guildID, userID);
+        
         if (cooldownData && (now - cooldownData.lastHit) < HIT_COOLDOWN) {
-            const minutes = Math.floor(((cooldownData.lastHit + HIT_COOLDOWN) - now) / 60000);
-            return interaction.reply({ content: `⏳ **انتظر!** باقي **${minutes} دقيقة**.`, flags: [MessageFlags.Ephemeral] });
+            // حساب وقت انتهاء الانتظار (بالثواني)
+            const expiryTime = Math.floor((cooldownData.lastHit + HIT_COOLDOWN) / 1000);
+            
+            return interaction.reply({ 
+                content: `⏳ **اسـترح قليلا ايهـا المحـارب <a:MugiStronk:1438795606872166462>!**\nيمكنك الهجوم مجدداً بعـد <t:${expiryTime}:R>`, 
+                flags: [MessageFlags.Ephemeral] 
+            });
         }
     }
 
