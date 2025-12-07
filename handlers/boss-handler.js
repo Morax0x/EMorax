@@ -1,16 +1,8 @@
-const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, Colors, MessageFlags } = require("discord.js");
-// ✅ المسار الصحيح
+const { EmbedBuilder, ActionRowBuilder, Colors, MessageFlags } = require("discord.js");
 const { getWeaponData, getUserRace, getAllSkillData } = require('./pvp-core.js');
 
 const OWNER_ID = '1145327691772481577'; 
 const HIT_COOLDOWN = 2 * 60 * 60 * 1000; 
-
-// قائمة المهارات الهجومية
-const OFFENSIVE_SKILLS_ONLY = [
-    'skill_poison', 'skill_gamble', 'race_dragon_skill', 'race_seraphim_skill', 
-    'race_demon_skill', 'race_elf_skill', 'race_dark_elf_skill', 'race_vampire_skill', 
-    'race_spirit_skill', 'race_ghoul_skill', 'race_hybrid_skill'
-];
 
 function createProgressBar(current, max, length = 12) {
     const percent = Math.max(0, Math.min(1, current / max));
@@ -40,13 +32,12 @@ function getBossState(current, max) {
     return "يحتضر ☠️";
 }
 
-// 🔥 دالة حساب الاكس بي المطلوبة
 function getRequiredXP(level) {
     return 5 * (level * level) + (50 * level) + 100;
 }
 
 async function handleBossInteraction(interaction, client, sql) {
-    if (!interaction.isButton() && !interaction.isStringSelectMenu()) return;
+    if (!interaction.isButton()) return;
     
     const { customId, guild, user, member } = interaction;
     const guildID = guild.id;
@@ -55,7 +46,7 @@ async function handleBossInteraction(interaction, client, sql) {
     const boss = sql.prepare("SELECT * FROM world_boss WHERE guildID = ? AND active = 1").get(guildID);
     if (!boss) return interaction.reply({ content: "❌ **الوحش مات!**", flags: [MessageFlags.Ephemeral] });
 
-    // 1. زر الحالة
+    // 1. زر الحالة (تقرير المعركة)
     if (customId === 'boss_status') {
         const leaderboard = sql.prepare("SELECT userID, totalDamage FROM boss_leaderboard WHERE guildID = ? ORDER BY totalDamage DESC LIMIT 5").all(guildID);
         let lbText = leaderboard.length > 0 
@@ -77,51 +68,27 @@ async function handleBossInteraction(interaction, client, sql) {
         return interaction.reply({ embeds: [statusEmbed], flags: [MessageFlags.Ephemeral] });
     }
 
-    // 2. القائمة
-    if (customId === 'boss_skill_menu') {
-        const userSkills = getAllSkillData(sql, member);
-        const availableSkills = Object.values(userSkills).filter(s => 
-            (s.currentLevel > 0 || s.id.startsWith('race_')) && 
-            OFFENSIVE_SKILLS_ONLY.includes(s.id)
-        );
-
-        if (availableSkills.length === 0) {
-            return interaction.reply({ 
-                content: "❌ **لا تملك مهارات هجومية!**\nالشفاء والدروع لا تفيد ضد وحش العالم.", 
-                flags: [MessageFlags.Ephemeral] 
-            });
-        }
-
-        const selectMenu = new StringSelectMenuBuilder()
-            .setCustomId('boss_execute_skill')
-            .setPlaceholder('✨ اختر هجوماً خاصاً...')
-            .addOptions(
-                availableSkills.slice(0, 25).map(skill => 
-                    new StringSelectMenuOptionBuilder()
-                        .setLabel(skill.name)
-                        .setDescription(`المستوى: ${skill.currentLevel}`)
-                        .setValue(skill.id)
-                        .setEmoji(skill.emoji || '✨')
-                )
-            );
-
-        const row = new ActionRowBuilder().addComponents(selectMenu);
-        return interaction.reply({ content: "**اختر المهارة:**", components: [row], flags: [MessageFlags.Ephemeral] });
-    }
-
-    // 3. التنفيذ
+    // 2. التحقق من نوع الزر (هجوم عادي أو مهارة عرق)
     let isSkill = false;
     let skillData = null;
 
-    if (customId === 'boss_execute_skill') {
+    if (customId === 'boss_skill_menu') { // هذا الزر الآن ينفذ مهارة العرق مباشرة
         isSkill = true;
-        const skillId = interaction.values[0]; 
         const userSkills = getAllSkillData(sql, member);
-        skillData = Object.values(userSkills).find(s => s.id === skillId);
-        if (!skillData) return interaction.reply({ content: "❌ خطأ في المهارة.", flags: [MessageFlags.Ephemeral] });
-    } else if (customId !== 'boss_attack') return;
+        // جلب أي مهارة تبدأ بـ race_ (مهارة العرق)
+        skillData = Object.values(userSkills).find(s => s.id.startsWith('race_'));
+        
+        if (!skillData) {
+            return interaction.reply({ 
+                content: "❌ **لا تملك مهارة عرق لتنفيذها!**", 
+                flags: [MessageFlags.Ephemeral] 
+            });
+        }
+    } else if (customId !== 'boss_attack') {
+        return; // تجاهل أي أزرار أخرى
+    }
 
-    // الكولداون
+    // 3. التحقق من الكولداون (مشترك للهجوم والمهارة)
     const isOwner = (userID === OWNER_ID); 
     const now = Date.now();
     if (!isOwner) {
@@ -151,7 +118,7 @@ async function handleBossInteraction(interaction, client, sql) {
     let finalDamage = weaponDamage;
 
     // =========================================================
-    // 🔥 حساب المهارات والضرر (تم التعديل للسم والمقامرة) 🔥
+    // 🔥 حساب ضرر مهارة العرق (فقط) 🔥
     // =========================================================
     if (isSkill && skillData) {
         toolName = skillData.name;
@@ -163,33 +130,14 @@ async function handleBossInteraction(interaction, client, sql) {
                 finalDamage = val; 
                 break;
 
-            case 'skill_gamble': 
-                // المقامرة للزعيم: 
-                // 50% تضرب (ضرر السلاح x2.5 + قيمة المهارة) -> ضربة خارقة
-                // 50% تضرب 1 فقط -> فشل
-                if (Math.random() < 0.5) {
-                    finalDamage = Math.floor(weaponDamage * 2.5) + val;
-                    toolName += " (🎰 فوز ساحق!)";
-                } else {
-                    finalDamage = 1;
-                    toolName += " (🎰 حظ سيء...)";
-                }
-                break;
-
-            case 'skill_poison':
-                // التسمم للزعيم:
-                // بما انه لا يوجد أدوار، نحسبها كضربة واحدة مركزة
-                // الضرر = السلاح + (قيمة المهارة * 1.5)
-                finalDamage = Math.floor(weaponDamage + (val * 1.5));
-                toolName += " (☠️ سم مركز)";
-                break;
-
             case 'race_elf_skill': 
+                // مهارة الإلف: سلاح + قيمة المهارة
                 finalDamage = Math.floor(weaponDamage + val); 
                 break;
-
+            
+            // يمكنك إضافة حالات خاصة لأعراق أخرى هنا إذا أردت منطقاً مختلفاً
             default: 
-                // باقي المهارات: السلاح + قيمة المهارة
+                // الافتراضي لمهارات العرق: السلاح + قيمة المهارة
                 finalDamage = Math.floor(weaponDamage + val); 
                 break;
         }
@@ -224,7 +172,6 @@ async function handleBossInteraction(interaction, client, sql) {
     
     let userData = client.getLevel.get(userID, guildID) || { ...client.defaultData, user: userID, guild: guildID };
     
-    // تأكد أن القيم أرقام
     userData.level = parseInt(userData.level) || 1;
     userData.xp = parseInt(userData.xp) || 0;
     
