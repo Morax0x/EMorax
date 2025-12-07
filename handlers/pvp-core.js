@@ -67,7 +67,7 @@ function getWeaponData(sql, member) {
     return { ...weaponConfig, currentDamage: damage, currentLevel: userWeapon.weaponLevel };
 }
 
-// ✅ الدالة المصححة لجلب المهارات (تدمج مهارات الداتابيس + مهارات العرق التلقائية)
+// ✅ دالة جلب المهارات (تدمج مهارات الداتابيس + مهارات العرق التلقائية)
 function getAllSkillData(sql, member) {
     const userRace = getUserRace(member, sql);
     const skillsOutput = {};
@@ -89,14 +89,13 @@ function getAllSkillData(sql, member) {
     // 2. إضافة مهارة العرق التلقائية (حتى لو لم تكن في جدول user_skills)
     if (userRace) {
         // تحويل اسم العرق لصيغة الـ ID (مثلاً: Dragon -> race_dragon_skill)
-        // نستبدل المسافات بـ _ ونحولها لحروف صغيرة
         const raceSkillId = `race_${userRace.raceName.toLowerCase().replace(/\s+/g, '_')}_skill`;
         
         // البحث عنها في ملف الكونفيج
         const raceSkillConfig = skillsConfig.find(s => s.id === raceSkillId);
 
         if (raceSkillConfig) {
-            // إذا لم تكن المهارة مضافة بالفعل (عن طريق الشراء/التطوير)، نضيفها بالمستوى 1
+            // إذا لم تكن المهارة مضافة بالفعل، نضيفها بالمستوى 1
             if (!skillsOutput[raceSkillId]) {
                 skillsOutput[raceSkillId] = { 
                     ...raceSkillConfig, 
@@ -138,7 +137,9 @@ function buildSkillButtons(battleState, attackerId, page = 0) {
     if (attacker.isMonster) return []; 
 
     const cooldowns = battleState.skillCooldowns[attackerId];
-    const availableSkills = Object.values(attacker.skills).filter(s => s.currentLevel > 0 || s.id.startsWith('race_'));
+    // التأكد من وجود المهارات قبل الفلترة لتجنب الأخطاء
+    const userSkills = attacker.skills || {};
+    const availableSkills = Object.values(userSkills).filter(s => s.currentLevel > 0 || s.id.startsWith('race_'));
 
     const skillsPerPage = 4;
     const totalPages = Math.ceil(availableSkills.length / skillsPerPage);
