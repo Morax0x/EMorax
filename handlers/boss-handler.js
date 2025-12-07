@@ -1,5 +1,5 @@
 const { EmbedBuilder, Colors } = require("discord.js");
-const { getWeaponData, getUserRace } = require('./pvp-core.js'); // نحتاج هذي الدوال لحساب الضرر
+const { getWeaponData, getUserRace } = require('./pvp-core.js'); // ✅ استيراد الدوال من ملف الكور
 
 const HIT_COOLDOWN = 2 * 60 * 60 * 1000; // ساعتين
 const EMOJI_MORA = '<:mora:1435647151349698621>';
@@ -43,14 +43,14 @@ async function handleBossInteraction(interaction, client, sql) {
     if (userRace) {
         const weapon = getWeaponData(sql, member);
         if (weapon && weapon.currentLevel > 0) {
-            damage += (weapon.damage * 2); // السلاح يؤثر بقوة
+            damage += (weapon.currentDamage * 2); // السلاح يؤثر بقوة مضاعفة ضد الوحش
         } else {
             damage += 20; // بونص عرق بسيط بدون سلاح
         }
     }
 
     // إضافة عشوائية للضرر (Critical Hit)
-    const isCrit = Math.random() < 0.2; // 20% فرصة
+    const isCrit = Math.random() < 0.2; // 20% فرصة ضربة حرجة
     if (isCrit) damage = Math.floor(damage * 1.5);
 
     // 3. تطبيق الضرر
@@ -66,7 +66,7 @@ async function handleBossInteraction(interaction, client, sql) {
     let userData = client.getLevel.get(userID, guildID);
     if (!userData) userData = { ...client.defaultData, user: userID, guild: guildID };
 
-    // كلما كان الضرر أعلى، زاد "الحظ" قليلاً
+    // كلما كان الضرر أعلى، زاد "الحظ" قليلاً في الجوائز النادرة
     const luckBonus = damage / 500; 
 
     if (roll + luckBonus > 95) { 
@@ -103,7 +103,7 @@ async function handleBossInteraction(interaction, client, sql) {
     
     client.setLevel.run(userData);
 
-    // 5. تحديث الإيمبد
+    // 5. تحديث رسالة الوحش (الإيمبد)
     const bossMsg = await interaction.channel.messages.fetch(boss.messageID).catch(() => null);
     if (bossMsg) {
         // رسم شريط الحياة
@@ -129,7 +129,7 @@ async function handleBossInteraction(interaction, client, sql) {
             
             await bossMsg.edit({ embeds: [newEmbed], components: [] }); // إزالة الأزرار
             
-            // تنظيف الداتابيس
+            // تنظيف الداتابيس (إلغاء تفعيل الوحش)
             sql.prepare("UPDATE world_boss SET active = 0 WHERE guildID = ?").run(guildID);
             
             return interaction.reply({ content: `⚔️ **ضربة قاضية!** (-${damage})\n لقد قتلت الوحش! 🏆\n${rewardMsg}`, ephemeral: true });
