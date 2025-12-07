@@ -309,30 +309,39 @@ async function handlePvpTurn(i, client, sql) {
                     break;
                 case 'skill_poison':
                     defender.effects.poison = 4;
-                    const basePoisonDmg = skill.effectValue;
+                    const basePoisonDmg = skill.effectValue; // قيمة تعتمد على اللفل
                     defender.hp -= basePoisonDmg;
                     actionLog = `☠️ ${attackerName} سمم الخصم! (**${basePoisonDmg}** ضرر فوري + سم مستمر).`;
                     break;
                 case 'skill_gamble':
                     const baseDmg = attacker.weapon ? attacker.weapon.currentDamage : 10;
                     let gambleDamage = 0;
+                    // تعديل: الحظ يعتمد على المعادلة الجديدة
+                    // إذا فاز: سلاح + مهارة * 2 | إذا خسر: نصف سلاح
                     if (Math.random() < 0.5) {
-                        gambleDamage = Math.floor(baseDmg * 1.5);
+                        gambleDamage = Math.floor(baseDmg + (skill.effectValue * 1.5));
                         actionLog = `🎲 ${attackerName} قامر ونجح! ضربة قوية **${gambleDamage}**!`;
                     } else {
-                        gambleDamage = Math.floor(baseDmg * 0.25);
+                        gambleDamage = Math.floor(baseDmg * 0.5);
                         actionLog = `🎲 ${attackerName} قامر وفشل... ضربة ضعيفة **${gambleDamage}**.`;
                     }
                     defender.hp -= gambleDamage;
                     break;
                 case 'race_dragon_skill':
-                    const trueDamage = skill.effectValue;
+                    const trueDamage = skill.effectValue; // قيمة ثابتة قوية تعتمد على اللفل
                     defender.hp -= trueDamage;
                     actionLog = `🔥 ${attackerName} أطلق نفس التنين! (**${trueDamage}** ضرر حقيقي).`;
                     break;
                 default:
-                    const raceDmg = Math.floor((attacker.weapon ? attacker.weapon.currentDamage : 10) * (skill.effectValue / 100));
+                    // 🔥🔥 التعديل الجذري هنا 🔥🔥
+                    // بدلاً من ضرب النسبة، نقوم بجمع (ضرر السلاح + قوة المهارة)
+                    // skill.effectValue يزيد مع اللفل، لذا الضرر سيزيد حتماً
+                    const weaponDamage = attacker.weapon ? attacker.weapon.currentDamage : 10;
+                    const skillBonus = skill.effectValue; 
+                    
+                    const raceDmg = Math.floor(weaponDamage + skillBonus);
                     defender.hp -= raceDmg;
+                    
                     actionLog = `⚔️ ${attackerName} استخدم ${skill.name} وألحق **${raceDmg}** ضرر!`;
                     break;
             }
