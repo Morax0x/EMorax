@@ -1,6 +1,7 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, ComponentType } = require("discord.js");
 const path = require('path');
 
+// تحديد المسار الرئيسي للمشروع لجلب ملفات JSON
 const rootDir = process.cwd();
 const weaponsConfig = require(path.join(rootDir, 'json', 'weapons-config.json'));
 const skillsConfig = require(path.join(rootDir, 'json', 'skills-config.json'));
@@ -28,7 +29,7 @@ const LOSE_IMAGES = [
     'https://i.postimg.cc/8PyPZRqt/download.jpg'
 ];
 
-// القوائم
+// القوائم لتخزين بيانات المعارك النشطة
 const activePvpChallenges = new Set();
 const activePvpBattles = new Map();
 const activePveBattles = new Map();
@@ -66,21 +67,27 @@ function getWeaponData(sql, member) {
 function getAllSkillData(sql, member) {
     const userRace = getUserRace(member, sql);
     const userSkillsData = sql.prepare("SELECT * FROM user_skills WHERE userID = ? AND guildID = ?").all(member.id, member.guild.id);
-    if (!userSkillsData && !userRace) return {};
     const skillsOutput = {};
-    userSkillsData.forEach(userSkill => {
-        const skillConfig = skillsConfig.find(s => s.id === userSkill.skillID);
-        if (skillConfig && userSkill.skillLevel > 0) {
-            const skillLevel = userSkill.skillLevel;
-            const effectValue = skillConfig.base_value + (skillConfig.value_increment * (skillLevel - 1));
-            skillsOutput[skillConfig.id] = { ...skillConfig, currentLevel: skillLevel, effectValue: effectValue };
-        }
-    });
+    
+    // مهارات مكتسبة
+    if (userSkillsData) {
+        userSkillsData.forEach(userSkill => {
+            const skillConfig = skillsConfig.find(s => s.id === userSkill.skillID);
+            if (skillConfig && userSkill.skillLevel > 0) {
+                const skillLevel = userSkill.skillLevel;
+                const effectValue = skillConfig.base_value + (skillConfig.value_increment * (skillLevel - 1));
+                skillsOutput[skillConfig.id] = { ...skillConfig, currentLevel: skillLevel, effectValue: effectValue };
+            }
+        });
+    }
+
+    // مهارة العرق التلقائية
     if (userRace) {
         const raceSkillId = `race_${userRace.raceName.toLowerCase().replace(' ', '_')}_skill`;
+        // نتأكد أنها غير مضافة مسبقاً
         if (!skillsOutput[raceSkillId]) {
             const skillConfig = skillsConfig.find(s => s.id === raceSkillId);
-            if (skillConfig) skillsOutput[raceSkillId] = { ...skillConfig, currentLevel: 0, effectValue: 0 };
+            if (skillConfig) skillsOutput[raceSkillId] = { ...skillConfig, currentLevel: 1, effectValue: skillConfig.base_value }; // المستوى 1 افتراضياً لمهارة العرق
         }
     }
     return skillsOutput;
@@ -145,6 +152,7 @@ function buildEffectsString(effects) {
     if (effects.buff > 0) arr.push(`💪 (${effects.buff})`);
     if (effects.weaken > 0) arr.push(`📉 (${effects.weaken})`);
     if (effects.poison > 0) arr.push(`☠️ (${effects.poison})`);
+    if (effects.rebound_active > 0) arr.push(`🔄 (${effects.rebound_active})`);
     return arr.length > 0 ? arr.join(' | ') : 'لا يوجد';
 }
 
@@ -190,6 +198,8 @@ async function startPvpBattle(i, client, sql, challengerMember, opponentMember, 
     const setLevel = i.client.setLevel;
     let challengerData = getLevel.get(challengerMember.id, i.guild.id) || { ...client.defaultData, user: challengerMember.id, guild: i.guild.id };
     let opponentData = getLevel.get(opponentMember.id, i.guild.id) || { ...client.defaultData, user: opponentMember.id, guild: i.guild.id };
+    
+    // خصم الرهان
     challengerData.mora -= bet; opponentData.mora -= bet;
     setLevel.run(challengerData); setLevel.run(opponentData);
     
@@ -201,8 +211,8 @@ async function startPvpBattle(i, client, sql, challengerMember, opponentMember, 
         log: [`🔥 بدأ القتال!`], skillPage: 0, processingTurn: false,
         skillCooldowns: { [challengerMember.id]: {}, [opponentMember.id]: {} },
         players: new Map([
-            [challengerMember.id, { member: challengerMember, hp: challengerMaxHp, maxHp: challengerMaxHp, weapon: getWeaponData(sql, challengerMember), skills: getAllSkillData(sql, challengerMember), effects: { shield: 0, buff: 0, weaken: 0, poison: 0 } }],
-            [opponentMember.id, { member: opponentMember, hp: opponentMaxHp, maxHp: opponentMaxHp, weapon: getWeaponData(sql, opponentMember), skills: getAllSkillData(sql, opponentMember), effects: { shield: 0, buff: 0, weaken: 0, poison: 0 } }]
+            [challengerMember.id, { member: challengerMember, hp: challengerMaxHp, maxHp: challengerMaxHp, weapon: getWeaponData(sql, challengerMember), skills: getAllSkillData(sql, challengerMember), effects: { shield: 0, buff: 0, weaken: 0, poison: 0, rebound_active: 0, penetrate: 0 } }],
+            [opponentMember.id, { member: opponentMember, hp: opponentMaxHp, maxHp: opponentMaxHp, weapon: getWeaponData(sql, opponentMember), skills: getAllSkillData(sql, opponentMember), effects: { shield: 0, buff: 0, weaken: 0, poison: 0, rebound_active: 0, penetrate: 0 } }]
         ])
     };
     activePvpBattles.set(i.channel.id, battleState);
@@ -239,7 +249,7 @@ async function startPveBattle(interaction, client, sql, playerMember, monsterDat
         players: new Map([
             [playerMember.id, { 
                 isMonster: false, member: playerMember, hp: playerMaxHp, maxHp: playerMaxHp, weapon: finalPlayerWeapon, 
-                skills: getAllSkillData(sql, playerMember), effects: { shield: 0, buff: 0, weaken: 0, poison: 0 } 
+                skills: getAllSkillData(sql, playerMember), effects: { shield: 0, buff: 0, weaken: 0, poison: 0, rebound_active: 0, penetrate: 0 } 
             }],
             ["monster", { 
                 isMonster: true, name: monsterData.name, hp: monsterMaxHp, maxHp: monsterMaxHp, 
@@ -270,7 +280,7 @@ async function startPveBattle(interaction, client, sql, playerMember, monsterDat
     battleState.message = battleMessage;
 }
 
-// 🌟🌟 دالة النهاية (المعدلة) 🌟🌟
+// 🌟🌟 دالة النهاية 🌟🌟
 async function endBattle(battleState, winnerId, sql, reason = "win") {
     if (!battleState.message) return;
 
@@ -309,7 +319,6 @@ async function endBattle(battleState, winnerId, sql, reason = "win") {
 
             const randomWinImage = WIN_IMAGES[Math.floor(Math.random() * WIN_IMAGES.length)];
             embed.setColor(Colors.Gold);
-            // 🌟 صورة اللاعب المصغرة
             embed.setThumbnail(winner.member.displayAvatarURL());
             embed.setImage(randomWinImage);
 
