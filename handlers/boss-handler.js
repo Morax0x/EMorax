@@ -4,10 +4,10 @@ const { getWeaponData, getUserRace, getAllSkillData } = require('./pvp-core.js')
 // 👑 الآيدي الخاص بك (بدون كولداون)
 const OWNER_ID = '1145327691772481577'; 
 
-const HIT_COOLDOWN = 2 * 60 * 60 * 1000; 
+const HIT_COOLDOWN = 2 * 60 * 60 * 1000; // ساعتين للأعضاء
 const EMOJI_MORA = '<:mora:1435647151349698621>'; 
 
-// ✅ دالة رسم الشريط الجديدة (█ ░) وعدد محدود (12)
+// دالة رسم الشريط (التصميم الجديد █ ░)
 function createProgressBar(current, max, length = 12) {
     const percent = Math.max(0, Math.min(1, current / max));
     const filled = Math.floor(percent * length);
@@ -15,20 +15,24 @@ function createProgressBar(current, max, length = 12) {
     return '█'.repeat(filled) + '░'.repeat(empty);
 }
 
-// ✅ دالة السجل الجديدة (تنسيق محدد مع الرقم الأسود)
-// الصيغة: ╰ Name: استعمل [Tool] وتسبب بضرر `Damage`
-function updateBossLog(boss, displayName, toolName, damage) {
+// دالة تنسيق السجل (الاسم والضرر بالأسود)
+function updateBossLog(boss, username, toolName, damage) {
     let logs = [];
     try { logs = JSON.parse(boss.lastLog || '[]'); } catch (e) {}
     
-    const logEntry = `╰ **${displayName}**: استعمل **${toolName}** وتسبب بضرر \`${damage.toLocaleString()}\``;
+    const logEntry = `╰ **${username}**: استعمل **${toolName}** وتسبب بضرر \`${damage.toLocaleString()}\``;
     
     logs.unshift(logEntry);
-    if (logs.length > 3) logs = logs.slice(0, 3); // آخر 3 هجمات فقط
+    if (logs.length > 3) logs = logs.slice(0, 3); // آخر 3 هجمات
     return JSON.stringify(logs);
 }
 
-// دالة تحديد حالة الزعيم
+// دالة توليد لون عشوائي
+function getRandomColor() {
+    return Math.floor(Math.random() * 16777215);
+}
+
+// دالة حالة الزعيم
 function getBossState(current, max) {
     const percent = (current / max) * 100;
     if (percent > 75) return "مستعد للقتال";
@@ -38,17 +42,22 @@ function getBossState(current, max) {
 }
 
 async function handleBossInteraction(interaction, client, sql) {
+    // قبول الأزرار والقوائم المنسدلة
     if (!interaction.isButton() && !interaction.isStringSelectMenu()) return;
     
     const { customId, guild, user, member } = interaction;
     const guildID = guild.id;
     const userID = user.id;
 
+    // جلب بيانات الوحش
     const boss = sql.prepare("SELECT * FROM world_boss WHERE guildID = ? AND active = 1").get(guildID);
-    if (!boss) return interaction.reply({ content: "❌ **الوحش مات!**", flags: [MessageFlags.Ephemeral] });
+    
+    if (!boss) {
+        return interaction.reply({ content: "❌ **الوحش غير موجود!** (مات أو هرب).", flags: [MessageFlags.Ephemeral] });
+    }
 
     // =========================================================
-    // 1. زر الحالة (❗) - التقرير
+    // 1. زر الحالة (❗) - تقرير المعركة
     // =========================================================
     if (customId === 'boss_status') {
         const leaderboard = sql.prepare("SELECT userID, totalDamage FROM boss_leaderboard WHERE guildID = ? ORDER BY totalDamage DESC LIMIT 5").all(guildID);
@@ -69,20 +78,24 @@ async function handleBossInteraction(interaction, client, sql) {
                 `✬ أبـطـال الـمـعـركـة:\n${lbText}`
             );
         
-        if (boss.image) statusEmbed.setThumbnail(boss.image); // نفس صورة البوس
+        if (boss.image) statusEmbed.setThumbnail(boss.image);
 
         return interaction.reply({ embeds: [statusEmbed], flags: [MessageFlags.Ephemeral] });
     }
 
     // =========================================================
-    // 2. زر المهارات (يفتح القائمة)
+    // 2. زر المهارات (فتح القائمة)
     // =========================================================
     if (customId === 'boss_skill_menu') {
         const userSkills = getAllSkillData(sql, member);
+        // فلترة المهارات (المشتراة أو العرقية)
         const availableSkills = Object.values(userSkills).filter(s => s.currentLevel > 0 || s.id.startsWith('race_'));
 
         if (availableSkills.length === 0) {
-            return interaction.reply({ content: "❌ **ما عندك مهارات!**\nطور مهاراتك من المتجر أو احصل على عرق.", flags: [MessageFlags.Ephemeral] });
+            return interaction.reply({ 
+                content: "❌ **ما عندك مهارات!**\nطور مهاراتك من المتجر أو احصل على عرق لتفعيل المهارات.", 
+                flags: [MessageFlags.Ephemeral] 
+            });
         }
 
         // إنشاء القائمة المنسدلة
@@ -104,12 +117,12 @@ async function handleBossInteraction(interaction, client, sql) {
     }
 
     // =========================================================
-    // 3. التنفيذ (هجوم أو مهارة)
+    // 3. معالجة التنفيذ (هجوم أو مهارة)
     // =========================================================
     let isSkill = false;
     let skillData = null;
 
-    // استلام اختيار القائمة المنسدلة
+    // هل تم اختيار مهارة من القائمة؟
     if (customId === 'boss_execute_skill') {
         isSkill = true;
         const skillId = interaction.values[0]; 
@@ -117,9 +130,13 @@ async function handleBossInteraction(interaction, client, sql) {
         skillData = Object.values(userSkills).find(s => s.id === skillId);
         
         if (!skillData) return interaction.reply({ content: "❌ خطأ في المهارة.", flags: [MessageFlags.Ephemeral] });
-    } else if (customId !== 'boss_attack') return;
+    
+    // هل هو زر الهجوم العادي؟
+    } else if (customId !== 'boss_attack') {
+        return; 
+    }
 
-    // الكولداون (إعفاء الأونر)
+    // ✅ الكولداون (الأونر معفي)
     const isOwner = (userID === OWNER_ID); 
     const now = Date.now();
     
@@ -131,10 +148,10 @@ async function handleBossInteraction(interaction, client, sql) {
         }
     }
 
-    // حساب الضرر والسلاح
+    // ✅ حساب الضرر والسلاح
     let damage = 10; 
     const userRace = getUserRace(member, sql);
-    let toolName = "خنجر"; // الاسم الذي سيظهر في السجل
+    let toolName = "خنجر"; 
 
     if (userRace) {
         const weapon = getWeaponData(sql, member);
@@ -147,11 +164,11 @@ async function handleBossInteraction(interaction, client, sql) {
         }
     }
 
-    // تعديل الضرر إذا كان مهارة
+    // تعديل الضرر واسم الأداة إذا كانت مهارة
     if (isSkill && skillData) {
         const multiplier = 1 + (skillData.effectValue / 100); 
         damage = Math.floor(damage * multiplier);
-        toolName = skillData.name; // تغيير اسم الأداة لاسم المهارة
+        toolName = skillData.name; 
     }
 
     // الضربة الحرجة
@@ -161,13 +178,14 @@ async function handleBossInteraction(interaction, client, sql) {
         isCrit = true;
     }
 
-    // تطبيق الضرر
+    // =========================================================
+    // 4. الحفظ في قاعدة البيانات
+    // =========================================================
     let newHP = boss.currentHP - damage;
     if (newHP < 0) newHP = 0;
 
     // تحديث السجل بالشكل الجديد
     const newLogStr = updateBossLog(boss, member.displayName, toolName, damage);
-    
     sql.prepare("UPDATE world_boss SET currentHP = ?, lastLog = ? WHERE guildID = ?").run(newHP, newLogStr, guildID);
     
     if (!isOwner) {
@@ -177,7 +195,9 @@ async function handleBossInteraction(interaction, client, sql) {
     const userDmgRecord = sql.prepare("SELECT totalDamage FROM boss_leaderboard WHERE guildID = ? AND userID = ?").get(guildID, userID);
     sql.prepare("INSERT OR REPLACE INTO boss_leaderboard (guildID, userID, totalDamage) VALUES (?, ?, ?)").run(guildID, userID, (userDmgRecord ? userDmgRecord.totalDamage : 0) + damage);
 
-    // الجوائز
+    // =========================================================
+    // 5. الجوائز
+    // =========================================================
     let rewardMsg = "";
     const roll = Math.random() * 100;
     let userData = client.getLevel.get(userID, guildID) || { ...client.defaultData, user: userID, guild: guildID };
@@ -204,19 +224,20 @@ async function handleBossInteraction(interaction, client, sql) {
     }
     client.setLevel.run(userData);
 
-    // --- تحديث الرسالة (الشكل الجديد) ---
+    // =========================================================
+    // 6. تحديث الرسالة (الشكل الجديد + لون عشوائي)
+    // =========================================================
     const bossMsg = await interaction.channel.messages.fetch(boss.messageID).catch(() => null);
     if (bossMsg) {
         const hpPercent = Math.floor((newHP / boss.maxHP) * 100);
-        const progressBar = createProgressBar(newHP, boss.maxHP, 12); // نفس طول الأمر
+        const progressBar = createProgressBar(newHP, boss.maxHP, 12);
         
         let logsArr = [];
         try { logsArr = JSON.parse(newLogStr); } catch(e){}
         const logDisplay = logsArr.length > 0 ? logsArr.join('\n') : "╰ بانتظار الهجوم الأول...";
 
-        // الحفاظ على الصورة والثامبنيل القديمين
-        const oldEmbed = bossMsg.embeds[0];
-        const newEmbed = EmbedBuilder.from(oldEmbed)
+        const newEmbed = EmbedBuilder.from(bossMsg.embeds[0])
+            .setColor(getRandomColor()) // 🌈 لون عشوائي
             .setDescription(
                 `✬ ظـهـر زعـيـم في السـاحـة تـعانـوا عـلـى قتاله واكسبوا الجوائـز !\n\n` +
                 `✬ **نـقـاط صـحـة الزعـيـم:**\n` +
@@ -225,7 +246,7 @@ async function handleBossInteraction(interaction, client, sql) {
                 `✬ **سـجـل الـمـعـركـة:**\n` +
                 `${logDisplay}`
             )
-            .setFields([]); // التأكد من عدم وجود Fields
+            .setFields([]); // ضمان عدم وجود Fields
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('boss_attack').setLabel('هـجـوم').setStyle(ButtonStyle.Danger).setEmoji('⚔️'),
@@ -237,6 +258,7 @@ async function handleBossInteraction(interaction, client, sql) {
             newEmbed.setTitle(`💀 **سقط ${boss.name}!**`)
                 .setDescription(`🎉 **النصر للأبطال!**\n\n👑 صاحب الضربة القاضية:\n**${member.displayName}**`)
                 .setColor(Colors.Gold);
+            
             await bossMsg.edit({ embeds: [newEmbed], components: [] });
             sql.prepare("UPDATE world_boss SET active = 0 WHERE guildID = ?").run(guildID);
             sql.prepare("DELETE FROM boss_leaderboard WHERE guildID = ?").run(guildID);
