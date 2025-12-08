@@ -1,7 +1,7 @@
 const { AttachmentBuilder } = require("discord.js");
 const { RankCardBuilder } = require("discord-card-canvas");
 
-// دالة لتوليد كود لون سداسي عشري عشوائي
+// دالة لتوليد كود لون سداسي عشري عشوائي (للفقاعات الخلفية فقط)
 function getRandomColorHex() {
     const randomColor = Math.floor(Math.random() * 16777215).toString(16);
     return `#${randomColor.padStart(6, '0')}`;
@@ -22,7 +22,7 @@ module.exports = {
             const score = getScore.get(user.id, message.guild.id);
 
             if (!score) {
-                return message.reply("This user is not ranked yet.");
+                return message.reply("⚠️ **لم يتم تصنيف هذا العضو بعد.**");
             }
 
             const allScores = sql.prepare("SELECT * FROM levels WHERE guild = ? ORDER BY totalXP DESC").all(message.guild.id);
@@ -30,44 +30,44 @@ module.exports = {
 
             const requiredXP = 5 * (score.level ** 2) + (50 * score.level) + 100;
 
-            // --- الألوان ---
-            const randomAccentColor = getRandomColorHex(); // لون عشوائي للفقاعات
-
-            // الألوان الثابتة (الزرقاء) التي لا يمكن تغييرها
-            const hardcodedBlue = "#0CA7FF"; 
-            const backgroundColor = "#070d19";
+            // --- الألوان والتصميم ---
+            const randomAccentColor = getRandomColorHex(); 
+            const primaryColor = "#F1C40F"; // ذهبي (متناسق مع البوت)
+            const secondaryColor = "#FFFFFF"; // أبيض للنصوص
+            const backgroundColor = "#070d19"; // خلفية داكنة
 
             const userStatus = user.presence ? user.presence.status : "offline";
 
-            // الكود الذي يعمل (نمط الكائن)
             const card = new RankCardBuilder({
                 currentLvl: score.level,
                 currentRank: rank,
-                currentXP: score.xp, 
+                currentXP: score.xp, 
                 requiredXP: requiredXP,
 
-                // 1. الفقاعات (الشيء الوحيد الذي يتغير)
+                // الخلفية والفقاعات
                 backgroundColor: { background: backgroundColor, bubbles: randomAccentColor }, 
 
-                avatarImgURL: user.user.displayAvatarURL({ extension: 'png' }),
+                avatarImgURL: user.user.displayAvatarURL({ extension: 'png', forceStatic: true }),
 
-                // 2. استخدام اللون الأزرق الثابت لباقي العناصر
-                nicknameText: { content: user.user.tag, font: 'Nunito', color: hardcodedBlue },
+                // النصوص والخطوط (استخدام خط Bein)
+                nicknameText: { content: user.user.username, font: 'Bein', color: primaryColor }, // اسم المستخدم
                 userStatus: userStatus,
-                progressbarColor: hardcodedBlue,
-                levelText: { font: 'Nunito', color: hardcodedBlue },
-                rankText: { font: 'Nunito', color: hardcodedBlue },
-                xpText: { font: 'Nunito', color: hardcodedBlue },
+                progressbarColor: primaryColor, // شريط التقدم ذهبي
+                
+                // تفاصيل النصوص
+                levelText: { font: 'Bein', color: secondaryColor },
+                rankText: { font: 'Bein', color: secondaryColor },
+                xpText: { font: 'Bein', color: secondaryColor },
             });
 
             const canvasRank = await card.build();
-
             const attachment = new AttachmentBuilder(canvasRank.toBuffer(), { name: 'rank.png' });
+            
             message.channel.send({ files: [attachment] });
 
         } catch (error) {
             console.error("Error creating rank card:", error);
-            message.reply("There was an error generating the rank card.");
+            message.reply("❌ حدث خطأ أثناء إنشاء البطاقة. تأكد من أن الخطوط محملة بشكل صحيح.");
         }
     }
 }
