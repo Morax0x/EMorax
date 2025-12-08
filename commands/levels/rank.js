@@ -1,73 +1,73 @@
 const { AttachmentBuilder } = require("discord.js");
 const { RankCardBuilder } = require("discord-card-canvas");
 
-// دالة لتوليد كود لون سداسي عشري عشوائي (للفقاعات الخلفية فقط)
+// دالة لتوليد كود لون سداسي عشري عشوائي
 function getRandomColorHex() {
-    const randomColor = Math.floor(Math.random() * 16777215).toString(16);
-    return `#${randomColor.padStart(6, '0')}`;
+    const randomColor = Math.floor(Math.random() * 16777215).toString(16);
+    return `#${randomColor.padStart(6, '0')}`;
 }
 
 module.exports = {
-    name: 'rank',
-    aliases: ['level', 'lvl', 'مستوى'],
-    category: "Leveling",
-    description: "Displays your current level and rank.",
-    cooldown: 5,
-    async execute(message, args) {
-        try {
-            const user = message.mentions.members.first() || message.guild.members.cache.get(args[0]) || message.member;
+    name: 'rank',
+    aliases: ['level', 'lvl', 'مستوى'],
+    category: "Leveling",
+    description: "Displays your current level and rank.",
+    cooldown: 5,
+    async execute(message, args) {
+        try {
+            const user = message.mentions.members.first() || message.guild.members.cache.get(args[0]) || message.member;
 
-            const sql = message.client.sql;
-            const getScore = message.client.getLevel;
-            const score = getScore.get(user.id, message.guild.id);
+            const sql = message.client.sql;
+            const getScore = message.client.getLevel;
+            const score = getScore.get(user.id, message.guild.id);
 
-            if (!score) {
-                return message.reply("⚠️ **لم يتم تصنيف هذا العضو بعد.**");
-            }
+            if (!score) {
+                return message.reply("This user is not ranked yet.");
+            }
 
-            const allScores = sql.prepare("SELECT * FROM levels WHERE guild = ? ORDER BY totalXP DESC").all(message.guild.id);
-            const rank = allScores.findIndex(s => s.user === user.id) + 1;
+            const allScores = sql.prepare("SELECT * FROM levels WHERE guild = ? ORDER BY totalXP DESC").all(message.guild.id);
+            const rank = allScores.findIndex(s => s.user === user.id) + 1;
 
-            const requiredXP = 5 * (score.level ** 2) + (50 * score.level) + 100;
+            const requiredXP = 5 * (score.level ** 2) + (50 * score.level) + 100;
 
-            // --- الألوان والتصميم ---
-            const randomAccentColor = getRandomColorHex(); 
-            const primaryColor = "#F1C40F"; // ذهبي (متناسق مع البوت)
-            const secondaryColor = "#FFFFFF"; // أبيض للنصوص
-            const backgroundColor = "#070d19"; // خلفية داكنة
+            // --- الألوان ---
+            const randomAccentColor = getRandomColorHex(); // لون عشوائي للفقاعات
 
-            const userStatus = user.presence ? user.presence.status : "offline";
+            // الألوان الثابتة (الزرقاء) التي لا يمكن تغييرها
+            const hardcodedBlue = "#0CA7FF"; 
+            const backgroundColor = "#070d19";
 
-            const card = new RankCardBuilder({
-                currentLvl: score.level,
-                currentRank: rank,
-                currentXP: score.xp, 
-                requiredXP: requiredXP,
+            const userStatus = user.presence ? user.presence.status : "offline";
 
-                // الخلفية والفقاعات
-                backgroundColor: { background: backgroundColor, bubbles: randomAccentColor }, 
+            // الكود الذي يعمل (نمط الكائن)
+            const card = new RankCardBuilder({
+                currentLvl: score.level,
+                currentRank: rank,
+                currentXP: score.xp, 
+                requiredXP: requiredXP,
 
-                avatarImgURL: user.user.displayAvatarURL({ extension: 'png', forceStatic: true }),
+                // 1. الفقاعات (الشيء الوحيد الذي يتغير)
+                backgroundColor: { background: backgroundColor, bubbles: randomAccentColor }, 
 
-                // النصوص والخطوط (استخدام خط Bein)
-                nicknameText: { content: user.user.username, font: 'Bein', color: primaryColor }, // اسم المستخدم
-                userStatus: userStatus,
-                progressbarColor: primaryColor, // شريط التقدم ذهبي
-                
-                // تفاصيل النصوص
-                levelText: { font: 'Bein', color: secondaryColor },
-                rankText: { font: 'Bein', color: secondaryColor },
-                xpText: { font: 'Bein', color: secondaryColor },
-            });
+                avatarImgURL: user.user.displayAvatarURL({ extension: 'png' }),
 
-            const canvasRank = await card.build();
-            const attachment = new AttachmentBuilder(canvasRank.toBuffer(), { name: 'rank.png' });
-            
-            message.channel.send({ files: [attachment] });
+                // 2. استخدام اللون الأزرق الثابت لباقي العناصر
+                nicknameText: { content: user.user.tag, font: 'Nunito', color: hardcodedBlue },
+                userStatus: userStatus,
+                progressbarColor: hardcodedBlue,
+                levelText: { font: 'Nunito', color: hardcodedBlue },
+                rankText: { font: 'Nunito', color: hardcodedBlue },
+                xpText: { font: 'Nunito', color: hardcodedBlue },
+            });
 
-        } catch (error) {
-            console.error("Error creating rank card:", error);
-            message.reply("❌ حدث خطأ أثناء إنشاء البطاقة. تأكد من أن الخطوط محملة بشكل صحيح.");
-        }
-    }
+            const canvasRank = await card.build();
+
+            const attachment = new AttachmentBuilder(canvasRank.toBuffer(), { name: 'rank.png' });
+            message.channel.send({ files: [attachment] });
+
+        } catch (error) {
+            console.error("Error creating rank card:", error);
+            message.reply("There was an error generating the rank card.");
+        }
+    }
 }
