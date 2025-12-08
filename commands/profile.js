@@ -6,10 +6,8 @@ const { createCanvas, loadImage } = require('canvas'); // ❌ تم حذف regist
 const path = require('path');
 
 // --- ( 1. تعريف الخط الموحد ) ---
-// نستخدم الاسم "Cairo" الذي سجلناه في ملف index.js
-const FONT_MAIN = 'Cairo'; 
-
-// ❌ تم حذف كود تسجيل الخط من هنا
+// نستخدم الاسم "Bein" الذي سجلناه في ملف index.js
+const FONT_MAIN = 'Bein'; 
 
 const RACE_TRANSLATIONS = new Map([
     ['Human', 'بشري'],
@@ -25,7 +23,7 @@ const RACE_TRANSLATIONS = new Map([
     ['Hybrid', 'نصف وحش']
 ]);
 
-// --- ( 🌟 دالة رسم النص مع الأيقونة ) ---
+// --- ( دالة رسم النص مع الأيقونة ) ---
 async function drawTextWithIcon(ctx, text, x, y, iconUrl) {
     // 1. رسم النص (الأرقام)
     ctx.fillText(text, x, y);
@@ -151,13 +149,14 @@ async function buildGeneralProfile(client, member, targetUser) {
     ctx.shadowBlur = 4;
     const xpText = `${currentXP_Progress.toLocaleString()} / ${requiredXP.toLocaleString()} XP`;
 
-    // استخدام الخط الجديد Cairo
-    ctx.font = `bold 14px "${FONT_MAIN}"`;
+    // 🌟🌟 التصحيح هنا: حذفنا كلمة bold واستخدمنا 14px عادي 🌟🌟
+    ctx.font = `14px "${FONT_MAIN}"`; 
     ctx.textAlign = 'center';
     ctx.fillStyle = '#FFAA40';
     ctx.fillText(xpText, barX + (barWidth / 2), barY - 8);
 
-    ctx.font = `bold 30px "${FONT_MAIN}"`;
+    // 🌟🌟 وهنا حذفنا bold واستخدمنا 30px عادي 🌟🌟
+    ctx.font = `30px "${FONT_MAIN}"`;
     ctx.textAlign = 'left';
     ctx.fillText(level, 40, 150);
 
@@ -245,7 +244,8 @@ async function buildPvpProfile(client, member, targetUser) {
     ctx.shadowColor = '#FFAA40';
     ctx.shadowBlur = 4;
 
-    ctx.font = `bold 30px "${FONT_MAIN}"`; 
+    // 🌟 حذفنا bold 🌟
+    ctx.font = `30px "${FONT_MAIN}"`; 
     ctx.textAlign = 'left';
     ctx.fillText(level, 40, 150);
 
