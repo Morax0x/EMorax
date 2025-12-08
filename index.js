@@ -73,7 +73,7 @@ try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id IN
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
-const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
+const { checkLoanPayments } = require('./handlers/loan-handler.js'); // ✅ استدعاء مرة واحدة هنا
 
 const questsConfig = require('./json/quests-config.json');
 const farmAnimals = require('./json/farm-animals.json');
@@ -264,11 +264,6 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
                 ld.mora = (ld.mora || 0) + ach.reward.mora;
                 ld.xp += ach.reward.xp;
                 ld.totalXP += ach.reward.xp;
-                const nextXP = 5 * (ld.level ** 2) + (50 * ld.level) + 100;
-                if (ld.xp >= nextXP) {
-                    ld.xp -= nextXP;
-                    ld.level += 1;
-                }
                 client.setLevel.run(ld);
                 await client.sendQuestAnnouncement(member.guild, member, ach, 'achievement');
             }
@@ -314,6 +309,7 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         if (stat === 'replies_sent') totalStats.total_replies_sent = (totalStats.total_replies_sent || 0) + amount;
         if (stat === 'mentions_received') totalStats.total_mentions_received = (totalStats.total_mentions_received || 0) + amount;
         if (stat === 'vc_minutes') totalStats.total_vc_minutes = (totalStats.total_vc_minutes || 0) + amount;
+        if (stat === 'streaming_minutes') totalStats.total_vc_minutes = (totalStats.total_vc_minutes || 0); // (البث لا يضاف للوقت الكلي هنا، يضاف في ملف الفويس)
           
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
@@ -405,7 +401,6 @@ function updateMarketPrices() {
     } catch (err) { console.error("[Market] Error updating prices:", err.message); }
 }
 
-// ( 🌟 استدعاء دالة القروض الجديدة 🌟 )
 const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
 
 async function processFarmYields() {
@@ -584,7 +579,7 @@ client.on(Events.ClientReady, async () => {
     setInterval(updateMarketPrices, 60 * 60 * 1000); updateMarketPrices();
     
     // ( 🌟 دالة القروض المفصولة 🌟 )
-    setInterval(() => checkLoanPayments(client, sql), 60 * 60 * 1000);
+    setInterval(() => checkLoanPayments(client, sql), 60 * 60 * 1000); // كل ساعة
 
     setInterval(processFarmYields, 60 * 60 * 1000); processFarmYields();
     setInterval(() => checkDailyStreaks(client, sql), 3600000); checkDailyStreaks(client, sql);
