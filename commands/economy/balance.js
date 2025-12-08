@@ -1,24 +1,14 @@
 const { AttachmentBuilder, SlashCommandBuilder } = require("discord.js");
 const Canvas = require('canvas');
-const { registerFont } = require('canvas');
 const path = require('path'); 
 
-// --- ( 1. تسجيل الخط الموحد ) ---
-try {
-    // تم التغيير إلى bein-ar-normal.ttf
-    const fontPath = path.join(__dirname, '../../fonts/bein-ar-normal.ttf');
-    registerFont(fontPath, { family: 'Bein' }); // تم تسميته Bein
-    console.log("[Bank Card Font] تم تسجيل الخط بنجاح: Bein (bein-ar-normal)");
-} catch (err) {
-    console.error("خطأ فادح: لم يتم العثور على مجلد 'fonts' أو ملف الخط 'bein-ar-normal.ttf'.");
-    console.error(err);
-}
+// ❌ تم حذف كود تسجيل الخط من هنا لأننا وضعناه في index.js
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('رصيد')
         .setDescription('يعرض رصيدك من المورا في بطاقة بنكية احترافية.')
-        .addUserOption(option =>
+        .addUserOption(option => 
             option.setName('المستخدم')
             .setDescription('المستخدم الذي تريد عرض رصيده (اختياري)')
             .setRequired(false)),
@@ -29,10 +19,7 @@ module.exports = {
     description: "يعرض رصيدك من المورا في بطاقة بنكية احترافية.",
 
     async execute(interactionOrMessage, args) {
-
-        // تصحيح: إزالة علامات التعجب الزائدة والفاصلة المنقوطة المكررة
         const isSlash = interactionOrMessage.isChatInputCommand;
-
         let interaction, message, member, client, guild;
         let user; 
 
@@ -41,7 +28,6 @@ module.exports = {
                 interaction = interactionOrMessage;
                 client = interaction.client;
                 guild = interaction.guild;
-
                 const targetUser = interaction.options.getUser('المستخدم') || interaction.user;
                 user = targetUser;
                 member = await guild.members.fetch(targetUser.id).catch(() => null);
@@ -50,12 +36,10 @@ module.exports = {
                     return interaction.reply({ content: 'لم أتمكن من العثور على هذا العضو في السيرفر.', ephemeral: true });
                 }
                 await interaction.deferReply();
-
             } else {
                 message = interactionOrMessage;
                 client = message.client;
                 guild = message.guild;
-
                 member = message.mentions.members.first() || message.guild.members.cache.get(args[0]) || message.member;
                 user = member.user;
             }
@@ -73,12 +57,11 @@ module.exports = {
             const getScore = client.getLevel;
             let data = getScore.get(user.id, guild.id);
 
-            // تأمين البيانات في حال كانت غير موجودة
+            // تأمين البيانات
             if (!data) {
                 data = { mora: 0, bank: 0 };
             }
 
-            // استخدام || 0 لضمان أن القيمة رقم وليست null
             const safeMora = data.mora || 0;
             const safeBank = data.bank || 0;
 
@@ -102,11 +85,9 @@ module.exports = {
             context.textAlign = 'left';
             context.fillStyle = '#E0B04A'; 
 
-            // ( 🌟 تم التحديث هنا لاستخدام الخط الجديد 🌟 )
-            context.font = '48px "Bein"'; 
+            // 👇 (التعديل هنا: استخدام اسم Cairo الذي عرفناه في الانديكس)
+            context.font = 'bold 48px "Cairo"'; 
 
-            // 🔥 هنا الإصلاح الجذري لمشكلة toLocaleString 🔥
-            // نستخدم المتغيرات الآمنة safeMora و safeBank
             context.fillText(safeMora.toLocaleString(), 335, 235); 
             context.fillText(safeBank.toLocaleString(), 335, 340); 
 
@@ -116,7 +97,7 @@ module.exports = {
 
         } catch (error) {
             console.error("Error creating balance card:", error);
-            const errorPayload = { content: "حدث خطأ أثناء إنشاء بطاقة الرصيد. (تأكد من وجود ملف bein-ar-normal.ttf في مجلد fonts)", ephemeral: true };
+            const errorPayload = { content: "حدث خطأ أثناء إنشاء بطاقة الرصيد.", ephemeral: true };
             if (isSlash) {
                 if (interaction.deferred || interaction.replied) {
                     await interaction.editReply(errorPayload);
