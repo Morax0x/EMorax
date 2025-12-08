@@ -73,7 +73,7 @@ try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id IN
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
-const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
+const { checkLoanPayments } = require('./handlers/loan-handler.js'); // ✅ هذا هو التعريف الوحيد الآن
 
 const questsConfig = require('./json/quests-config.json');
 const farmAnimals = require('./json/farm-animals.json');
@@ -401,7 +401,7 @@ function updateMarketPrices() {
     } catch (err) { console.error("[Market] Error updating prices:", err.message); }
 }
 
-const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
+// ⚠️ تم حذف سطر checkLoanPayments من هنا لأنه موجود بالأعلى ⚠️
 
 async function processFarmYields() {
     if (!sql.open) return;
