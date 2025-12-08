@@ -51,12 +51,12 @@ module.exports = {
 
                 avatarImgURL: user.user.displayAvatarURL({ extension: 'png' }),
 
-                // 2. استخدام الخط 'Cairo' للنصوص والأسماء
+                // 2. استخدام الخط 'Cairo' للنصوص والأسماء (بدون تباعد)
                 nicknameText: { content: user.user.tag, font: 'Cairo', color: hardcodedBlue },
                 userStatus: userStatus,
                 progressbarColor: hardcodedBlue,
                 
-                // 3. استخدام الخط 'Cairo' للأرقام (لضمان ظهورها بشكل صحيح)
+                // 3. استخدام الخط 'Cairo' للأرقام لضمان ظهورها بشكل صحيح
                 levelText: { font: 'Cairo', color: hardcodedBlue },
                 rankText: { font: 'Cairo', color: hardcodedBlue },
                 xpText: { font: 'Cairo', color: hardcodedBlue },
