@@ -1,31 +1,25 @@
 const { SlashCommandBuilder, EmbedBuilder, ButtonBuilder, ActionRowBuilder, ButtonStyle, ComponentType, Colors } = require('discord.js');
-const { calculateMoraBuff } = require('../../streak-handler.js'); // لاستخدامه في الفردي فقط
+const { calculateMoraBuff } = require('../../streak-handler.js'); 
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
-const OWNER_ID = "1145327691772481577"; // 🔒 آيدي المالك (استثناء الكولداون)
+const OWNER_ID = "1145327691772481577"; 
 const ROCK = '🪨';
 const PAPER = '📄';
 const SCISSORS = '✂️';
 const MOVES = [ROCK, PAPER, SCISSORS];
 
 const MIN_BET = 20;
-const MAX_BET_SOLO = 100; // 🔒 الحد الأقصى للفردي
-const COOLDOWN_MS = 1 * 60 * 60 * 1000; // 1 ساعة
+const MAX_BET_SOLO = 100; 
+const COOLDOWN_MS = 1 * 60 * 60 * 1000; 
 
-// دالة تنسيق الوقت
 function formatTime(ms) {
     if (ms < 0) ms = 0;
     const totalSeconds = Math.floor(ms / 1000);
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
-    
-    const hh = String(hours).padStart(2, '0');
-    const mm = String(minutes).padStart(2, '0');
-    const ss = String(seconds).padStart(2, '0');
-    
-    if (hours > 0) return `${hh}:${mm}:${ss}`;
-    return `${mm}:${ss}`;
+    if (hours > 0) return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
 module.exports = {
@@ -49,12 +43,13 @@ module.exports = {
 
     async execute(interactionOrMessage, args) {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
-        let interaction, message, user, guild, client, channel;
+        let interaction, message, user, guild, client, channel, member;
         let betInput, opponentInput;
 
         if (isSlash) {
             interaction = interactionOrMessage;
             user = interaction.user;
+            member = interaction.member;
             guild = interaction.guild;
             client = interaction.client;
             channel = interaction.channel;
@@ -64,6 +59,7 @@ module.exports = {
         } else {
             message = interactionOrMessage;
             user = message.author;
+            member = message.member;
             guild = message.guild;
             client = message.client;
             channel = message.channel;
@@ -82,11 +78,25 @@ module.exports = {
             return message.channel.send(payload);
         };
 
+        // تهيئة المتغيرات
+        if (!client.activeGames) client.activeGames = new Set();
+        if (!client.activePlayers) client.activePlayers = new Set(); // لتتبع اللاعبين النشطين
+
+        // 1. التحقق من اللاعب النشط (لمنع السبام ولعب أكثر من لعبة)
+        if (client.activePlayers.has(user.id)) {
+            return reply({ content: "🚫 لديك لعبة نشطة بالفعل! أكملها أولاً.", ephemeral: true });
+        }
+
+        // 2. التحقق من القناة (لمنع التداخل)
+        if (client.activeGames.has(channel.id)) {
+            return reply({ content: "🚫 هناك لعبة جارية في هذه القناة. انتظر انتهائها.", ephemeral: true });
+        }
+
         const sql = client.sql;
         let userData = client.getLevel.get(user.id, guild.id);
         if (!userData) userData = { ...client.defaultData, user: user.id, guild: guild.id };
 
-        // 1. التحقق من الكولداون (قبل كل شيء)
+        // 3. التحقق من الكولداون
         const now = Date.now();
         if (user.id !== OWNER_ID) {
             const timeLeft = (userData.lastRPS || 0) + COOLDOWN_MS - now;
@@ -95,14 +105,12 @@ module.exports = {
             }
         }
 
-        // --- منطق المراهنة التلقائية ---
+        // --- المراهنة التلقائية ---
         if (!betInput) {
             let proposedBet = 100;
             const userBalance = userData.mora;
 
             if (userBalance < MIN_BET) return reply({ content: `❌ لا تملك مورا كافية للعب (الحد الأدنى ${MIN_BET})!`, ephemeral: true });
-            
-            // إذا رصيده أقل من 100، نقترح كل رصيده
             if (userBalance < 100) proposedBet = userBalance;
 
             const autoBetEmbed = new EmbedBuilder()
@@ -120,9 +128,9 @@ module.exports = {
 
             const confirmMsg = await reply({ embeds: [autoBetEmbed], components: [row], fetchReply: true });
             
-            // إضافة للقائمة النشطة مؤقتاً
-            if (!client.activeGames) client.activeGames = new Set();
+            // حجز القناة واللاعب مؤقتاً
             client.activeGames.add(channel.id);
+            client.activePlayers.add(user.id);
 
             const filter = i => i.user.id === user.id && (i.customId === 'rps_auto_confirm' || i.customId === 'rps_auto_cancel');
             
@@ -132,43 +140,45 @@ module.exports = {
                 if (confirmation.customId === 'rps_auto_cancel') {
                     await confirmation.update({ content: '❌ تم الإلغاء.', embeds: [], components: [] });
                     client.activeGames.delete(channel.id);
+                    client.activePlayers.delete(user.id);
                     return;
                 }
 
                 if (confirmation.customId === 'rps_auto_confirm') {
-                    // هام: استخدام deferUpdate بدلاً من update لتجنب خطأ التفاعل المنتهي
-                    await confirmation.deferUpdate(); 
-                    
-                    // حذف رسالة التأكيد
+                    await confirmation.deferUpdate();
                     if (!isSlash) await confirmMsg.delete().catch(() => {});
-                    else await confirmation.editReply({ content: '✅', embeds: [], components: [] }); // أو حذفها إذا أمكن
+                    else await confirmation.editReply({ content: '✅', embeds: [], components: [] });
 
-                    // إزالة من القائمة النشطة للسماح ببدء اللعبة الفعلية
+                    // إزالة الحجز المؤقت لبدء اللعبة الفعلية (سيتم إعادة الحجز داخل الدالة)
                     client.activeGames.delete(channel.id);
-                    return startGame(channel, user, opponentInput, proposedBet, client, guild, sql, isSlash ? interaction : null);
+                    client.activePlayers.delete(user.id);
+
+                    // تمرير member بدلاً من user لحساب البفات
+                    return startGame(channel, user, member, opponentInput, proposedBet, client, guild, sql, isSlash ? interaction : null);
                 }
             } catch (e) {
                 client.activeGames.delete(channel.id);
+                client.activePlayers.delete(user.id);
                 if (!isSlash) await confirmMsg.delete().catch(() => {});
                 else await interaction.editReply({ content: '⏰ انتهى الوقت.', embeds: [], components: [] });
                 return;
             }
         } else {
-            return startGame(channel, user, opponentInput, betInput, client, guild, sql, isSlash ? interaction : null);
+            return startGame(channel, user, member, opponentInput, betInput, client, guild, sql, isSlash ? interaction : null);
         }
     }
 };
 
-async function startGame(channel, user, opponent, bet, client, guild, sql, interaction) {
-    if (!client.activeGames) client.activeGames = new Set();
-    const activeGames = client.activeGames;
-
-    if (activeGames.has(channel.id)) {
+async function startGame(channel, user, member, opponent, bet, client, guild, sql, interaction) {
+    if (client.activeGames.has(channel.id)) {
         const msg = "🚫 هناك لعبة جارية في هذه القناة.";
         if (interaction && !interaction.replied) await interaction.followUp({ content: msg, ephemeral: true });
         else channel.send(msg);
         return;
     }
+    
+    // التحقق مرة أخرى من اللاعب النشط
+    if (client.activePlayers.has(user.id)) return;
 
     let userData = client.getLevel.get(user.id, guild.id);
     if (!userData || userData.mora < bet) {
@@ -180,6 +190,12 @@ async function startGame(channel, user, opponent, bet, client, guild, sql, inter
 
     // --- PvP ---
     if (opponent && opponent.id !== user.id && !opponent.bot) {
+        if (client.activePlayers.has(opponent.id)) {
+            const msg = `🚫 اللاعب ${opponent} لديه لعبة نشطة بالفعل.`;
+            if (interaction) await interaction.followUp(msg); else channel.send(msg);
+            return;
+        }
+
         let opponentData = client.getLevel.get(opponent.id, guild.id);
         if (!opponentData || opponentData.mora < bet) {
             const msg = `❌ الخصم ${opponent} لا يملك مورا كافية!`;
@@ -188,7 +204,9 @@ async function startGame(channel, user, opponent, bet, client, guild, sql, inter
             return;
         }
 
-        activeGames.add(channel.id);
+        client.activeGames.add(channel.id);
+        client.activePlayers.add(user.id);
+        client.activePlayers.add(opponent.id);
 
         const inviteEmbed = new EmbedBuilder()
             .setTitle('🥊 تحدي حجرة ورقة مقص')
@@ -213,7 +231,9 @@ async function startGame(channel, user, opponent, bet, client, guild, sql, inter
             const response = await inviteMsg.awaitMessageComponent({ filter, time: 30000 });
             
             if (response.customId === 'rps_decline') {
-                activeGames.delete(channel.id);
+                client.activeGames.delete(channel.id);
+                client.activePlayers.delete(user.id);
+                client.activePlayers.delete(opponent.id);
                 await response.update({ content: `❌ تم رفض التحدي.`, embeds: [], components: [] });
                 return;
             }
@@ -224,7 +244,9 @@ async function startGame(channel, user, opponent, bet, client, guild, sql, inter
             opponentData = client.getLevel.get(opponent.id, guild.id);
             
             if (userData.mora < bet || opponentData.mora < bet) {
-                activeGames.delete(channel.id);
+                client.activeGames.delete(channel.id);
+                client.activePlayers.delete(user.id);
+                client.activePlayers.delete(opponent.id);
                 return inviteMsg.edit({ content: "❌ أحد اللاعبين صرف أمواله قبل بدء اللعبة!", embeds: [], components: [] });
             }
 
@@ -234,10 +256,12 @@ async function startGame(channel, user, opponent, bet, client, guild, sql, inter
             client.setLevel.run(userData);
             client.setLevel.run(opponentData);
 
-            await runRPSRound(inviteMsg, user, opponent, bet, true, client, guild, sql);
+            await runRPSRound(inviteMsg, user, member, opponent, bet, true, client, guild, sql);
 
         } catch (e) {
-            activeGames.delete(channel.id);
+            client.activeGames.delete(channel.id);
+            client.activePlayers.delete(user.id);
+            client.activePlayers.delete(opponent.id);
             await inviteMsg.edit({ content: "⏰ انتهى وقت قبول التحدي.", embeds: [], components: [] });
         }
 
@@ -252,14 +276,13 @@ async function startGame(channel, user, opponent, bet, client, guild, sql, inter
              return;
         }
 
-        activeGames.add(channel.id);
+        client.activeGames.add(channel.id);
+        client.activePlayers.add(user.id);
 
         userData.mora -= bet;
         if (user.id !== OWNER_ID) userData.lastRPS = Date.now();
         client.setLevel.run(userData);
         
-        // ( 🌟 الحل هنا: إرسال اللوحة مباشرة كرسالة جديدة 🌟 )
-        let msg;
         const initialEmbed = new EmbedBuilder()
             .setTitle('حجرة ورقة مقص!')
             .setDescription(`اختر حركتك يا ${user.username}!`)
@@ -271,6 +294,7 @@ async function startGame(channel, user, opponent, bet, client, guild, sql, inter
             new ButtonBuilder().setCustomId('rps_scissors').setEmoji(SCISSORS).setStyle(ButtonStyle.Secondary)
         );
 
+        let msg;
         if (interaction) {
              if (!interaction.replied) {
                 msg = await interaction.editReply({ content: " ", embeds: [initialEmbed], components: [initialRow] });
@@ -281,13 +305,11 @@ async function startGame(channel, user, opponent, bet, client, guild, sql, inter
              msg = await channel.send({ content: " ", embeds: [initialEmbed], components: [initialRow] });
         }
         
-        await runRPSRound(msg, user, null, bet, false, client, guild, sql);
+        await runRPSRound(msg, user, member, null, bet, false, client, guild, sql);
     }
 }
 
-async function runRPSRound(message, player1, player2, bet, isPvP, client, guild, sql) {
-    // اللوحة أرسلت بالفعل في startGame للـ Solo، أو inviteMsg للـ PvP
-    // إذا كان PvP نحتاج لتحديث الرسالة
+async function runRPSRound(message, player1, member1, player2, bet, isPvP, client, guild, sql) {
     if (isPvP) {
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('rps_rock').setEmoji(ROCK).setStyle(ButtonStyle.Secondary),
@@ -333,7 +355,10 @@ async function runRPSRound(message, player1, player2, bet, isPvP, client, guild,
     });
 
     collector.on('end', async (collected, reason) => {
-        if (client.activeGames) client.activeGames.delete(message.channel.id);
+        // تنظيف الحالة
+        client.activeGames.delete(message.channel.id);
+        client.activePlayers.delete(player1.id);
+        if (player2) client.activePlayers.delete(player2.id);
 
         if (reason !== 'finished') {
             if (isPvP) {
@@ -405,13 +430,7 @@ async function runRPSRound(message, player1, player2, bet, isPvP, client, guild,
                     .setThumbnail(player1.displayAvatarURL({ dynamic: true }));
 
             } else {
-                // الفردي: استخدام member الكامل (لأننا في message context قد نحتاج fetch)
-                // في الكود الحالي player1 هو User object
-                // لجلب الرتب، نحتاج Member object
-                let member = guild.members.cache.get(player1.id);
-                if (!member) try { member = await guild.members.fetch(player1.id); } catch(e){}
-
-                const multiplier = calculateMoraBuff(member, sql); 
+                const multiplier = calculateMoraBuff(member1, sql); 
                 winnings = Math.floor((bet * 2) * multiplier); 
                 
                 const buffPercent = Math.round((multiplier - 1) * 100);
