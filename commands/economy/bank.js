@@ -94,10 +94,15 @@ module.exports = {
                 data = { ...client.defaultData, user: targetUser.id, guild: guild.id };
             }
 
-            if (typeof data.mora === 'undefined') data.mora = 0;
-            if (typeof data.bank === 'undefined') data.bank = 0;
-            if (typeof data.lastInterest === 'undefined') data.lastInterest = 0;
-            if (typeof data.totalInterestEarned === 'undefined') data.totalInterestEarned = 0;
+            // =========================================================
+            // 🔥🔥 إصلاح القيم الفارغة (Prevent Crash) 🔥🔥
+            // =========================================================
+            // استخدام || 0 يضمن أنه لو القيمة null أو undefined تتحول لصفر
+            data.mora = data.mora || 0;
+            data.bank = data.bank || 0;
+            data.lastInterest = data.lastInterest || 0;
+            data.totalInterestEarned = data.totalInterestEarned || 0;
+            // =========================================================
 
             const now = Date.now();
             const timeLeft = (data.lastInterest || 0) + INTEREST_COOLDOWN_MS - now;
@@ -114,6 +119,7 @@ module.exports = {
                 interestMessage = `ستتم إضافة الفائدة التالية بعد: \`${formatTimeSimple(timeLeft)}\``;
             }
 
+            // الآن toLocaleString آمنة لأننا ضمنا أن القيم أرقام في الأعلى
             const description = [
                 `✥ رصـيد البنـك: **${data.bank.toLocaleString()}** ${EMOJI_MORA}`,
                 `✶ رصيد الكـاش: **${data.mora.toLocaleString()}** ${EMOJI_MORA}`,
@@ -132,14 +138,17 @@ module.exports = {
             } else {
                 const loanConfig = LOANS.find(l => l.amount === loan.loanAmount);
                 const totalToRepay = loanConfig ? loanConfig.totalToRepay : (loan.loanAmount * 1.10);
-                const amountPaid = totalToRepay - loan.remainingAmount;
-                const daysLeft = Math.ceil(loan.remainingAmount / loan.dailyPayment);
+                // تأمين قيم القرض أيضاً
+                const remaining = loan.remainingAmount || 0;
+                const daily = loan.dailyPayment || 1;
+                
+                const daysLeft = Math.ceil(remaining / daily);
 
                 description.push(`✥ **حـالــة القــرض 🏦:**`);
-                description.push(`✬ قيـمـة القـرض: **${loan.loanAmount.toLocaleString()}** ${EMOJI_MORA}`);
+                description.push(`✬ قيـمـة القـرض: **${(loan.loanAmount || 0).toLocaleString()}** ${EMOJI_MORA}`);
                 description.push(`✬ اجمـالـي القـرض: **${totalToRepay.toLocaleString()}** ${EMOJI_MORA}`);
-                description.push(`✬ متبقي للسداد: **${loan.remainingAmount.toLocaleString()}** ${EMOJI_MORA}`);
-                description.push(`✬ القسط اليومي: **${loan.dailyPayment.toLocaleString()}** ${EMOJI_MORA}`);
+                description.push(`✬ متبقي للسداد: **${remaining.toLocaleString()}** ${EMOJI_MORA}`);
+                description.push(`✬ القسط اليومي: **${daily.toLocaleString()}** ${EMOJI_MORA}`);
                 description.push(`✬ الأيام المتبقية: **${daysLeft}** يوم`);
                 description.push(`للسداد المبكر وتجنب الفوائد استعمل \`/سداد\``);
             }
@@ -167,6 +176,7 @@ module.exports = {
                 // ( 🌟 استخدام خط Bein 🌟 )
                 context.font = 'bold 48px "Bein"';
 
+                // استخدام القيم المؤمنة
                 context.fillText(data.mora.toLocaleString(), 335, 235);
                 context.fillText(data.bank.toLocaleString(), 335, 340);
 
