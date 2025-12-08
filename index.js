@@ -400,9 +400,6 @@ function updateMarketPrices() {
     } catch (err) { console.error("[Market] Error updating prices:", err.message); }
 }
 
-// ( 🌟 استدعاء دالة القروض الجديدة 🌟 )
-const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
-
 async function processFarmYields() {
     if (!sql.open) return;
     try {
