@@ -140,6 +140,7 @@ module.exports = (client, sql, antiRolesCache) => {
                 return; 
             }
 
+            // --- 3. Context Menu ---
             if (i.isContextMenuCommand()) {
                 const command = i.client.commands.get(i.commandName);
                 if (!command) return;
@@ -168,12 +169,12 @@ module.exports = (client, sql, antiRolesCache) => {
                     await handleBossInteraction(i, client, sql);
                 }
                 
-                // ✅ أزرار المزرعة
+                // ✅ Farm Buttons
                 else if ((id === 'farm_collect' || id === 'farm_buy_menu') && handleFarmInteractions) {
                     await handleFarmInteractions(i, client, sql);
                 }
 
-                // ✅ أزرار المتجر / الصيد / السوق / تطوير الأدوات
+                // ✅ Shop/Fish/Market Buttons
                 else if (
                     id.startsWith('buy_') || id.startsWith('upgrade_') || id.startsWith('shop_') || 
                     id.startsWith('replace_buff_') || id === 'cancel_purchase' || id === 'open_xp_modal' ||
@@ -374,7 +375,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     await handleReroll(i, client, sql);
                 } else if (id.startsWith('quest_panel_menu')) {
                     await handleQuestPanel(i, client, sql);
-                } else if (id.startsWith('streak_panel_')) {
+                } else if (id.startsWith('streak_panel_menu')) {
                     await handleStreakPanel(i, client, sql);
                 } else if (id.startsWith('pvp_')) { // pvp_skill_select
                     await handlePvpInteraction(i, client, sql);
@@ -389,10 +390,11 @@ module.exports = (client, sql, antiRolesCache) => {
             
             // If Unknown Interaction (10062) occurred, attempt a final reply to the user.
             if (!i.replied && !i.deferred) {
-                // This catches the original interaction expiring before the first response.
+                // If the error is 10062 (Unknown Interaction), the token has expired.
                 await i.reply({ content: '⚠️ انتهى وقت الاستجابة (Token Expired). يرجى المحاولة مرة أخرى.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
+            } else if (error.code === 10062 || error.code === 40060) {
+                 // For acknowledged interactions (40060) or expired (10062) that were already deferred, just log.
             }
-            // Ensure processing is cleared on error
         } finally {
             processingInteractions.delete(i.user.id);
         }
