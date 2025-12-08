@@ -1,4 +1,4 @@
-const { Events, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionsBitField } = require("discord.js");
+const { Events, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionsBitField, MessageFlags } = require("discord.js");
 const { handleQuestPanel } = require('./handlers/quest-panel-handler.js');
 const { handleStreakPanel } = require('./handlers/streak-panel-handler.js');
 const { handleShopInteractions, handleShopModal, handleShopSelectMenu, handleSkillSelectMenu } = require('./handlers/shop-handler.js');
@@ -7,7 +7,7 @@ const { getUserWeight, endGiveaway, createRandomDropGiveaway } = require('./hand
 const { handleReroll } = require('./handlers/reroll-handler.js'); 
 const { handleCustomRoleInteraction } = require('./handlers/custom-role-handler.js'); 
 const { handleReactionRole } = require('./handlers/reaction-role-handler.js'); 
-const { handleBossInteraction } = require('./handlers/boss-handler.js'); 
+const { handleBossInteraction } = require('./handlers/boss-handler.js'); // 🆕 تم استيراد معالج الوحش
 
 // محاولة استيراد المزرعة إذا كانت موجودة
 let handleFarmInteractions;
@@ -59,7 +59,7 @@ async function updateBuilderEmbed(interaction, data) {
     } catch (error) {
         if (error.code === 10008) { 
             console.log("[Giveaway Builder] Original message missing.");
-            await interaction.followUp({ content: "⚠️ الرسالة الأصلية اختفت. يرجى بدء الأمر من جديد.", ephemeral: true });
+            await interaction.followUp({ content: "⚠️ الرسالة الأصلية اختفت. يرجى بدء الأمر من جديد.", flags: [MessageFlags.Ephemeral] });
         } else {
             throw error;
         }
@@ -73,7 +73,7 @@ module.exports = (client, sql, antiRolesCache) => {
         // التحقق من حالة قاعدة البيانات
         if (!sql.open && !i.isAutocomplete()) {
              if (!i.replied && !i.deferred) {
-                 return i.reply({ content: "⚠️ قاعدة البيانات يتم تحديثها حالياً، الرجاء الانتظار...", ephemeral: true }).catch(() => {});
+                 return i.reply({ content: "⚠️ قاعدة البيانات يتم تحديثها حالياً، الرجاء الانتظار...", flags: [MessageFlags.Ephemeral] }).catch(() => {});
              }
              return;
         }
@@ -81,7 +81,7 @@ module.exports = (client, sql, antiRolesCache) => {
         // منع التكرار السريع (Anti-Spam Click)
         if (processingInteractions.has(i.user.id)) {
             if (!i.isModalSubmit()) {
-                 return i.reply({ content: '⏳ | الرجاء الانتظار...', ephemeral: true }).catch(() => {});
+                 return i.reply({ content: '⏳ | الرجاء الانتظار.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
             }
         }
 
@@ -97,7 +97,7 @@ module.exports = (client, sql, antiRolesCache) => {
             if (i.isChatInputCommand()) {
                 const command = i.client.commands.get(i.commandName);
                 if (!command) {
-                    await i.reply({ content: 'حدث خطأ، هذا الأمر غير موجود.', ephemeral: true });
+                    await i.reply({ content: 'حدث خطأ، هذا الأمر غير موجود.', flags: [MessageFlags.Ephemeral] });
                     return; 
                 }
                 
@@ -117,15 +117,15 @@ module.exports = (client, sql, antiRolesCache) => {
                 }
 
                 if (!isAllowed) {
-                    return i.reply({ content: "❌ لا يمكنك استخدام هذا الأمر في هذه القناة.", ephemeral: true });
+                    return i.reply({ content: "❌ لا يمكنك استخدام هذا الأمر في هذه القناة.", flags: [MessageFlags.Ephemeral] });
                 }
 
                 try {
                     await command.execute(i); 
                 } catch (error) {
                     console.error(`[Slash Error: ${i.commandName}]`, error);
-                    if (i.replied || i.deferred) await i.followUp({ content: 'حدث خطأ!', ephemeral: true });
-                    else await i.reply({ content: 'حدث خطأ!', ephemeral: true });
+                    if (i.replied || i.deferred) await i.followUp({ content: 'حدث خطأ!', flags: [MessageFlags.Ephemeral] });
+                    else await i.reply({ content: 'حدث خطأ!', flags: [MessageFlags.Ephemeral] });
                 }
                 return; 
             }
@@ -153,14 +153,18 @@ module.exports = (client, sql, antiRolesCache) => {
             if (i.isButton()) {
                 const id = i.customId;
 
+                // 🆕 FIX: Defer for buttons leading to modals or complex logic
+                if (id === 'g_builder_content' || id === 'g_builder_visuals' || id.startsWith('farm_buy_menu') || id.startsWith('mem_auto_confirm') || id === 'open_xp_modal') {
+                    if (!i.replied && !i.deferred) await i.deferUpdate(); 
+                }
+
                 // رتب خاصة
                 if (id.startsWith('customrole_')) {
                     await handleCustomRoleInteraction(i, client, sql);
                 }
                 
-                // ✅✅ (تعديل مهم) توجيه جميع أزرار الوحش ✅✅
-                // كانت المشكلة هنا، أضفنا التحقق من skill_menu
-                else if (id.startsWith('boss_')) { 
+                // ✅ World Boss Buttons
+                else if (id === 'boss_attack' || id === 'boss_status') {
                     await handleBossInteraction(i, client, sql);
                 }
                 
@@ -175,7 +179,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     id.startsWith('replace_buff_') || id === 'cancel_purchase' || id === 'open_xp_modal' ||
                     id === 'max_level' || id === 'max_rod' || id === 'max_boat' ||
                     id === 'cast_rod' || id.startsWith('pull_rod') || 
-                    id.startsWith('sell_') 
+                    id.startsWith('sell_') || id.startsWith('mem_') // ✅ أزرار لعبة الذاكرة
                 ) {
                     await handleShopInteractions(i, client, sql);
                 }
@@ -205,7 +209,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     await i.showModal(modal);
 
                 } else if (id === 'g_builder_send') {
-                    await i.deferReply({ ephemeral: true });
+                    await i.deferReply({ flags: [MessageFlags.Ephemeral] }); // Explicitly defer reply
                     const data = giveawayBuilders.get(i.user.id);
                     if (!data || !data.prize || !data.durationStr || !data.winnerCountStr) {
                         return i.editReply("❌ البيانات الأساسية (الجائزة، المدة، الفائزون) مفقودة.");
@@ -255,6 +259,8 @@ module.exports = (client, sql, antiRolesCache) => {
                     return;
 
                 } else if (id === 'g_enter') {
+                    // This button needs immediate acknowledgment, but since it updates the message, deferUpdate is correct.
+                    await i.deferUpdate(); 
                     const giveawayID = i.message.id;
                     const userID = i.user.id;
                     const existingEntry = sql.prepare("SELECT * FROM giveaway_entries WHERE giveawayID = ? AND userID = ?").get(giveawayID, userID);
@@ -271,40 +277,33 @@ module.exports = (client, sql, antiRolesCache) => {
                     const newEmbed = new EmbedBuilder(i.message.embeds[0].toJSON());
                     newEmbed.setDescription(newEmbed.data.description.replace(/✶ عـدد الـمـشاركـيـن: `\d+`/i, `✶ عـدد الـمـشاركـيـن: \`${entryCount.count}\``));
                     await i.message.edit({ embeds: [newEmbed] });
-                    await i.reply({ content: replyMessage, ephemeral: true });
-
+                    await i.followUp({ content: replyMessage, flags: [MessageFlags.Ephemeral] }); // Use followUp/flags
+                
                 } else if (id === 'g_enter_drop') {
+                    await i.deferUpdate(); // Acknowledge immediately
                     const messageID = i.message.id;
                     try {
                         const giveaway = sql.prepare("SELECT * FROM active_giveaways WHERE messageID = ? AND isFinished = 0").get(messageID);
-                        if (!giveaway || giveaway.endsAt < Date.now()) return i.reply({ content: "❌ انتهى.", ephemeral: true });
+                        if (!giveaway || giveaway.endsAt < Date.now()) return i.followUp({ content: "❌ انتهى.", flags: [MessageFlags.Ephemeral] });
                         const weight = await getUserWeight(i.member, sql);
                         try {
                             sql.prepare("INSERT INTO giveaway_entries (giveawayID, userID, weight) VALUES (?, ?, ?)").run(messageID, i.member.id, weight);
-                            return i.reply({ content: `✅ تم التسجيل بوزن \`${weight}x\`!`, ephemeral: true });
-                        } catch (err) { return i.reply({ content: "⚠️ أنت مسجل بالفعل.", ephemeral: true }); }
-                    } catch (error) { return i.reply({ content: "❌ حدث خطأ.", ephemeral: true }); }
+                            return i.followUp({ content: `✅ تم التسجيل بوزن \`${weight}x\`!`, flags: [MessageFlags.Ephemeral] });
+                        } catch (err) { return i.followUp({ content: "⚠️ أنت مسجل بالفعل.", flags: [MessageFlags.Ephemeral] }); }
+                    } catch (error) { return i.followUp({ content: "❌ حدث خطأ.", flags: [MessageFlags.Ephemeral] }); }
 
-                } 
-                // ✅ أزرار لوحات التحكم والمهمات والستريك
-                else if (id.startsWith('panel_') || id.startsWith('quests_')) {
+                } else if (id.startsWith('panel_') || id.startsWith('quests_')) {
                     await handleQuestPanel(i, client, sql);
                 } else if (id.startsWith('streak_panel_')) {
                     await handleStreakPanel(i, client, sql);
-                } 
-                // ✅ أزرار القتال (PvP / PvE)
-                else if (id.startsWith('pvp_')) {
+                } else if (id.startsWith('pvp_')) {
                     await handlePvpInteraction(i, client, sql);
-                } 
-                
-                else if (id.startsWith('customrole_')) { 
+                } else if (id.startsWith('customrole_')) { 
                     await handleCustomRoleInteraction(i, client, sql);
                 }
                 return; 
 
-            // ====================================================
-            // 4. Modals Submissions
-            // ====================================================
+            // --- 4. Modals Submissions ---
             } else if (i.isModalSubmit()) {
                 if (i.customId === 'g_content_modal') {
                     await i.deferUpdate();
@@ -343,10 +342,10 @@ module.exports = (client, sql, antiRolesCache) => {
                 }
                 return; 
 
-            // ====================================================
-            // 5. Select Menus
-            // ====================================================
+            // --- 5. Select Menus ---
             } else if (i.isStringSelectMenu()) {
+                await i.deferUpdate(); // Deferring immediately for select menus
+
                 const id = i.customId;
                 
                 // ✅✅ (تعديل مهم) قائمة مهارات الوحش ✅✅
@@ -385,13 +384,15 @@ module.exports = (client, sql, antiRolesCache) => {
             }
 
         } catch (error) {
-            // تجاهل خطأ الرسالة غير المعروفة (لأنه قد يحدث عند الحذف السريع)
-            if (error.code !== 10008) {
-                console.error("خطأ فادح في معالج التفاعلات:", error);
-                if (!i.replied && !i.deferred) {
-                    await i.reply({ content: '❌ حدث خطأ.', ephemeral: true }).catch(() => {});
-                }
+            // Log the error for debugging
+            console.error("خطأ فادح في معالج التفاعلات:", error);
+            
+            // If Unknown Interaction (10062) occurred, attempt a final reply to the user.
+            if (!i.replied && !i.deferred) {
+                // This catches the original interaction expiring before the first response.
+                await i.reply({ content: '⚠️ انتهى وقت الاستجابة (Token Expired). يرجى المحاولة مرة أخرى.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
             }
+            // Ensure processing is cleared on error
         } finally {
             processingInteractions.delete(i.user.id);
         }
