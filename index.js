@@ -4,28 +4,10 @@ const fs = require('fs');
 const path = require('path');
 
 // ==================================================================
-// 1. إعداد قاعدة البيانات (مع التصليح الذاتي كما طلبت)
+// 1. إعداد قاعدة البيانات
 // ==================================================================
-const dbPath = './mainDB.sqlite';
-let sql;
-
-try {
-    sql = new SQLite(dbPath);
-    sql.pragma('journal_mode = WAL');
-} catch (err) {
-    if (err.code === 'SQLITE_NOTADB') {
-        console.error("❌ ملف قاعدة البيانات تالف! جاري حذفه وإنشاء جديد...");
-        try { fs.unlinkSync(dbPath); } catch(e) {}
-        try { if (fs.existsSync(dbPath + '-wal')) fs.unlinkSync(dbPath + '-wal'); } catch(e) {}
-        try { if (fs.existsSync(dbPath + '-shm')) fs.unlinkSync(dbPath + '-shm'); } catch(e) {}
-        
-        sql = new SQLite(dbPath);
-        sql.pragma('journal_mode = WAL');
-        console.log("✅ تم إنشاء قاعدة بيانات جديدة نظيفة.");
-    } else {
-        throw err;
-    }
-}
+const sql = new SQLite('./mainDB.sqlite');
+sql.pragma('journal_mode = WAL');
 
 try {
     const { setupDatabase } = require("./database-setup.js");
@@ -37,59 +19,63 @@ try {
 }
 
 // ==================================================================
-// 2. إعداد الخطوط (الطريقة البسيطة القديمة) ✅
+// 2. تحميل الخطوط (تمت العودة لخط bein-ar-normal لإصلاح الأرقام) ✅
 // ==================================================================
 try {
     const { registerFont } = require('canvas');
-    
-    // 👇 هنا التقليد للطريقة القديمة: تعريف بسيط جداً بدون فلسفة
-    // نستخدم الملف: bein-ar-normal.ttf
-    const fontPath = path.join(__dirname, 'fonts', 'bein-ar-normal.ttf');
-    
-    if (fs.existsSync(fontPath)) {
-        // نسجله باسم Bein (عشان الكود القديم)
-        registerFont(fontPath, { family: 'Bein' });
-        // نسجله باسم Cairo (عشان الكود الجديد)
-        registerFont(fontPath, { family: 'Cairo' });
-        console.log(`[Fonts] ✅ تم تحميل الخط بالطريقة الكلاسيكية: Bein/Cairo`);
+
+    // 1. تحميل الخط الأساسي (bein-ar-normal)
+    const mainFontPath = path.join(__dirname, 'fonts', 'bein-ar-normal.ttf');
+
+    if (fs.existsSync(mainFontPath)) {
+        // نسجله باسم 'Bein' (للملفات القديمة)
+        registerFont(mainFontPath, { family: 'Bein' });
+        
+        // نسجله أيضاً باسم 'Cairo' (للملفات التي عدلناها مؤخراً)
+        // هذا يضمن أن كل الملفات ستعمل وتستخدم نفس الخط المضبوط
+        registerFont(mainFontPath, { family: 'Cairo' });
+
+        console.log(`[Fonts] ✅ تم تحميل الخط: bein-ar-normal.ttf (تم تسجيله كـ Bein و Cairo)`);
     } else {
-        console.log(`[Fonts] ⚠️ ملف الخط غير موجود: ${fontPath}`);
+        console.warn(`[Fonts] ⚠️ خطأ: الملف غير موجود في fonts/bein-ar-normal.ttf`);
     }
 
-    // خط الايموجي
+    // 2. تحميل NotoEmoji من مجلد efonts
     const emojiPath = path.join(__dirname, 'efonts', 'NotoEmoj.ttf');
-    if(fs.existsSync(emojiPath)) registerFont(emojiPath, { family: 'NotoEmoji' });
+    const emojiPathAlt = path.join(__dirname, 'efonts', 'NotoEmoji.ttf');
+
+    if (fs.existsSync(emojiPath)) {
+        registerFont(emojiPath, { family: 'NotoEmoji' });
+        console.log(`[Fonts] ✅ تم تحميل خط الإيموجي: NotoEmoj.ttf`);
+    } else if (fs.existsSync(emojiPathAlt)) {
+        registerFont(emojiPathAlt, { family: 'NotoEmoji' });
+        console.log(`[Fonts] ✅ تم تحميل خط الإيموجي: NotoEmoji.ttf`);
+    } else {
+        console.warn(`[Fonts] ⚠️ الملف غير موجود في efonts: NotoEmoj.ttf`);
+    }
 
 } catch (e) {
-    console.log("[Fonts] Error: " + e.message);
+    console.warn("[Fonts] ⚠️ مكتبة Canvas غير مثبتة أو حدث خطأ عام: " + e.message);
 }
 
 // ==================================================================
-// 3. تحديث الجداول (Migration)
+// 3. تحديثات الجداول
 // ==================================================================
+try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastFish INTEGER DEFAULT 0").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN rodLevel INTEGER DEFAULT 1").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN boatLevel INTEGER DEFAULT 1").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN currentLocation TEXT DEFAULT 'beach'").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastMemory INTEGER DEFAULT 0").run(); } catch (e) {} 
+try { if(sql.open) sql.prepare("ALTER TABLE user_total_stats ADD COLUMN total_emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE user_total_stats ADD COLUMN total_disboard_bumps INTEGER DEFAULT 0").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE user_daily_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE user_weekly_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN chatChannelID TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN treeBotID TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN treeChannelID TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN countingChannelID TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN questChannelID TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastFarmYield INTEGER DEFAULT 0").run(); } catch (e) {} 
-try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS quest_achievement_roles (guildID TEXT, roleID TEXT, achievementID TEXT)").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN shopChannelID TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN bumpChannelID TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN customRoleAnchorID TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelTitle TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelDescription TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelImage TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelColor TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN lastQuestPanelChannelID TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN streakTimerChannelID TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN dailyTimerChannelID TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN weeklyTimerChannelID TEXT").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS rainbow_roles (roleID TEXT PRIMARY KEY, guildID TEXT NOT NULL)").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN shopLogChannelID TEXT").run(); } catch (e) {} 
+try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id INTEGER PRIMARY KEY AUTOINCREMENT, guildID TEXT NOT NULL, trigger TEXT NOT NULL, response TEXT NOT NULL, images TEXT, matchType TEXT DEFAULT 'exact', cooldown INTEGER DEFAULT 0, allowedChannels TEXT, ignoredChannels TEXT, UNIQUE(guildID, trigger))").run(); } catch(e) {}
 
 // ==================================================================
-// 4. Import Handlers
+// 4. استيراد الهاندلرز
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
@@ -105,7 +91,7 @@ const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
 const { handleShopInteractions } = require('./handlers/shop-handler.js'); 
 
 // ==================================================================
-// 5. Client Setup
+// 5. إعداد العميل (Client)
 // ==================================================================
 const client = new Client({
     intents: [
@@ -419,44 +405,6 @@ function updateMarketPrices() {
         console.log(`[Market] Prices updated.`);
     } catch (err) { console.error("[Market] Error updating prices:", err.message); }
 }
-
-// 🌟 دالة القروض (تم إضافتها هنا لضمان عمل البوت) 🌟
-const checkLoanPayments = async () => {
-    if (!sql.open) return;
-    const now = Date.now();
-    const ONE_DAY = 24 * 60 * 60 * 1000;
-    const activeLoans = sql.prepare("SELECT * FROM user_loans WHERE remainingAmount > 0 AND (lastPaymentDate + ?) <= ?").all(ONE_DAY, now);
-    if (activeLoans.length === 0) return;
-    for (const loan of activeLoans) {
-        try {
-            const guild = client.guilds.cache.get(loan.guildID);
-            if (!guild) continue;
-            let userData = client.getLevel.get(loan.userID, loan.guildID);
-            if (!userData) continue;
-            const paymentAmount = Math.min(loan.dailyPayment, loan.remainingAmount);
-            let remainingToPay = paymentAmount;
-            
-            if (userData.mora > 0) {
-                const takeMora = Math.min(userData.mora, remainingToPay);
-                userData.mora -= takeMora;
-                remainingToPay -= takeMora;
-            }
-            if (remainingToPay > 0) {
-                const xpPenalty = Math.floor(remainingToPay * 2);
-                if (userData.xp >= xpPenalty) userData.xp -= xpPenalty; else { userData.xp = 0; if (userData.level > 1) userData.level -= 1; }
-                remainingToPay = 0; 
-            }
-            client.setLevel.run(userData);
-            loan.remainingAmount -= paymentAmount;
-            loan.lastPaymentDate = now;
-            if (loan.remainingAmount <= 0) {
-                sql.prepare("DELETE FROM user_loans WHERE userID = ? AND guildID = ?").run(loan.userID, loan.guildID);
-            } else {
-                sql.prepare("UPDATE user_loans SET remainingAmount = ?, lastPaymentDate = ? WHERE userID = ? AND guildID = ?").run(loan.remainingAmount, now, loan.userID, loan.guildID);
-            }
-        } catch (err) { console.error(err); }
-    }
-};
 
 async function processFarmYields() {
     if (!sql.open) return;
