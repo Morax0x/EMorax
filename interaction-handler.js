@@ -81,7 +81,7 @@ module.exports = (client, sql, antiRolesCache) => {
         // منع التكرار السريع (Anti-Spam Click)
         if (processingInteractions.has(i.user.id)) {
             if (!i.isModalSubmit()) {
-                 return i.reply({ content: '⏳ | الرجاء الانتظار...', flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                 return i.reply({ content: '⏳ | الرجاء الانتظار.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
             }
         }
 
@@ -153,8 +153,9 @@ module.exports = (client, sql, antiRolesCache) => {
             if (i.isButton()) {
                 const id = i.customId;
 
-                // 🆕 FIX: Defer for buttons leading to modals or complex logic
-                if (id === 'g_builder_content' || id === 'g_builder_visuals' || id.startsWith('farm_buy_menu') || id.startsWith('mem_auto_confirm') || id === 'open_xp_modal') {
+                // 🆕 FIX: Defer for buttons leading to modals or complex logic (Except Shop/Game Modals)
+                // نستثني أزرار المتجر التي تفتح مودالات لأن الـ defer يمنع فتح المودال
+                if (id === 'g_builder_content' || id === 'g_builder_visuals' || id.startsWith('farm_buy_menu') || id.startsWith('mem_auto_confirm')) {
                     if (!i.replied && !i.deferred) await i.deferUpdate(); 
                 }
 
@@ -163,25 +164,26 @@ module.exports = (client, sql, antiRolesCache) => {
                     await handleCustomRoleInteraction(i, client, sql);
                 }
                 
-                // ✅ أزرار وحش العالم (Boss)
-                else if (id.startsWith('boss_')) { 
+                // ✅ World Boss Buttons
+                else if (id === 'boss_attack' || id === 'boss_status') {
                     await handleBossInteraction(i, client, sql);
                 }
                 
-                // ✅ أزرار المزرعة
+                // ✅ Farm Buttons
                 else if ((id === 'farm_collect' || id === 'farm_buy_menu') && handleFarmInteractions) {
                     await handleFarmInteractions(i, client, sql);
                 }
 
-                // ✅ أزرار المتجر / الصيد / السوق / تطوير الأدوات / لعبة الذاكرة (mem_)
+                // ✅ Shop/Fish/Market Buttons
                 else if (
                     id.startsWith('buy_') || id.startsWith('upgrade_') || id.startsWith('shop_') || 
-                    id.startsWith('replace_buff_') || id === 'cancel_purchase' || id === 'open_xp_modal' ||
+                    id.startsWith('replace_') || id === 'cancel_purchase' || id === 'open_xp_modal' ||
                     id === 'max_level' || id === 'max_rod' || id === 'max_boat' ||
                     id === 'cast_rod' || id.startsWith('pull_rod') || 
-                    id.startsWith('sell_') || id.startsWith('mem_') || // ✅ أضيفت هنا
-                    id === 'replace_guard'
+                    id.startsWith('sell_') || id.startsWith('mem_') || 
+                    id === 'replace_guard' // تأكدنا من وجوده
                 ) {
+                    // لا نعمل defer هنا، نتركها للهاندلر الداخلي يقرر (لأن بعضها يفتح مودال)
                     await handleShopInteractions(i, client, sql);
                 }
                  
@@ -353,7 +355,7 @@ module.exports = (client, sql, antiRolesCache) => {
 
                 const id = i.customId;
                 
-                // ✅ قائمة مهارات الوحش
+                // ✅✅ قائمة مهارات الوحش ✅✅
                 if (id === 'boss_execute_skill') {
                     await handleBossInteraction(i, client, sql);
                 }
