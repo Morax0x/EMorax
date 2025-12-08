@@ -101,7 +101,6 @@ module.exports = (client, sql, antiRolesCache) => {
                     return; 
                 }
                 
-                // التحقق من الصلاحيات الخاصة بالقنوات
                 let isAllowed = false;
                 if (i.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
                 else {
@@ -154,7 +153,6 @@ module.exports = (client, sql, antiRolesCache) => {
                 const id = i.customId;
 
                 // 🆕 FIX: Defer for buttons leading to modals or complex logic (Except Shop/Game Modals)
-                // نستثني أزرار المتجر التي تفتح مودالات لأن الـ defer يمنع فتح المودال
                 if (id === 'g_builder_content' || id === 'g_builder_visuals' || id.startsWith('farm_buy_menu') || id.startsWith('mem_auto_confirm')) {
                     if (!i.replied && !i.deferred) await i.deferUpdate(); 
                 }
@@ -181,9 +179,8 @@ module.exports = (client, sql, antiRolesCache) => {
                     id === 'max_level' || id === 'max_rod' || id === 'max_boat' ||
                     id === 'cast_rod' || id.startsWith('pull_rod') || 
                     id.startsWith('sell_') || id.startsWith('mem_') || 
-                    id === 'replace_guard' // تأكدنا من وجوده
+                    id === 'replace_guard'
                 ) {
-                    // لا نعمل defer هنا، نتركها للهاندلر الداخلي يقرر (لأن بعضها يفتح مودال)
                     await handleShopInteractions(i, client, sql);
                 }
                  
@@ -212,7 +209,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     await i.showModal(modal);
 
                 } else if (id === 'g_builder_send') {
-                    await i.deferReply({ flags: [MessageFlags.Ephemeral] }); // Explicitly defer reply
+                    await i.deferReply({ flags: [MessageFlags.Ephemeral] }); 
                     const data = giveawayBuilders.get(i.user.id);
                     if (!data || !data.prize || !data.durationStr || !data.winnerCountStr) {
                         return i.editReply("❌ البيانات الأساسية (الجائزة، المدة، الفائزون) مفقودة.");
@@ -262,7 +259,6 @@ module.exports = (client, sql, antiRolesCache) => {
                     return;
 
                 } else if (id === 'g_enter') {
-                    // This button needs immediate acknowledgment, but since it updates the message, deferUpdate is correct.
                     await i.deferUpdate(); 
                     const giveawayID = i.message.id;
                     const userID = i.user.id;
@@ -280,10 +276,10 @@ module.exports = (client, sql, antiRolesCache) => {
                     const newEmbed = new EmbedBuilder(i.message.embeds[0].toJSON());
                     newEmbed.setDescription(newEmbed.data.description.replace(/✶ عـدد الـمـشاركـيـن: `\d+`/i, `✶ عـدد الـمـشاركـيـن: \`${entryCount.count}\``));
                     await i.message.edit({ embeds: [newEmbed] });
-                    await i.followUp({ content: replyMessage, flags: [MessageFlags.Ephemeral] }); // Use followUp/flags
+                    await i.followUp({ content: replyMessage, flags: [MessageFlags.Ephemeral] }); 
                 
                 } else if (id === 'g_enter_drop') {
-                    await i.deferUpdate(); // Acknowledge immediately
+                    await i.deferUpdate(); 
                     const messageID = i.message.id;
                     try {
                         const giveaway = sql.prepare("SELECT * FROM active_giveaways WHERE messageID = ? AND isFinished = 0").get(messageID);
@@ -351,11 +347,13 @@ module.exports = (client, sql, antiRolesCache) => {
             // 5. Select Menus
             // ====================================================
             } else if (i.isStringSelectMenu()) {
-                await i.deferUpdate(); // Deferring immediately for select menus
+                
+                // ⚠️ (تم الإصلاح): إزالة deferUpdate الإجباري هنا لأنه يسبب مشاكل مع الهاندلرز التي ترد برد جديد
+                // نترك لكل هاندلر حرية عمل deferUpdate أو deferReply
 
                 const id = i.customId;
                 
-                // ✅✅ قائمة مهارات الوحش ✅✅
+                // ✅ قائمة مهارات الوحش
                 if (id === 'boss_execute_skill') {
                     await handleBossInteraction(i, client, sql);
                 }
@@ -370,6 +368,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     id === 'fishing_gear_sub_menu' || 
                     id === 'shop_buy_bait_menu'
                 ) {
+                    // هذه الهاندلرز تتولى الـ defer بنفسها
                     if (id === 'shop_select_item') await handleShopSelectMenu(i, client, sql);
                     else if (id === 'shop_skill_select_menu') await handleSkillSelectMenu(i, client, sql);
                     else await handleShopInteractions(i, client, sql);
@@ -383,7 +382,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     await handleQuestPanel(i, client, sql);
                 } else if (id.startsWith('streak_panel_menu')) {
                     await handleStreakPanel(i, client, sql);
-                } else if (id.startsWith('pvp_')) { // pvp_skill_select
+                } else if (id.startsWith('pvp_')) { 
                     await handlePvpInteraction(i, client, sql);
                 } 
 
@@ -391,15 +390,10 @@ module.exports = (client, sql, antiRolesCache) => {
             }
 
         } catch (error) {
-            // Log the error for debugging
             console.error("خطأ فادح في معالج التفاعلات:", error);
-            
-            // If Unknown Interaction (10062) occurred, attempt a final reply to the user.
             if (!i.replied && !i.deferred) {
-                // If the error is 10062 (Unknown Interaction), the token has expired.
-                await i.reply({ content: '⚠️ انتهى وقت الاستجابة (Token Expired). يرجى المحاولة مرة أخرى.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
-            } else if (error.code === 10062 || error.code === 40060) {
-                 // For acknowledged interactions (40060) or expired (10062) that were already deferred, just log.
+                // محاولة أخيرة للرد إذا لم يتم الرد
+                await i.reply({ content: '⚠️ انتهى وقت الاستجابة أو حدث خطأ غير متوقع.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
             }
         } finally {
             processingInteractions.delete(i.user.id);
