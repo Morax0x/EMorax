@@ -19,30 +19,43 @@ try {
 }
 
 // ==================================================================
-// 2. تحميل الخطوط (تم تصحيح المسارات حسب طلبك) ✅
+// 2. تحميل الخطوط (تم التحديث لخط cairo-Pandaify) ✅
 // ==================================================================
 try {
     const { registerFont } = require('canvas');
 
-    // 1. تحميل Bein من مجلد fonts
-    const beinPath = path.join(__dirname, 'fonts', 'bein-ar-normal.ttf');
-    if (fs.existsSync(beinPath)) {
-        registerFont(beinPath, { family: 'Bein' });
-        console.log(`[Fonts] ✅ تم تحميل الخط: bein-ar-normal.ttf`);
+    // 1. تحميل الخط الأساسي للأرقام (cairo-Pandaify)
+    // تأكد أن اسم الملف في مجلد fonts هو: cairo-Pandaify.ttf
+    const mainFontPath = path.join(__dirname, 'fonts', 'cairo-Pandaify.ttf');
+
+    if (fs.existsSync(mainFontPath)) {
+        // نسجله باسم 'Cairo' (للاستخدام الجديد)
+        registerFont(mainFontPath, { family: 'Cairo' });
+        
+        // (اختياري) نسجله أيضاً باسم 'Bein' لضمان عمل الأوامر القديمة التي لم يتم تحديثها
+        registerFont(mainFontPath, { family: 'Bein' });
+
+        console.log(`[Fonts] ✅ تم تحميل الخط الأساسي: cairo-Pandaify.ttf (تم تسجيله كـ Cairo و Bein)`);
     } else {
-        console.warn(`[Fonts] ⚠️ الملف غير موجود في fonts: bein-ar-normal.ttf`);
+        console.warn(`[Fonts] ⚠️ خطأ: الملف غير موجود في fonts/cairo-Pandaify.ttf`);
+        // محاولة تحميل الخط القديم كاحتياط اذا الجديد غير موجود
+        const oldPath = path.join(__dirname, 'fonts', 'bein-ar-normal.ttf');
+        if (fs.existsSync(oldPath)) {
+            registerFont(oldPath, { family: 'Bein' });
+            console.log(`[Fonts] ⚠️ تم الرجوع للخط القديم: bein-ar-normal.ttf`);
+        }
     }
 
-    // 2. تحميل NotoEmoji من مجلد efonts (مع مراعاة الاسم NotoEmoj أو NotoEmoji)
-    const emojiPath = path.join(__dirname, 'efonts', 'NotoEmoj.ttf'); // حسب الاسم الذي كتبته
-    const emojiPathAlt = path.join(__dirname, 'efonts', 'NotoEmoji.ttf'); // الاسم القياسي احتياطاً
+    // 2. تحميل NotoEmoji من مجلد efonts
+    const emojiPath = path.join(__dirname, 'efonts', 'NotoEmoj.ttf');
+    const emojiPathAlt = path.join(__dirname, 'efonts', 'NotoEmoji.ttf');
 
     if (fs.existsSync(emojiPath)) {
         registerFont(emojiPath, { family: 'NotoEmoji' });
-        console.log(`[Fonts] ✅ تم تحميل الخط: NotoEmoj.ttf`);
+        console.log(`[Fonts] ✅ تم تحميل خط الإيموجي: NotoEmoj.ttf`);
     } else if (fs.existsSync(emojiPathAlt)) {
         registerFont(emojiPathAlt, { family: 'NotoEmoji' });
-        console.log(`[Fonts] ✅ تم تحميل الخط: NotoEmoji.ttf`);
+        console.log(`[Fonts] ✅ تم تحميل خط الإيموجي: NotoEmoji.ttf`);
     } else {
         console.warn(`[Fonts] ⚠️ الملف غير موجود في efonts: NotoEmoj.ttf`);
     }
@@ -52,7 +65,7 @@ try {
 }
 
 // ==================================================================
-// 3. تحديثات الجداول (تم إضافة total_disboard_bumps لحل الكراش) ✅
+// 3. تحديثات الجداول
 // ==================================================================
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastFish INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN rodLevel INTEGER DEFAULT 1").run(); } catch (e) {}
@@ -60,7 +73,6 @@ try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN boatLevel INTEGER 
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN currentLocation TEXT DEFAULT 'beach'").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastMemory INTEGER DEFAULT 0").run(); } catch (e) {} 
 try { if(sql.open) sql.prepare("ALTER TABLE user_total_stats ADD COLUMN total_emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
-// 👇 هذا السطر هو الحل لمشكلة no such column: total_disboard_bumps 👇
 try { if(sql.open) sql.prepare("ALTER TABLE user_total_stats ADD COLUMN total_disboard_bumps INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE user_daily_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE user_weekly_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
@@ -73,7 +85,7 @@ try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id IN
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
-const { checkLoanPayments } = require('./handlers/loan-handler.js'); // ✅ هذا هو التعريف الوحيد الآن
+const { checkLoanPayments } = require('./handlers/loan-handler.js');
 
 const questsConfig = require('./json/quests-config.json');
 const farmAnimals = require('./json/farm-animals.json');
@@ -154,7 +166,6 @@ if (sql.open) {
     client.getWeeklyStats = sql.prepare("SELECT * FROM user_weekly_stats WHERE id = ?");
     client.setWeeklyStats = sql.prepare("INSERT OR REPLACE INTO user_weekly_stats (id, userID, guildID, weekStartDate, messages, images, stickers, emojis_sent, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @weekStartDate, @messages, @images, @stickers, @emojis_sent, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
     
-    // تم التأكد من أن total_disboard_bumps موجودة هنا بعد أن قمنا بإضافتها في السطر 80
     client.getTotalStats = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?");
     client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_emojis_sent, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_emojis_sent, @total_reactions_added, @total_replies_sent, @total_mentions_received, @total_vc_minutes, @total_disboard_bumps);");
     
@@ -223,7 +234,7 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
         let currentProgress = 0;
         const streakData = sql.prepare("SELECT * FROM streaks WHERE guildID = ? AND userID = ?").get(member.id, member.guild.id);
         const mediaStreakData = sql.prepare("SELECT * FROM media_streaks WHERE guildID = ? AND userID = ?").get(member.guild.id, member.id);
-          
+           
         if (!totalStatsData) totalStatsData = client.getTotalStats.get(`${member.id}-${member.guild.id}`) || {};
         totalStatsData = client.safeMerge(totalStatsData, defaultTotalStats); 
 
@@ -310,7 +321,7 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         if (stat === 'replies_sent') totalStats.total_replies_sent = (totalStats.total_replies_sent || 0) + amount;
         if (stat === 'mentions_received') totalStats.total_mentions_received = (totalStats.total_mentions_received || 0) + amount;
         if (stat === 'vc_minutes') totalStats.total_vc_minutes = (totalStats.total_vc_minutes || 0) + amount;
-          
+           
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
         client.setTotalStats.run({
@@ -400,8 +411,6 @@ function updateMarketPrices() {
         console.log(`[Market] Prices updated.`);
     } catch (err) { console.error("[Market] Error updating prices:", err.message); }
 }
-
-// ⚠️ تم حذف سطر checkLoanPayments من هنا لأنه موجود بالأعلى ⚠️
 
 async function processFarmYields() {
     if (!sql.open) return;
