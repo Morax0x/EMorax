@@ -1,27 +1,9 @@
-const { createCanvas, registerFont, loadImage } = require('canvas');
-const path = require('path');
+const { createCanvas, loadImage } = require('canvas'); 
 const { AttachmentBuilder } = require('discord.js');
-const fs = require('fs');
 
-// --- ( 1. تسجيل الخطوط ) ---
-try {
-    const mainFontsDir = path.join(__dirname, '..', 'fonts');
-
-    // ( الخط العربي الموحد )
-    registerFont(path.join(mainFontsDir, 'bein-ar-normal.ttf'), { family: 'Font-Main' }); 
-
-    // ( خط الإيموجي الاحتياطي )
-    const emojiFontPath = path.join(mainFontsDir, 'NotoEmoji.ttf'); 
-    registerFont(emojiFontPath, { family: 'NotoEmoji' }); 
-
-    console.log("[Achievement-Gen] تم تسجيل الخطوط بنجاح.");
-
-} catch (err) {
-    console.error("!!! خطأ فادح في تسجيل الخطوط:", err.message);
-}
-
-// --- ( 2. تعريف الخطوط ) ---
-const FONT_MAIN = '"Font-Main", "NotoEmoji"'; 
+// --- ( 1. تعريف الخطوط ) ---
+// نستخدم الاسم "Cairo" الذي سجلناه في ملف index.js
+const FONT_MAIN = '"Cairo", "NotoEmoji"'; 
 const FONT_EMOJI = '"NotoEmoji"'; 
 
 const FONT_ACH_TITLE = FONT_MAIN;
@@ -31,23 +13,42 @@ const FONT_PAGE_COUNT = FONT_MAIN;
 const FONT_PROGRESS_TEXT = FONT_MAIN; 
 const FONT_REWARDS = FONT_MAIN; 
 
-// --- ( قائمة الألوان الضخمة للإشعارات ) ---
+// ===========================================
+// ( 2. إعدادات الألوان والندرة )
+// ===========================================
+
+// 1. ألوان الندرة (للاستخدام داخل لوحة المهام)
+const RARITY_COLORS = {
+    // 🥉 برونزي (شائع) - XP أقل من 500
+    COMMON: { base: '#3d3024', frame: '#6e5a44', highlight: '#a88d6f', glow: '#ccbba6' },
+    
+    // 🥈 فضي (نادر) - XP بين 500 و 1500
+    RARE: { base: '#2a3439', frame: '#495a63', highlight: '#8da6b5', glow: '#c4dceb' },
+    
+    // 🥇 ذهبي (ملحمي) - XP بين 1500 و 5000
+    EPIC: { base: '#4b3e1a', frame: '#867b2d', highlight: '#ebc934', glow: '#fff369' },
+    
+    // 💎 ألماسي (أسطوري) - XP أكثر من 5000
+    LEGENDARY: { base: '#2e1a4b', frame: '#592d86', highlight: '#b534eb', glow: '#ea69ff' }
+};
+
+// دالة لتحديد اللون بناءً على الـ XP (الندرة)
+function getRarityColorByXP(xpAmount) {
+    if (xpAmount >= 5000) return RARITY_COLORS.LEGENDARY;
+    if (xpAmount >= 1500) return RARITY_COLORS.EPIC;
+    if (xpAmount >= 500) return RARITY_COLORS.RARE;
+    return RARITY_COLORS.COMMON;
+}
+
+// 2. الألوان العشوائية (للاستخدام في الإشعارات فقط)
 const EXTENDED_COLORS = [
     { base: '#1a4b2a', frame: '#2d8649', highlight: '#34eb6e', glow: '#69ff9c' }, // أخضر
     { base: '#1a3e4b', frame: '#2d6a86', highlight: '#349eeb', glow: '#69bfff' }, // أزرق سماوي
-    { base: '#431a4b', frame: '#7b2d86', highlight: '#b934eb', glow: '#d969ff' }, // بنفسجي
-    { base: '#4b431a', frame: '#867b2d', highlight: '#ebc934', glow: '#fff369' }, // ذهبي
     { base: '#4b1a1a', frame: '#862d2d', highlight: '#eb3434', glow: '#ff6969' }, // أحمر
-    { base: '#0f363d', frame: '#1d6f7d', highlight: '#00ffff', glow: '#ccffff' }, // سيان ساطع
+    { base: '#0f363d', frame: '#1d6f7d', highlight: '#00ffff', glow: '#ccffff' }, // سيان
     { base: '#4b2e1a', frame: '#86522d', highlight: '#ff8c00', glow: '#ffd700' }, // برتقالي
-    { base: '#4b1a38', frame: '#862d63', highlight: '#ff1493', glow: '#ff69b4' }, // وردي غامق
-    { base: '#1a1a4b', frame: '#2d2d86', highlight: '#4169e1', glow: '#87cefa' }, // أزرق ملكي
-    { base: '#334b1a', frame: '#5d862d', highlight: '#adff2f', glow: '#ccff99' }, // ليموني
-    { base: '#4b1a45', frame: '#862d7a', highlight: '#ff00ff', glow: '#ffccff' }, // ماجنتا
-    { base: '#2e2e2e', frame: '#575757', highlight: '#c0c0c0', glow: '#ffffff' }, // فضي
-    { base: '#002b2b', frame: '#005757', highlight: '#00ced1', glow: '#afeeee' }, // تركواز
     { base: '#3f0000', frame: '#750000', highlight: '#ff4500', glow: '#ff6347' }, // قرمزي
-    { base: '#1a0f2e', frame: '#3d1d66', highlight: '#8a2be2', glow: '#9370db' }  // بنفسجي غامق
+    { base: '#1a0f2e', frame: '#3d1d66', highlight: '#8a2be2', glow: '#9370db' }  // بنفسجي
 ];
 
 function getRandomExtColor() {
@@ -86,13 +87,16 @@ function drawWavyBackground(ctx, x, y, width, height, color1, color2) { ctx.save
 
 
 // ===========================================
-// ( 1. دالة الرسم الرئيسية )
+// ( 3. دالة الرسم الرئيسية )
 // ===========================================
 async function drawAchievementCard(ctx, x, y, data, forcedColors = null) {
     const { achievement, progress, isDone } = data;
     const percent = Math.min(1, Math.max(0, progress / achievement.goal));
-    
-    const rarityColors = forcedColors || getRandomExtColor();
+     
+    // 🎨 المنطق الجديد للألوان:
+    // إذا تم تمرير لون إجباري (مثل العشوائي في الإشعارات) نستخدمه.
+    // إذا لم يتم تمرير لون، نحسب اللون بناءً على ندرة الإنجاز (XP).
+    const rarityColors = forcedColors || getRarityColorByXP(achievement.reward.xp);
 
     ctx.save();
     drawWavyBackground(ctx, x, y, ACH_CARD_WIDTH, ACH_CARD_HEIGHT, rarityColors.base, '#11101a');
@@ -143,7 +147,8 @@ async function drawAchievementCard(ctx, x, y, data, forcedColors = null) {
     const barWidth = (x + ACH_CARD_WIDTH - PADDING) - textX;
 
     ctx.fillStyle = BASE_COLORS.text;
-    ctx.font = `32px ${FONT_ACH_TITLE}`; 
+    ctx.font = `bold 32px ${FONT_ACH_TITLE}`; 
+    
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillText(achievement.name, textX, y + PADDING);
@@ -155,13 +160,13 @@ async function drawAchievementCard(ctx, x, y, data, forcedColors = null) {
         ctx.fillText(achievement.description, textX, y + PADDING + 45);
     }
 
-    // --- ( 🌟 المكان الجديد للجوائز: y + 65 🌟 ) ---
+    // الجوائز
     ctx.textAlign = 'right'; 
     const rewardY = y + 65; 
     const rewardXStart = textRightX; 
 
     ctx.font = `bold 20px ${FONT_REWARDS}`; 
-    
+     
     ctx.fillStyle = COLOR_XP; 
     const xpText = `${achievement.reward.xp.toLocaleString()}`;
     const xpTextWidth = ctx.measureText(xpText).width;
@@ -174,7 +179,7 @@ async function drawAchievementCard(ctx, x, y, data, forcedColors = null) {
     ctx.fillText(moraText, moraRewardXStart - 25, rewardY); 
     ctx.fillText(EMOJI_MORA_CHAR, moraRewardXStart, rewardY);
 
-    // --- ( 🌟 المكان الجديد للبار: y + 103 🌟 ) ---
+    // البار والتقدم
     const barY = y + 103; 
     drawProgressBar(ctx, textX, barY, barWidth, 15, percent, rarityColors.highlight, rarityColors.glow);
 
@@ -191,16 +196,20 @@ async function generateAchievementPageImage(member, achievementsData, stats) {
     const pageHeight = (ACH_CARD_HEIGHT + PADDING) * achievementsData.length + (PAGE_MARGIN * 2) + 80;
     const canvas = createCanvas(PAGE_WIDTH, pageHeight);
     const ctx = canvas.getContext('2d');
+    
     ctx.fillStyle = BASE_COLORS.background;
     ctx.fillRect(0, 0, PAGE_WIDTH, pageHeight);
+    
     const avatarSize = 60; 
     const avatarY = PAGE_MARGIN;
+    
     ctx.fillStyle = BASE_COLORS.text;
-    ctx.font = `36px ${FONT_PAGE_TITLE}`; 
+    ctx.font = `bold 36px ${FONT_PAGE_TITLE}`; 
+    
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText(`إنجازات ${member.displayName}`, PAGE_MARGIN + PADDING, avatarY + avatarSize / 2);
-    
+     
     ctx.fillStyle = BASE_COLORS.subText;
     ctx.font = `24px ${FONT_PAGE_COUNT}`; 
     ctx.textAlign = 'right';
@@ -208,6 +217,7 @@ async function generateAchievementPageImage(member, achievementsData, stats) {
 
     let currentY = PAGE_MARGIN + 80;
     for (const data of achievementsData) {
+        // نمرر null كلون إجباري، ليقوم الكود باختيار لون الندرة تلقائياً
         await drawAchievementCard(ctx, PAGE_MARGIN, currentY, data, null);
         currentY += ACH_CARD_HEIGHT + PADDING;
     }
@@ -215,11 +225,15 @@ async function generateAchievementPageImage(member, achievementsData, stats) {
     return attachment;
 }
 
+// 🔔 في الإشعارات: نمرر لوناً عشوائياً (getRandomExtColor)
 async function generateSingleAchievementAlert(member, achievement) {
     const canvas = createCanvas(ACH_CARD_WIDTH, ACH_CARD_HEIGHT);
     const ctx = canvas.getContext('2d');
     const data = { achievement: achievement, progress: achievement.goal, isDone: true };
-    await drawAchievementCard(ctx, 0, 0, data, null);
+    
+    // هنا نستخدم getRandomExtColor() لجعل الإشعار ملوناً عشوائياً ومميزاً
+    await drawAchievementCard(ctx, 0, 0, data, getRandomExtColor());
+    
     const attachment = new AttachmentBuilder(canvas.toBuffer(), { name: `achievement-unlocked-${member.id}-${achievement.id}.png` });
     return attachment;
 }
@@ -228,7 +242,10 @@ async function generateQuestAlert(member, quest, questType) {
     const canvas = createCanvas(ACH_CARD_WIDTH, ACH_CARD_HEIGHT); 
     const ctx = canvas.getContext('2d');
     const data = { achievement: quest, progress: quest.goal, isDone: true };
-    await drawAchievementCard(ctx, 0, 0, data, null);
+    
+    // هنا أيضاً عشوائي
+    await drawAchievementCard(ctx, 0, 0, data, getRandomExtColor());
+    
     const attachment = new AttachmentBuilder(canvas.toBuffer(), { name: `quest-unlocked-${member.id}-${quest.id}.png` });
     return attachment;
 }
