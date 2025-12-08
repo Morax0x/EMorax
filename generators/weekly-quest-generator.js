@@ -1,30 +1,10 @@
-const { createCanvas, registerFont, loadImage } = require('canvas');
-const path = require('path');
+const { createCanvas, loadImage } = require('canvas'); // ❌ تم حذف registerFont
 const { AttachmentBuilder } = require('discord.js');
-const fs = require('fs');
+// ❌ تم حذف path و fs لأننا لم نعد نحتاج تحميل ملفات هنا
 
-// --- ( 1. تسجيل الخطوط ) ---
-try {
-    const mainFontsDir = path.join(__dirname, '..', 'fonts');
-
-    const mainFontPath = path.join(mainFontsDir, 'bein-ar-normal.ttf');
-    if (!fs.existsSync(mainFontPath)) {
-        throw new Error("ملف الخط 'bein-ar-normal.ttf' غير موجود.");
-    }
-    registerFont(mainFontPath, { family: 'Font-Arabic-Strict' });
-
-    // خط الإيموجي
-    const emojiFontPath = path.join(mainFontsDir, 'NotoEmoji.ttf'); 
-    registerFont(emojiFontPath, { family: 'NotoEmoji' }); 
-
-    console.log("[Weekly-Gen] تم تسجيل الخطوط بنجاح.");
-
-} catch (err) {
-    console.error("!!! خطأ فادح في تسجيل الخطوط:", err.message);
-}
-
-// --- ( 2. تعريف الخطوط ) ---
-const FONT_MAIN = '"Font-Arabic-Strict", "NotoEmoji"'; 
+// --- ( 1. تعريف الخطوط ) ---
+// نستخدم الاسم "Cairo" الذي سجلناه في ملف index.js
+const FONT_MAIN = '"Cairo", "NotoEmoji"'; 
 const FONT_EMOJI = '"NotoEmoji"'; 
 
 const FONT_PAGE_TITLE = FONT_MAIN;
@@ -150,7 +130,6 @@ async function drawQuestCard(ctx, x, y, questData) {
     const isDone = progress >= quest.goal;
     const percent = Math.min(1, Math.max(0, progress / quest.goal));
 
-    // ( 🌟 استخدام اللون الأزرق الثابت للمهام الأسبوعية 🌟 )
     const rarityColors = WEEKLY_COLOR; 
 
     ctx.save();
@@ -213,7 +192,10 @@ async function drawQuestCard(ctx, x, y, questData) {
 
     // 5. النصوص
     ctx.fillStyle = isDone ? rarityColors.glow : BASE_COLORS.text;
-    ctx.font = `32px ${FONT_QUEST_TITLE}`;
+    
+    // 👇 استخدام الخط الموحد هنا
+    ctx.font = `bold 32px ${FONT_QUEST_TITLE}`;
+    
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillText(quest.name, textX, y + PADDING);
@@ -227,7 +209,7 @@ async function drawQuestCard(ctx, x, y, questData) {
 
     // 6. المكافآت
     ctx.textAlign = 'right'; 
-    const rewardY = y + 65; // (تم الرفع)
+    const rewardY = y + 65; 
     const rewardXStart = textRightX; 
 
     ctx.font = `bold 20px ${FONT_ACH_DESCRIPTION}`; 
@@ -247,14 +229,14 @@ async function drawQuestCard(ctx, x, y, questData) {
     ctx.fillText(EMOJI_MORA, moraRewardXStart, rewardY);
 
     // 7. التقدم
-    const barY = y + 103; // (تم الرفع)
+    const barY = y + 103; 
     drawProgressBar(ctx, textX, barY, barWidth, 15, percent, rarityColors.highlight, rarityColors.glow);
 
     ctx.fillStyle = BASE_COLORS.subText;
     ctx.font = `18px ${FONT_ACH_DESCRIPTION}`;
     ctx.textAlign = 'left';
     const progressText = `التقدم: ${progress.toLocaleString()} / ${quest.goal.toLocaleString()}`;
-    ctx.fillText(progressText, textX, barY + 25); // (تم الرفع)
+    ctx.fillText(progressText, textX, barY + 25); 
 
     ctx.restore();
 }
@@ -278,10 +260,13 @@ async function generateWeeklyQuestsImage(member, questsData, page = 1) {
 
     const avatarSize = 60; 
     const avatarY = PAGE_MARGIN;
-    
+     
     // --- ( التنسيق الجديد ) ---
     ctx.fillStyle = BASE_COLORS.text;
-    ctx.font = `36px ${FONT_PAGE_TITLE}`; 
+    
+    // 👇 استخدام الخط الموحد هنا
+    ctx.font = `bold 36px ${FONT_PAGE_TITLE}`; 
+    
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText(`المهام الأسبوعية لـ ${member.displayName}`, PAGE_MARGIN + PADDING, avatarY + avatarSize / 2);
@@ -289,7 +274,7 @@ async function generateWeeklyQuestsImage(member, questsData, page = 1) {
     ctx.fillStyle = BASE_COLORS.subText;
     ctx.font = `24px ${FONT_COUNTDOWN}`; 
     ctx.textAlign = 'right';
-    
+     
     ctx.fillText(`صفحة ${page}/${totalPages}`, PAGE_WIDTH - PAGE_MARGIN - PADDING, avatarY + 15);
 
     const countdownText = getWeeklyResetCountdown();
