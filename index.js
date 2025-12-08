@@ -19,31 +19,25 @@ try {
 }
 
 // ==================================================================
-// 2. تحميل الخطوط (تم التحديث لخط cairo-Pandaify) ✅
+// 2. تحميل الخطوط (تمت العودة لخط bein-ar-normal لإصلاح الأرقام) ✅
 // ==================================================================
 try {
     const { registerFont } = require('canvas');
 
-    // 1. تحميل الخط الأساسي للأرقام (cairo-Pandaify)
-    // تأكد أن اسم الملف في مجلد fonts هو: cairo-Pandaify.ttf
-    const mainFontPath = path.join(__dirname, 'fonts', 'cairo-Pandaify.ttf');
+    // 1. تحميل الخط الأساسي (bein-ar-normal)
+    const mainFontPath = path.join(__dirname, 'fonts', 'bein-ar-normal.ttf');
 
     if (fs.existsSync(mainFontPath)) {
-        // نسجله باسم 'Cairo' (للاستخدام الجديد)
-        registerFont(mainFontPath, { family: 'Cairo' });
-        
-        // (اختياري) نسجله أيضاً باسم 'Bein' لضمان عمل الأوامر القديمة التي لم يتم تحديثها
+        // نسجله باسم 'Bein' (للملفات القديمة)
         registerFont(mainFontPath, { family: 'Bein' });
+        
+        // نسجله أيضاً باسم 'Cairo' (للملفات التي عدلناها مؤخراً)
+        // هذا يضمن أن كل الملفات ستعمل وتستخدم نفس الخط المضبوط
+        registerFont(mainFontPath, { family: 'Cairo' });
 
-        console.log(`[Fonts] ✅ تم تحميل الخط الأساسي: cairo-Pandaify.ttf (تم تسجيله كـ Cairo و Bein)`);
+        console.log(`[Fonts] ✅ تم تحميل الخط: bein-ar-normal.ttf (تم تسجيله كـ Bein و Cairo)`);
     } else {
-        console.warn(`[Fonts] ⚠️ خطأ: الملف غير موجود في fonts/cairo-Pandaify.ttf`);
-        // محاولة تحميل الخط القديم كاحتياط اذا الجديد غير موجود
-        const oldPath = path.join(__dirname, 'fonts', 'bein-ar-normal.ttf');
-        if (fs.existsSync(oldPath)) {
-            registerFont(oldPath, { family: 'Bein' });
-            console.log(`[Fonts] ⚠️ تم الرجوع للخط القديم: bein-ar-normal.ttf`);
-        }
+        console.warn(`[Fonts] ⚠️ خطأ: الملف غير موجود في fonts/bein-ar-normal.ttf`);
     }
 
     // 2. تحميل NotoEmoji من مجلد efonts
