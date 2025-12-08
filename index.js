@@ -19,28 +19,31 @@ try {
 }
 
 // ==================================================================
-// 2. تحميل الخطوط (تمت العودة لخط bein-ar-normal لإصلاح الأرقام) ✅
+// 2. تحميل الخطوط (الحل الجذري لمشكلة التباعد في الرانك) ✅
 // ==================================================================
 try {
     const { registerFont } = require('canvas');
 
-    // 1. تحميل الخط الأساسي (bein-ar-normal)
+    // 1. تحديد مسار الخط (bein-ar-normal.ttf)
     const mainFontPath = path.join(__dirname, 'fonts', 'bein-ar-normal.ttf');
 
     if (fs.existsSync(mainFontPath)) {
-        // نسجله باسم 'Bein' (للملفات القديمة)
+        // أ) تسجيل الخط باسم 'Cairo' و 'Bein' (الوضع العادي)
+        registerFont(mainFontPath, { family: 'Cairo' });
         registerFont(mainFontPath, { family: 'Bein' });
         
-        // نسجله أيضاً باسم 'Cairo' (للملفات التي عدلناها مؤخراً)
-        // هذا يضمن أن كل الملفات ستعمل وتستخدم نفس الخط المضبوط
-        registerFont(mainFontPath, { family: 'Cairo' });
+        // ب) 🔥 الخدعة السحرية (Fake Bold Fix) 🔥
+        // نسجل "نفس الملف العادي" ونقول للنظام "هذا هو ملف البولد"
+        // النتيجة: عندما تطلب مكتبة الرانك خط Bold، ستأخذ الخط العادي النظيف بدلاً من "مط" الأرقام
+        registerFont(mainFontPath, { family: 'Cairo', weight: 'bold' });
+        registerFont(mainFontPath, { family: 'Bein', weight: 'bold' });
 
-        console.log(`[Fonts] ✅ تم تحميل الخط: bein-ar-normal.ttf (تم تسجيله كـ Bein و Cairo)`);
+        console.log(`[Fonts] ✅ تم تحميل الخط وإصلاح مشكلة تباعد الأرقام (Fake Bold Fix).`);
     } else {
         console.warn(`[Fonts] ⚠️ خطأ: الملف غير موجود في fonts/bein-ar-normal.ttf`);
     }
 
-    // 2. تحميل NotoEmoji من مجلد efonts
+    // 2. تحميل NotoEmoji من مجلد efonts (لم نلمسه)
     const emojiPath = path.join(__dirname, 'efonts', 'NotoEmoj.ttf');
     const emojiPathAlt = path.join(__dirname, 'efonts', 'NotoEmoji.ttf');
 
