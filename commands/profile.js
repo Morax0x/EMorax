@@ -2,12 +2,11 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentTyp
 const { calculateBuffMultiplier, calculateMoraBuff } = require("../streak-handler.js");
 const { getUserRace, getWeaponData, BASE_HP, HP_PER_LEVEL } = require('../handlers/pvp-core.js'); 
 const weaponsConfig = require('../json/weapons-config.json');
-const { createCanvas, loadImage } = require('canvas'); // ❌ تم حذف registerFont
+const { createCanvas, loadImage } = require('canvas'); 
 const path = require('path');
 
-// --- ( 1. تعريف الخط الموحد ) ---
-// نستخدم الاسم "Bein" الذي سجلناه في ملف index.js
-const FONT_MAIN = 'Bein'; 
+// ✅ استخدام اسم Cairo (لأنه الخط الذي ضبط معك في البالانس)
+const FONT_MAIN = 'Cairo'; 
 
 const RACE_TRANSLATIONS = new Map([
     ['Human', 'بشري'],
@@ -23,23 +22,16 @@ const RACE_TRANSLATIONS = new Map([
     ['Hybrid', 'نصف وحش']
 ]);
 
-// --- ( دالة رسم النص مع الأيقونة ) ---
 async function drawTextWithIcon(ctx, text, x, y, iconUrl) {
-    // 1. رسم النص (الأرقام)
     ctx.fillText(text, x, y);
-
-    // 2. حساب عرض النص
     const textWidth = ctx.measureText(text).width;
-
     if (iconUrl) {
         try {
             const img = await loadImage(iconUrl);
             const iconSize = 18;
             const gap = 6; 
             ctx.drawImage(img, x - textWidth - gap - iconSize, y - 19, iconSize, iconSize); 
-        } catch (e) {
-            // تجاهل الخطأ
-        }
+        } catch (e) {}
     }
 }
 
@@ -149,13 +141,13 @@ async function buildGeneralProfile(client, member, targetUser) {
     ctx.shadowBlur = 4;
     const xpText = `${currentXP_Progress.toLocaleString()} / ${requiredXP.toLocaleString()} XP`;
 
-    // 🌟🌟 التصحيح هنا: حذفنا كلمة bold واستخدمنا 14px عادي 🌟🌟
+    // 🔥🔥 تصحيح: إزالة bold واستخدام خط Cairo 🔥🔥
     ctx.font = `14px "${FONT_MAIN}"`; 
     ctx.textAlign = 'center';
     ctx.fillStyle = '#FFAA40';
     ctx.fillText(xpText, barX + (barWidth / 2), barY - 8);
 
-    // 🌟🌟 وهنا حذفنا bold واستخدمنا 30px عادي 🌟🌟
+    // 🔥🔥 تصحيح: إزالة bold 🔥🔥
     ctx.font = `30px "${FONT_MAIN}"`;
     ctx.textAlign = 'left';
     ctx.fillText(level, 40, 150);
@@ -170,23 +162,14 @@ async function buildGeneralProfile(client, member, targetUser) {
     let rightY = 215;
     const rightLineHeight = 28;
 
-    // 1. المورا
     ctx.fillText(totalMora.toLocaleString(), moraX, rightY);
     rightY += rightLineHeight;
-
-    // 2. الستريك
     await drawTextWithIcon(ctx, streakCount.toLocaleString(), streakX, rightY, 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f525.png');
     rightY += rightLineHeight;
-
-    // 3. بف المورا
     await drawTextWithIcon(ctx, moraBuffString, bottomX, rightY, 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4b0.png');
     rightY += rightLineHeight;
-
-    // 4. بف اللفل
     await drawTextWithIcon(ctx, buffString, bottomX, rightY, 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/26a1.png');
     rightY += rightLineHeight;
-
-    // 5. الدروع
     await drawTextWithIcon(ctx, shieldText, bottomX, rightY, 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f6e1.png');
 
     ctx.textAlign = 'right';
@@ -244,7 +227,7 @@ async function buildPvpProfile(client, member, targetUser) {
     ctx.shadowColor = '#FFAA40';
     ctx.shadowBlur = 4;
 
-    // 🌟 حذفنا bold 🌟
+    // 🔥🔥 تصحيح: إزالة bold واستخدام خط Cairo 🔥🔥
     ctx.font = `30px "${FONT_MAIN}"`; 
     ctx.textAlign = 'left';
     ctx.fillText(level, 40, 150);
@@ -411,12 +394,8 @@ module.exports = {
 
         } catch (error) {
             console.error("خطأ في أمر البروفايل:", error);
-
-            if (isSlash) {
-                await interaction.editReply({ content: "حدث خطأ أثناء جلب البروفايل.", ephemeral: true });
-            } else {
-                message.reply("حدث خطأ أثناء جلب البروفايل.");
-            }
+            if (isSlash) await interaction.editReply({ content: "حدث خطأ.", ephemeral: true });
+            else message.reply("حدث خطأ.");
         }
     }
 };
