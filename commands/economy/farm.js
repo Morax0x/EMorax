@@ -4,6 +4,8 @@ const farmAnimals = require('../../json/farm-animals.json');
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const ITEMS_PER_PAGE = 9;
 
+// --- دوال بناء الواجهة (نفس المنطق السابق مع تحسينات بسيطة) ---
+
 function buildGridView(allItems, pageIndex) {
     const startIndex = pageIndex * ITEMS_PER_PAGE;
     const itemsOnPage = allItems.slice(startIndex, startIndex + ITEMS_PER_PAGE);
@@ -127,7 +129,7 @@ module.exports = {
         }
 
         let currentPage = 0;
-        let currentView = 'grid';
+        let currentView = 'grid'; // 'grid' or 'detail'
         let currentItemIndex = 0;
 
         const { embed, components } = buildGridView(allItems, currentPage);
@@ -141,34 +143,60 @@ module.exports = {
         });
 
         collector.on('collect', async i => {
-            try {
-                if (i.isButton()) {
+            // 🔥 حماية: إذا تم الرد على التفاعل مسبقاً (من الهاندلر العام مثلاً)، نتوقف
+            if (i.replied || i.deferred) return;
 
+            try {
+                // ========================================================
+                // 1. التعامل مع القائمة المنسدلة (Select Menu)
+                // ========================================================
+                if (i.isStringSelectMenu() && i.customId === 'farm_select_item') {
+                    await i.deferUpdate();
+                    currentView = 'detail';
+                    const selectedID = i.values[0];
+                    const item = allItems.find(it => it.id === selectedID);
+                    if (item) {
+                        currentItemIndex = allItems.findIndex(it => it.id === selectedID);
+                        const { embed: detailEmbed, components: detailComponents } = buildDetailView(item, i.user.id, i.guild.id, sql, currentItemIndex, allItems.length);
+                        await i.editReply({ embeds: [detailEmbed], components: detailComponents });
+                    }
+                }
+                
+                // ========================================================
+                // 2. التعامل مع الأزرار (Buttons)
+                // ========================================================
+                else if (i.isButton()) {
+
+                    // A. أزرار التنقل (السابق/التالي)
                     if (i.customId.startsWith('farm_prev_detail_') || i.customId.startsWith('farm_next_detail_')) {
                         await i.deferUpdate();
 
                         const currentItemID = i.customId.split('_')[3];
                         currentItemIndex = allItems.findIndex(it => it.id === currentItemID);
 
+                        if (currentItemIndex === -1) currentItemIndex = 0; // حماية
+
                         if (i.customId.startsWith('farm_next_detail_')) {
                             currentItemIndex = (currentItemIndex + 1) % allItems.length;
-                        } else if (i.customId.startsWith('farm_prev_detail_')) {
+                        } else {
                             currentItemIndex = (currentItemIndex - 1 + allItems.length) % allItems.length;
                         }
 
                         const item = allItems[currentItemIndex];
                         const { embed: detailEmbed, components: detailComponents } = buildDetailView(item, i.user.id, i.guild.id, sql, currentItemIndex, allItems.length);
                         await i.editReply({ embeds: [detailEmbed], components: detailComponents });
-                        return;
                     }
 
-                    if (i.customId === 'farm_back_to_grid') {
+                    // B. زر العودة للمتجر
+                    else if (i.customId === 'farm_back_to_grid') {
                         await i.deferUpdate();
                         currentView = 'grid';
                         const { embed: gridEmbed, components: gridComponents } = buildGridView(allItems, currentPage);
                         await i.editReply({ embeds: [gridEmbed], components: gridComponents });
+                    }
 
-                    } else if (i.customId.startsWith('buy_animal_') || i.customId.startsWith('sell_animal_')) {
+                    // C. أزرار الشراء والبيع (المودال)
+                    else if (i.customId.startsWith('buy_animal_') || i.customId.startsWith('sell_animal_')) {
                         const isBuy = i.customId.startsWith('buy_animal_');
                         const assetId = i.customId.replace(isBuy ? 'buy_animal_' : 'sell_animal_', '');
                         const item = allItems.find(it => it.id === assetId);
@@ -177,45 +205,42 @@ module.exports = {
 
                         const modal = new ModalBuilder()
                             .setCustomId(`${isBuy ? 'buy_animal_' : 'sell_animal_'}${assetId}`)
-                            .setTitle("أدخل الكمية");
+                            .setTitle(isBuy ? "شراء حيوان" : "بيع حيوان");
 
                         const quantityInput = new TextInputBuilder()
                             .setCustomId('quantity_input')
-                            .setLabel(isBuy ? `الكمية التي تريد شراءها من ${item.name}` : `الكمية التي تريد بيعها من ${item.name}`)
+                            .setLabel(isBuy ? `الكمية (سعر الواحد: ${item.price})` : `كمية البيع (لديك في المزرعة)`)
                             .setStyle(TextInputStyle.Short)
-                            .setPlaceholder(isBuy ? `السعر: ${item.price.toLocaleString()}` : `ستسترجع: 70% من سعر الشراء`)
+                            .setPlaceholder('أدخل رقماً (مثلاً: 1)')
+                            .setMinLength(1)
+                            .setMaxLength(5)
                             .setRequired(true);
 
                         modal.addComponents(new ActionRowBuilder().addComponents(quantityInput));
-                        await i.showModal(modal);
+                        
+                        // 🔥 عرض المودال (يجب أن يكون الاستجابة الأولى)
+                        // نستخدم catch لمنع الكراش إذا سبقه هاندلر آخر
+                        await i.showModal(modal).catch(err => {
+                            if (err.code !== 40060 && err.code !== 10062) {
+                                console.error("Modal Error:", err);
+                            }
+                        });
                     }
                 }
 
-                else if (i.isStringSelectMenu() && i.customId === 'farm_select_item') {
-                    await i.deferUpdate();
-                    currentView = 'detail';
-                    const selectedID = i.values[0];
-                    const item = allItems.find(it => it.id === selectedID);
-                    currentItemIndex = allItems.findIndex(it => it.id === selectedID);
-                    const { embed: detailEmbed, components: detailComponents } = buildDetailView(item, i.user.id, i.guild.id, sql, currentItemIndex, allItems.length);
-                    await i.editReply({ embeds: [detailEmbed], components: detailComponents });
-                }
             } catch (error) {
-                console.error("خطأ في جامع المزرعة:", error);
-                try {
-                    if (i.replied || i.deferred) {
-                        await i.followUp({ content: '❌ حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.', ephemeral: true });
-                    } else {
-                        await i.reply({ content: '❌ حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.', ephemeral: true });
-                    }
-                } catch (e) {
-                    console.error("لا يمكن إرسال رسالة الخطأ:", e);
+                console.error("Farm Collector Error:", error);
+                // محاولة إرسال رسالة خطأ خفية فقط إذا لم نقم بالرد بعد
+                if (!i.replied && !i.deferred) {
+                    await i.reply({ content: '❌ حدث خطأ غير متوقع.', ephemeral: true }).catch(() => {});
                 }
             }
         });
 
         collector.on('end', () => {
-            msg.edit({ components: [] }).catch(() => null);
+            if (msg.editable) {
+                msg.edit({ components: [] }).catch(() => null);
+            }
         });
     }
 };
