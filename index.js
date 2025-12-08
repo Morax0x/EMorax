@@ -19,62 +19,65 @@ try {
 }
 
 // ==================================================================
-// 🛠️ هام جداً: إصلاح البيانات التالفة (يحول القيم الفارغة لأصفار)
+// 2. تحميل الخطوط (تم تصحيح المسار إلى efonts) ✅
 // ==================================================================
-if (sql.open) {
-    try {
-        console.log("🔄 جاري فحص وصيانة قاعدة البيانات...");
-        // إصلاح المستويات والخبرة
-        sql.prepare("UPDATE levels SET xp = 0 WHERE xp IS NULL").run();
-        sql.prepare("UPDATE levels SET level = 1 WHERE level IS NULL OR level = 0").run();
-        sql.prepare("UPDATE levels SET totalXP = 0 WHERE totalXP IS NULL").run();
-        
-        // إصلاح الاقتصاد
-        sql.prepare("UPDATE levels SET mora = 0 WHERE mora IS NULL").run();
-        sql.prepare("UPDATE levels SET bank = 0 WHERE bank IS NULL").run();
-        
-        // إصلاح العدادات والإحصائيات
-        sql.prepare("UPDATE levels SET dailyStreak = 0 WHERE dailyStreak IS NULL").run();
-        sql.prepare("UPDATE levels SET total_meow_count = 0 WHERE total_meow_count IS NULL").run();
-        sql.prepare("UPDATE levels SET boost_count = 0 WHERE boost_count IS NULL").run();
-        
-        console.log("✅ تمت عملية الصيانة: البوت جاهز للعمل بدون أخطاء.");
-    } catch (err) {
-        console.error("⚠️ حدث خطأ بسيط أثناء الصيانة (يمكن تجاهله):", err.message);
+try {
+    const { registerFont } = require('canvas');
+    // 📂 هنا التعديل: المجلد اسمه efonts
+    const fontsDir = path.join(__dirname, 'efonts');
+    
+    const fontsToLoad = [
+        { file: 'Bein-Normal.ttf', family: 'Bein' },
+        { file: 'NotoEmoji.ttf', family: 'NotoEmoji' },
+        { file: 'bein-ar-normal.ttf', family: 'Bein' } 
+    ];
+
+    if (fs.existsSync(fontsDir)) {
+        fontsToLoad.forEach(font => {
+            const fontPath = path.join(fontsDir, font.file);
+            if (fs.existsSync(fontPath)) {
+                try {
+                    registerFont(fontPath, { family: font.family });
+                    console.log(`[Fonts] ✅ تم تحميل الخط: ${font.file}`);
+                } catch (e) {
+                    console.warn(`[Fonts] ⚠️ فشل تحميل ${font.file}: ${e.message}`);
+                }
+            } else {
+                console.warn(`[Fonts] ⚠️ الملف غير موجود: ${font.file}`);
+            }
+        });
+    } else {
+        console.warn(`[Fonts] ⚠️ مجلد الخطوط 'efonts' غير موجود في المسار الرئيسي!`);
     }
+} catch (e) {
+    console.warn("[Fonts] ⚠️ مكتبة Canvas غير مثبتة أو حدث خطأ عام.");
 }
 
 // ==================================================================
-// 2. تحديثات الجداول (لضمان وجود الأعمدة)
+// 3. تحديثات الجداول (الأعمدة الجديدة)
 // ==================================================================
-try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS world_boss (guildID TEXT PRIMARY KEY, currentHP INTEGER, maxHP INTEGER, name TEXT, image TEXT, active INTEGER DEFAULT 0, messageID TEXT, channelID TEXT)").run(); } catch(e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE world_boss ADD COLUMN lastLog TEXT DEFAULT '[]'").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS boss_cooldowns (guildID TEXT, userID TEXT, lastHit INTEGER, PRIMARY KEY (guildID, userID))").run(); } catch(e) {}
-try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS user_coupons (id INTEGER PRIMARY KEY AUTOINCREMENT, guildID TEXT, userID TEXT, discountPercent INTEGER, isUsed INTEGER DEFAULT 0)").run(); } catch(e) {}
-try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS boss_leaderboard (guildID TEXT, userID TEXT, totalDamage INTEGER DEFAULT 0, PRIMARY KEY(guildID, userID))").run(); } catch(e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastFish INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN rodLevel INTEGER DEFAULT 1").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN boatLevel INTEGER DEFAULT 1").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN currentLocation TEXT DEFAULT 'beach'").run(); } catch (e) {}
-try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastMemory INTEGER DEFAULT 0").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastMemory INTEGER DEFAULT 0").run(); } catch (e) {} 
 try { if(sql.open) sql.prepare("ALTER TABLE user_total_stats ADD COLUMN total_emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE user_daily_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE user_weekly_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN shopLogChannelID TEXT").run(); } catch (e) {} 
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id INTEGER PRIMARY KEY AUTOINCREMENT, guildID TEXT NOT NULL, trigger TEXT NOT NULL, response TEXT NOT NULL, images TEXT, matchType TEXT DEFAULT 'exact', cooldown INTEGER DEFAULT 0, allowedChannels TEXT, ignoredChannels TEXT, UNIQUE(guildID, trigger))").run(); } catch(e) {}
-try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS farm_last_payout (id TEXT PRIMARY KEY, lastPayoutDate INTEGER)").run(); } catch (e) {}
 
 // ==================================================================
-// 3. استيراد الهاندلرز
+// 4. استيراد الهاندلرز
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
 const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
-const { handleBossInteraction } = require('./handlers/boss-handler.js');
-const { checkFarmIncome } = require('./handlers/farm-income-handler.js');
+
 const questsConfig = require('./json/quests-config.json');
 const farmAnimals = require('./json/farm-animals.json');
+
 const { generateSingleAchievementAlert, generateQuestAlert } = require('./generators/achievement-generator.js'); 
 const { createRandomDropGiveaway, endGiveaway, getUserWeight } = require('./handlers/giveaway-handler.js');
 const { checkUnjailTask } = require('./handlers/report-handler.js'); 
@@ -82,7 +85,7 @@ const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
 const { handleShopInteractions } = require('./handlers/shop-handler.js'); 
 
 // ==================================================================
-// 4. إعداد العميل (Client)
+// 5. إعداد العميل (Client)
 // ==================================================================
 const client = new Client({
     intents: [
@@ -99,6 +102,7 @@ const client = new Client({
 client.commands = new Collection();
 client.cooldowns = new Collection();
 client.talkedRecently = new Map();
+const voiceXPCooldowns = new Map();
 client.recentMessageTimestamps = new Collection(); 
 const RECENT_MESSAGE_WINDOW = 2 * 60 * 60 * 1000; 
 const botToken = process.env.DISCORD_BOT_TOKEN;
@@ -117,22 +121,9 @@ client.generateSingleAchievementAlert = generateSingleAchievementAlert;
 client.generateQuestAlert = generateQuestAlert;
 
 if (sql.open) {
-    // إعداد البيانات الافتراضية
-    client.defaultData = { 
-        user: null, guild: null, xp: 0, level: 1, totalXP: 0, mora: 0, lastWork: 0, lastDaily: 0, dailyStreak: 0, bank: 0, 
-        lastInterest: 0, totalInterestEarned: 0, hasGuard: 0, guardExpires: 0, lastCollected: 0, totalVCTime: 0, 
-        lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, 
-        total_meow_count: 0, boost_count: 0, lastPVP: 0, lastFarmYield: 0,
-        lastFish: 0, rodLevel: 1, boatLevel: 1, currentLocation: 'beach',
-        lastMemory: 0
-    };
-
     client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
-
-    // ============================================================
-    // 🔥🔥 دالة الحفظ الآمنة (SAFE SAVE) 🔥🔥
-    // ============================================================
-    const realSetLevel = sql.prepare(`
+    
+    client.setLevel = sql.prepare(`
         INSERT OR REPLACE INTO levels (
             user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, 
             lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, 
@@ -147,31 +138,14 @@ if (sql.open) {
             @currentLocation, @lastMemory
         );
     `);
-
-    // نقوم بعمل "تغليف" (Wrapper) للدالة لكي تدمج البيانات قبل الحفظ
-    client.setLevel = {
-        run: (newData) => {
-            if (!newData.user || !newData.guild) return;
-            
-            // 1. جلب البيانات القديمة من الداتابيس
-            const currentData = client.getLevel.get(newData.user, newData.guild);
-            
-            // 2. دمج البيانات: (الافتراضية + القديمة + الجديدة)
-            // هذا الترتيب يضمن أننا لا نفقد أي حقل
-            const mergedData = { 
-                ...client.defaultData, 
-                ...(currentData || {}), 
-                ...newData 
-            };
-            
-            // 3. التأكد من أن جميع القيم موجودة وليست undefined (لتجنب أخطاء SQL)
-            for (const key of Object.keys(client.defaultData)) {
-                if (mergedData[key] === undefined) mergedData[key] = client.defaultData[key];
-            }
-
-            // 4. الحفظ الآمن
-            return realSetLevel.run(mergedData);
-        }
+    
+    client.defaultData = { 
+        user: null, guild: null, xp: 0, level: 1, totalXP: 0, mora: 0, lastWork: 0, lastDaily: 0, dailyStreak: 0, bank: 0, 
+        lastInterest: 0, totalInterestEarned: 0, hasGuard: 0, guardExpires: 0, lastCollected: 0, totalVCTime: 0, 
+        lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, 
+        total_meow_count: 0, boost_count: 0, lastPVP: 0, lastFarmYield: 0,
+        lastFish: 0, rodLevel: 1, boatLevel: 1, currentLocation: 'beach',
+        lastMemory: 0 
     };
 
     client.getDailyStats = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?");
@@ -226,14 +200,9 @@ client.checkQuests = async function(client, member, stats, questType, dateKey) {
                 sql.prepare("INSERT INTO user_quest_claims (claimID, userID, guildID, questID, dateStr) VALUES (?, ?, ?, ?, ?)").run(claimID, member.id, member.guild.id, quest.id, dateKey);
                 let levelData = client.getLevel.get(member.id, member.guild.id);
                 if (!levelData) levelData = { ...client.defaultData, user: member.id, guild: member.guild.id };
-                
-                levelData.level = parseInt(levelData.level) || 1;
-                levelData.xp = parseInt(levelData.xp) || 0;
                 levelData.mora = (levelData.mora || 0) + quest.reward.mora;
-
                 levelData.xp += quest.reward.xp;
                 levelData.totalXP += quest.reward.xp;
-                
                 const nextXP = 5 * (levelData.level ** 2) + (50 * levelData.level) + 100;
                 if (levelData.xp >= nextXP) {
                     const oldLevel = levelData.level;
@@ -292,14 +261,9 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
                 sql.prepare("INSERT INTO user_achievements (userID, guildID, achievementID, timestamp) VALUES (?, ?, ?, ?)").run(member.id, member.guild.id, ach.id, Date.now());
                 let ld = levelData || client.getLevel.get(member.id, member.guild.id);
                 if (!ld) ld = { ...client.defaultData, user: member.id, guild: member.guild.id };
-                
-                ld.level = parseInt(ld.level) || 1;
-                ld.xp = parseInt(ld.xp) || 0;
                 ld.mora = (ld.mora || 0) + ach.reward.mora;
-                
                 ld.xp += ach.reward.xp;
                 ld.totalXP += ach.reward.xp;
-                
                 const nextXP = 5 * (ld.level ** 2) + (50 * ld.level) + 100;
                 if (ld.xp >= nextXP) {
                     ld.xp -= nextXP;
@@ -350,7 +314,7 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         if (stat === 'replies_sent') totalStats.total_replies_sent = (totalStats.total_replies_sent || 0) + amount;
         if (stat === 'mentions_received') totalStats.total_mentions_received = (totalStats.total_mentions_received || 0) + amount;
         if (stat === 'vc_minutes') totalStats.total_vc_minutes = (totalStats.total_vc_minutes || 0) + amount;
-            
+          
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
         client.setTotalStats.run({
@@ -400,11 +364,6 @@ client.checkRoleAchievement = async function(member, roleId, achievementId) {
             sql.prepare("INSERT INTO user_achievements (userID, guildID, achievementID, timestamp) VALUES (?, ?, ?, ?)").run(userID, guildID, ach.id, Date.now());
             let ld = client.getLevel.get(userID, guildID);
             if (!ld) ld = { ...client.defaultData, user: userID, guild: guildID };
-            
-            // 🔥 FIX: أمان إضافي هنا أيضاً
-            ld.level = parseInt(ld.level) || 1;
-            ld.xp = parseInt(ld.xp) || 0;
-
             ld.mora = (ld.mora || 0) + ach.reward.mora;
             ld.xp += ach.reward.xp;
             ld.totalXP += ach.reward.xp;
@@ -444,6 +403,36 @@ function updateMarketPrices() {
         transaction();
         console.log(`[Market] Prices updated.`);
     } catch (err) { console.error("[Market] Error updating prices:", err.message); }
+}
+
+// ( 🌟 استدعاء دالة القروض الجديدة 🌟 )
+const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
+
+async function processFarmYields() {
+    if (!sql.open) return;
+    try {
+        const now = Date.now();
+        const ONE_DAY = 24 * 60 * 60 * 1000;
+        const farmers = sql.prepare("SELECT DISTINCT userID, guildID FROM user_farm").all();
+        for (const farmer of farmers) {
+            let userData = client.getLevel.get(farmer.userID, farmer.guildID);
+            if (!userData) continue;
+            if ((now - (userData.lastFarmYield || 0)) >= ONE_DAY) {
+                const userAnimals = sql.prepare("SELECT animalID, COUNT(*) as count FROM user_farm WHERE userID = ? AND guildID = ? GROUP BY animalID").all(farmer.userID, farmer.guildID);
+                let totalIncome = 0;
+                for (const row of userAnimals) {
+                    const animalInfo = farmAnimals.find(a => a.id === row.animalID);
+                    if (animalInfo) totalIncome += (animalInfo.income_per_day * row.count);
+                }
+                if (totalIncome > 0) {
+                    userData.mora += totalIncome;
+                    userData.lastFarmYield = now;
+                    client.setLevel.run(userData);
+                    console.log(`[Farm] Gave ${totalIncome} mora to user ${farmer.userID}`);
+                }
+            }
+        }
+    } catch (err) { console.error("[Farm] Error processing yields:", err); }
 }
 
 async function checkTemporaryRoles(client) {
@@ -594,10 +583,10 @@ client.on(Events.ClientReady, async () => {
     setInterval(calculateInterest, 60 * 60 * 1000); calculateInterest();
     setInterval(updateMarketPrices, 60 * 60 * 1000); updateMarketPrices();
     
-    // تشغيل الفحص كل 5 دقائق
-    setInterval(() => checkLoanPayments(client, sql), 5 * 60 * 1000); 
-    setInterval(() => checkFarmIncome(client, sql), 5 * 60 * 1000); 
+    // ( 🌟 دالة القروض المفصولة 🌟 )
+    setInterval(() => checkLoanPayments(client, sql), 60 * 60 * 1000);
 
+    setInterval(processFarmYields, 60 * 60 * 1000); processFarmYields();
     setInterval(() => checkDailyStreaks(client, sql), 3600000); checkDailyStreaks(client, sql);
     setInterval(() => checkDailyMediaStreaks(client, sql), 3600000); checkDailyMediaStreaks(client, sql);
     setInterval(() => checkUnjailTask(client), 5 * 60 * 1000); checkUnjailTask(client);
@@ -630,6 +619,7 @@ client.on(Events.ClientReady, async () => {
     sendDailyMediaUpdate(client, sql);
 }); 
 
+// ( 🌟 Pass Cache to Interaction Handler 🌟 )
 require('./interaction-handler.js')(client, sql, client.antiRolesCache);
 
 const eventsPath = path.join(__dirname, 'events');
