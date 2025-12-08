@@ -32,7 +32,8 @@ const DESCRIPTION_TRANSLATIONS = new Map([
     ['setup-streak-panel', 'نشر لوحة الستريك التفاعلية'],
     ['checkdb', 'فحص قاعدة البيانات (للمطور)'],
     ['reroll', 'إعادة سحب فائز في قيف اواي'],
-    ['set-shop-log', 'تحديد قناة سجلات المتجر']
+    ['set-shop-log', 'تحديد قناة سجلات المتجر'],
+    ['boss', 'التحكم في وحش العالم (للمالك)']
 ]);
 
 // خريطة للأسماء العربية اليدوية
@@ -63,7 +64,8 @@ const MANUAL_ARABIC_NAMES = new Map([
     ['weapon-info', 'سلاح'],
     ['shop', 'متجر'],
     ['fish', 'صيد'],
-    ['emoji', 'ايموجي']
+    ['emoji', 'ايموجي'],
+    ['boss', 'وحش']
 ]);
 
 function getArabicDescription(cmd) {
@@ -125,7 +127,7 @@ function buildCasinoEmbed(client) {
 ✶** ${getCmdName(commands, 'work')}: ** \`للعمل وكسب المورا مرة كل ساعة\`
 ✶** ${getCmdName(commands, 'rps')}: ** \`لعب حجرة ورقة مقص\`
 ✶** ${getCmdName(commands, 'roulette')}: ** \`للعب الروليت الروسية ومضاعفة رهانك\`
-✶** ${getCmdName(commands, 'emoji')}: ** \`لعبة تحدي الذاكرة\`
+✶** ${getCmdName(commands, 'emoji')}: ** \`لعبة تحدي الذاكرة (إيموجي)\`
 ✶** ${getCmdName(commands, 'rob')}: ** \`لسرقة ونهب رصيد مستخدم آخر\`
 ✶** ${getCmdName(commands, 'guess')}: ** \`لعبة تخمين الرقم فردي او جماعي\`
 ✶** ${getCmdName(commands, 'gametime')}: ** \`لاظهار فترة التهدئة لأوامر الكازينو\`
@@ -172,7 +174,8 @@ function buildAdminSettingsEmbed(client) {
         cmd.name === 'set-race-role' ||
         cmd.name === 'set-vip-role' || 
         cmd.name === 'set-casino-room' ||
-        cmd.name === 'set-shop-log'
+        cmd.name === 'set-shop-log' || 
+        cmd.name === 'boss'
     ).map(cmd => `✶ **${getCmdName(client.commands, cmd.name)}**\n✬ ${getArabicDescription(cmd)}`).join('\n\n'); 
 
     return new EmbedBuilder()
@@ -234,6 +237,7 @@ module.exports = {
     },
 
     async execute(interactionOrMessage, args) {
+
         const isSlash = !!interactionOrMessage.isChatInputCommand;
         let interaction, message, guild, client, user;
 
