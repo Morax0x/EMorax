@@ -7,7 +7,7 @@ const { getUserWeight, endGiveaway, createRandomDropGiveaway } = require('./hand
 const { handleReroll } = require('./handlers/reroll-handler.js'); 
 const { handleCustomRoleInteraction } = require('./handlers/custom-role-handler.js'); 
 const { handleReactionRole } = require('./handlers/reaction-role-handler.js'); 
-const { handleBossInteraction } = require('./handlers/boss-handler.js'); // ✅ استيراد الوحش
+const { handleBossInteraction } = require('./handlers/boss-handler.js'); 
 
 // محاولة استيراد المزرعة إذا كانت موجودة
 let handleFarmInteractions;
@@ -101,6 +101,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     return; 
                 }
                 
+                // التحقق من الصلاحيات الخاصة بالقنوات
                 let isAllowed = false;
                 if (i.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
                 else {
@@ -152,8 +153,8 @@ module.exports = (client, sql, antiRolesCache) => {
             if (i.isButton()) {
                 const id = i.customId;
 
-                // 🆕 FIX: Defer for buttons leading to modals or complex logic (Except Shop/Game Modals)
-                if (id === 'g_builder_content' || id === 'g_builder_visuals' || id.startsWith('farm_buy_menu') || id.startsWith('mem_auto_confirm')) {
+                // 🆕 FIX: Defer for buttons leading to modals or complex logic
+                if (id === 'g_builder_content' || id === 'g_builder_visuals' || id.startsWith('farm_buy_menu') || id.startsWith('mem_auto_confirm') || id === 'open_xp_modal') {
                     if (!i.replied && !i.deferred) await i.deferUpdate(); 
                 }
 
@@ -175,11 +176,11 @@ module.exports = (client, sql, antiRolesCache) => {
                 // ✅ Shop/Fish/Market Buttons
                 else if (
                     id.startsWith('buy_') || id.startsWith('upgrade_') || id.startsWith('shop_') || 
-                    id.startsWith('replace_') || id === 'cancel_purchase' || id === 'open_xp_modal' ||
+                    id.startsWith('replace_buff_') || id === 'cancel_purchase' || id === 'open_xp_modal' ||
                     id === 'max_level' || id === 'max_rod' || id === 'max_boat' ||
                     id === 'cast_rod' || id.startsWith('pull_rod') || 
                     id.startsWith('sell_') || id.startsWith('mem_') || 
-                    id === 'replace_guard'
+                    id === 'replace_guard' // تأكدنا من وجوده
                 ) {
                     await handleShopInteractions(i, client, sql);
                 }
@@ -209,7 +210,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     await i.showModal(modal);
 
                 } else if (id === 'g_builder_send') {
-                    await i.deferReply({ flags: [MessageFlags.Ephemeral] }); 
+                    await i.deferReply({ flags: [MessageFlags.Ephemeral] }); // Explicitly defer reply
                     const data = giveawayBuilders.get(i.user.id);
                     if (!data || !data.prize || !data.durationStr || !data.winnerCountStr) {
                         return i.editReply("❌ البيانات الأساسية (الجائزة، المدة، الفائزون) مفقودة.");
@@ -259,6 +260,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     return;
 
                 } else if (id === 'g_enter') {
+                    // This button needs immediate acknowledgment, but since it updates the message, deferUpdate is correct.
                     await i.deferUpdate(); 
                     const giveawayID = i.message.id;
                     const userID = i.user.id;
@@ -276,10 +278,10 @@ module.exports = (client, sql, antiRolesCache) => {
                     const newEmbed = new EmbedBuilder(i.message.embeds[0].toJSON());
                     newEmbed.setDescription(newEmbed.data.description.replace(/✶ عـدد الـمـشاركـيـن: `\d+`/i, `✶ عـدد الـمـشاركـيـن: \`${entryCount.count}\``));
                     await i.message.edit({ embeds: [newEmbed] });
-                    await i.followUp({ content: replyMessage, flags: [MessageFlags.Ephemeral] }); 
+                    await i.followUp({ content: replyMessage, flags: [MessageFlags.Ephemeral] }); // Use followUp/flags
                 
                 } else if (id === 'g_enter_drop') {
-                    await i.deferUpdate(); 
+                    await i.deferUpdate(); // Acknowledge immediately
                     const messageID = i.message.id;
                     try {
                         const giveaway = sql.prepare("SELECT * FROM active_giveaways WHERE messageID = ? AND isFinished = 0").get(messageID);
@@ -347,9 +349,7 @@ module.exports = (client, sql, antiRolesCache) => {
             // 5. Select Menus
             // ====================================================
             } else if (i.isStringSelectMenu()) {
-                
                 // ⚠️ (تم الإصلاح): إزالة deferUpdate الإجباري هنا لأنه يسبب مشاكل مع الهاندلرز التي ترد برد جديد
-                // نترك لكل هاندلر حرية عمل deferUpdate أو deferReply
 
                 const id = i.customId;
                 
@@ -380,7 +380,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     await handleReroll(i, client, sql);
                 } else if (id.startsWith('quest_panel_menu')) {
                     await handleQuestPanel(i, client, sql);
-                } else if (id.startsWith('streak_panel_menu')) {
+                } else if (id.startsWith('streak_panel_menu') || id === 'streak_panel_select_sep') {
                     await handleStreakPanel(i, client, sql);
                 } else if (id.startsWith('pvp_')) { 
                     await handlePvpInteraction(i, client, sql);
