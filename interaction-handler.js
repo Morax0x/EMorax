@@ -7,7 +7,7 @@ const { getUserWeight, endGiveaway, createRandomDropGiveaway } = require('./hand
 const { handleReroll } = require('./handlers/reroll-handler.js'); 
 const { handleCustomRoleInteraction } = require('./handlers/custom-role-handler.js'); 
 const { handleReactionRole } = require('./handlers/reaction-role-handler.js'); 
-const { handleBossInteraction } = require('./handlers/boss-handler.js'); // 🆕 تم استيراد معالج الوحش
+const { handleBossInteraction } = require('./handlers/boss-handler.js'); // ✅ استيراد الوحش
 
 // محاولة استيراد المزرعة إذا كانت موجودة
 let handleFarmInteractions;
@@ -81,7 +81,7 @@ module.exports = (client, sql, antiRolesCache) => {
         // منع التكرار السريع (Anti-Spam Click)
         if (processingInteractions.has(i.user.id)) {
             if (!i.isModalSubmit()) {
-                 return i.reply({ content: '⏳ | الرجاء الانتظار.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                 return i.reply({ content: '⏳ | الرجاء الانتظار...', flags: [MessageFlags.Ephemeral] }).catch(() => {});
             }
         }
 
@@ -140,7 +140,6 @@ module.exports = (client, sql, antiRolesCache) => {
                 return; 
             }
 
-            // --- 3. Context Menu ---
             if (i.isContextMenuCommand()) {
                 const command = i.client.commands.get(i.commandName);
                 if (!command) return;
@@ -164,23 +163,24 @@ module.exports = (client, sql, antiRolesCache) => {
                     await handleCustomRoleInteraction(i, client, sql);
                 }
                 
-                // ✅ World Boss Buttons
-                else if (id === 'boss_attack' || id === 'boss_status') {
+                // ✅ أزرار وحش العالم (Boss)
+                else if (id.startsWith('boss_')) { 
                     await handleBossInteraction(i, client, sql);
                 }
                 
-                // ✅ Farm Buttons
+                // ✅ أزرار المزرعة
                 else if ((id === 'farm_collect' || id === 'farm_buy_menu') && handleFarmInteractions) {
                     await handleFarmInteractions(i, client, sql);
                 }
 
-                // ✅ Shop/Fish/Market Buttons
+                // ✅ أزرار المتجر / الصيد / السوق / تطوير الأدوات / لعبة الذاكرة (mem_)
                 else if (
                     id.startsWith('buy_') || id.startsWith('upgrade_') || id.startsWith('shop_') || 
                     id.startsWith('replace_buff_') || id === 'cancel_purchase' || id === 'open_xp_modal' ||
                     id === 'max_level' || id === 'max_rod' || id === 'max_boat' ||
                     id === 'cast_rod' || id.startsWith('pull_rod') || 
-                    id.startsWith('sell_') || id.startsWith('mem_') // ✅ أزرار لعبة الذاكرة
+                    id.startsWith('sell_') || id.startsWith('mem_') || // ✅ أضيفت هنا
+                    id === 'replace_guard'
                 ) {
                     await handleShopInteractions(i, client, sql);
                 }
@@ -304,7 +304,9 @@ module.exports = (client, sql, antiRolesCache) => {
                 }
                 return; 
 
-            // --- 4. Modals Submissions ---
+            // ====================================================
+            // 4. Modals Submissions
+            // ====================================================
             } else if (i.isModalSubmit()) {
                 if (i.customId === 'g_content_modal') {
                     await i.deferUpdate();
@@ -343,13 +345,15 @@ module.exports = (client, sql, antiRolesCache) => {
                 }
                 return; 
 
-            // --- 5. Select Menus ---
+            // ====================================================
+            // 5. Select Menus
+            // ====================================================
             } else if (i.isStringSelectMenu()) {
                 await i.deferUpdate(); // Deferring immediately for select menus
 
                 const id = i.customId;
                 
-                // ✅✅ (تعديل مهم) قائمة مهارات الوحش ✅✅
+                // ✅ قائمة مهارات الوحش
                 if (id === 'boss_execute_skill') {
                     await handleBossInteraction(i, client, sql);
                 }
