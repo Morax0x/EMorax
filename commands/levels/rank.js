@@ -39,7 +39,7 @@ module.exports = {
 
             const userStatus = user.presence ? user.presence.status : "offline";
 
-            // إعداد البطاقة مع الخط الجديد (Cairo)
+            // إعداد البطاقة مع الخط المعتمد (Cairo)
             const card = new RankCardBuilder({
                 currentLvl: score.level,
                 currentRank: rank,
@@ -51,12 +51,12 @@ module.exports = {
 
                 avatarImgURL: user.user.displayAvatarURL({ extension: 'png' }),
 
-                // 2. تحديث الخطوط هنا لتصبح 'Cairo' بدلاً من 'Nunito'
+                // 2. استخدام الخط 'Cairo' للنصوص والأسماء
                 nicknameText: { content: user.user.tag, font: 'Cairo', color: hardcodedBlue },
                 userStatus: userStatus,
                 progressbarColor: hardcodedBlue,
                 
-                // تغيير الخط للأرقام واللفل
+                // 3. استخدام الخط 'Cairo' للأرقام (لضمان ظهورها بشكل صحيح)
                 levelText: { font: 'Cairo', color: hardcodedBlue },
                 rankText: { font: 'Cairo', color: hardcodedBlue },
                 xpText: { font: 'Cairo', color: hardcodedBlue },
