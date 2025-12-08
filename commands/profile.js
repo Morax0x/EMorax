@@ -2,18 +2,14 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentTyp
 const { calculateBuffMultiplier, calculateMoraBuff } = require("../streak-handler.js");
 const { getUserRace, getWeaponData, BASE_HP, HP_PER_LEVEL } = require('../handlers/pvp-core.js'); 
 const weaponsConfig = require('../json/weapons-config.json');
-const { createCanvas, loadImage, registerFont } = require('canvas');
+const { createCanvas, loadImage } = require('canvas'); // ❌ تم حذف registerFont
 const path = require('path');
 
-// --- ( 1. تسجيل الخط الموحد - Bein ) ---
-const FONT_MAIN = 'Bein';
-try {
-    const fontPath = path.join(__dirname, '../fonts/bein-ar-normal.ttf'); 
-    registerFont(fontPath, { family: FONT_MAIN });
-    console.log(`[Profile Font] تم تسجيل الخط الموحد بنجاح: ${FONT_MAIN}`);
-} catch (err) {
-    console.error(`[Profile Font] خطأ فادح: لم يتم العثور على ملف 'bein-ar-normal.ttf' في مجلد fonts.`); 
-}
+// --- ( 1. تعريف الخط الموحد ) ---
+// نستخدم الاسم "Cairo" الذي سجلناه في ملف index.js
+const FONT_MAIN = 'Cairo'; 
+
+// ❌ تم حذف كود تسجيل الخط من هنا
 
 const RACE_TRANSLATIONS = new Map([
     ['Human', 'بشري'],
@@ -29,7 +25,7 @@ const RACE_TRANSLATIONS = new Map([
     ['Hybrid', 'نصف وحش']
 ]);
 
-// --- ( 🌟 دالة رسم النص مع الأيقونة - تعديل الحجم والمسافة 🌟 ) ---
+// --- ( 🌟 دالة رسم النص مع الأيقونة ) ---
 async function drawTextWithIcon(ctx, text, x, y, iconUrl) {
     // 1. رسم النص (الأرقام)
     ctx.fillText(text, x, y);
@@ -40,15 +36,8 @@ async function drawTextWithIcon(ctx, text, x, y, iconUrl) {
     if (iconUrl) {
         try {
             const img = await loadImage(iconUrl);
-
-            // التعديلات الجديدة:
-            // الحجم: 18x18 (أصغر قليلاً)
-            // المسافة: 5 بكسل (تقريباً مسافة مسطرة واحدة)
-            // المعادلة: (بداية النص من اليسار) - (المسافة) - (عرض الصورة)
-
             const iconSize = 18;
-            const gap = 6; // مسافة مسطرة واحدة
-
+            const gap = 6; 
             ctx.drawImage(img, x - textWidth - gap - iconSize, y - 19, iconSize, iconSize); 
         } catch (e) {
             // تجاهل الخطأ
@@ -162,6 +151,7 @@ async function buildGeneralProfile(client, member, targetUser) {
     ctx.shadowBlur = 4;
     const xpText = `${currentXP_Progress.toLocaleString()} / ${requiredXP.toLocaleString()} XP`;
 
+    // استخدام الخط الجديد Cairo
     ctx.font = `bold 14px "${FONT_MAIN}"`;
     ctx.textAlign = 'center';
     ctx.fillStyle = '#FFAA40';
@@ -185,19 +175,19 @@ async function buildGeneralProfile(client, member, targetUser) {
     ctx.fillText(totalMora.toLocaleString(), moraX, rightY);
     rightY += rightLineHeight;
 
-    // 2. الستريك (نار)
+    // 2. الستريك
     await drawTextWithIcon(ctx, streakCount.toLocaleString(), streakX, rightY, 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f525.png');
     rightY += rightLineHeight;
 
-    // 3. بف المورا (كيس)
+    // 3. بف المورا
     await drawTextWithIcon(ctx, moraBuffString, bottomX, rightY, 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4b0.png');
     rightY += rightLineHeight;
 
-    // 4. بف اللفل (برق)
+    // 4. بف اللفل
     await drawTextWithIcon(ctx, buffString, bottomX, rightY, 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/26a1.png');
     rightY += rightLineHeight;
 
-    // 5. الدروع (درع)
+    // 5. الدروع
     await drawTextWithIcon(ctx, shieldText, bottomX, rightY, 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f6e1.png');
 
     ctx.textAlign = 'right';
