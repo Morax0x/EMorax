@@ -1,5 +1,5 @@
 const { EmbedBuilder, Colors, AttachmentBuilder, SlashCommandBuilder } = require("discord.js");
-const { createCanvas, loadImage, registerFont } = require('canvas');
+const { createCanvas, loadImage } = require('canvas'); // ❌ تم حذف registerFont
 const path = require('path');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
@@ -12,15 +12,7 @@ const LOANS = [
     { amount: 30000, totalToRepay: 33000 }
 ];
 
-// --- ( 1. تسجيل الخط الموحد ) ---
-try {
-    // استخدام bein-ar-normal.ttf
-    const fontPath = path.join(__dirname, '../../fonts/bein-ar-normal.ttf');
-    registerFont(fontPath, { family: 'Bein' }); // اسم العائلة Bein
-    console.log("[Bank Card Font] تم تسجيل الخط بنجاح: Bein (bein-ar-normal)");
-} catch (err) {
-    console.error("[Bank Card Font] خطأ فادح: لم يتم العثور على مجلد 'fonts' أو ملف الخط 'bein-ar-normal.ttf'.");
-}
+// ❌ تم حذف كود تسجيل الخط من هنا (موجود في index.js)
 
 function formatTimeSimple(ms) {
     if (ms < 0) ms = 0;
@@ -36,7 +28,7 @@ module.exports = {
     data: new SlashCommandBuilder()
         .setName('بنك')
         .setDescription('يعرض رصيدك في البنك، الفائدة اليومية، وحالة القرض.')
-        .addUserOption(option =>
+        .addUserOption(option => 
             option.setName('المستخدم')
             .setDescription('المستخدم الذي تريد عرض تقريره البنكي (اختياري)')
             .setRequired(false)),
@@ -94,15 +86,11 @@ module.exports = {
                 data = { ...client.defaultData, user: targetUser.id, guild: guild.id };
             }
 
-            // =========================================================
-            // 🔥🔥 إصلاح القيم الفارغة (Prevent Crash) 🔥🔥
-            // =========================================================
-            // استخدام || 0 يضمن أنه لو القيمة null أو undefined تتحول لصفر
+            // تأمين البيانات
             data.mora = data.mora || 0;
             data.bank = data.bank || 0;
             data.lastInterest = data.lastInterest || 0;
             data.totalInterestEarned = data.totalInterestEarned || 0;
-            // =========================================================
 
             const now = Date.now();
             const timeLeft = (data.lastInterest || 0) + INTEREST_COOLDOWN_MS - now;
@@ -119,7 +107,6 @@ module.exports = {
                 interestMessage = `ستتم إضافة الفائدة التالية بعد: \`${formatTimeSimple(timeLeft)}\``;
             }
 
-            // الآن toLocaleString آمنة لأننا ضمنا أن القيم أرقام في الأعلى
             const description = [
                 `✥ رصـيد البنـك: **${data.bank.toLocaleString()}** ${EMOJI_MORA}`,
                 `✶ رصيد الكـاش: **${data.mora.toLocaleString()}** ${EMOJI_MORA}`,
@@ -138,7 +125,7 @@ module.exports = {
             } else {
                 const loanConfig = LOANS.find(l => l.amount === loan.loanAmount);
                 const totalToRepay = loanConfig ? loanConfig.totalToRepay : (loan.loanAmount * 1.10);
-                // تأمين قيم القرض أيضاً
+                
                 const remaining = loan.remainingAmount || 0;
                 const daily = loan.dailyPayment || 1;
                 
@@ -158,7 +145,8 @@ module.exports = {
                 const canvas = createCanvas(1000, 400);
                 const context = canvas.getContext('2d');
 
-                const background = await loadImage(path.join(__dirname, '../../images/card.png'));
+                const bgPath = path.join(__dirname, '../../images/card.png');
+                const background = await loadImage(bgPath);
                 context.drawImage(background, 0, 0, canvas.width, canvas.height);
 
                 context.save();
@@ -173,10 +161,9 @@ module.exports = {
                 context.textAlign = 'left';
                 context.fillStyle = '#E0B04A';
 
-                // ( 🌟 استخدام خط Bein 🌟 )
-                context.font = 'bold 48px "Bein"';
+                // 👇 (التعديل هنا: استخدام خط Cairo الموحد)
+                context.font = 'bold 48px "Cairo"';
 
-                // استخدام القيم المؤمنة
                 context.fillText(data.mora.toLocaleString(), 335, 235);
                 context.fillText(data.bank.toLocaleString(), 335, 340);
 
