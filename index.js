@@ -19,46 +19,35 @@ try {
 }
 
 // ==================================================================
-// 2. تحميل الخطوط (الحل الجذري لمشكلة التباعد في الرانك) ✅
+// 2. تحميل الخطوط (نسخة نظيفة - بدون تعريض إجباري) ✅
 // ==================================================================
 try {
     const { registerFont } = require('canvas');
 
-    // 1. تحديد مسار الخط (bein-ar-normal.ttf)
     const mainFontPath = path.join(__dirname, 'fonts', 'bein-ar-normal.ttf');
 
     if (fs.existsSync(mainFontPath)) {
-        // أ) تسجيل الخط باسم 'Cairo' و 'Bein' (الوضع العادي)
-        registerFont(mainFontPath, { family: 'Cairo' });
-        registerFont(mainFontPath, { family: 'Bein' });
-        
-        // ب) 🔥 الخدعة السحرية (Fake Bold Fix) 🔥
-        // نسجل "نفس الملف العادي" ونقول للنظام "هذا هو ملف البولد"
-        // النتيجة: عندما تطلب مكتبة الرانك خط Bold، ستأخذ الخط العادي النظيف بدلاً من "مط" الأرقام
-        registerFont(mainFontPath, { family: 'Cairo', weight: 'bold' });
-        registerFont(mainFontPath, { family: 'Bein', weight: 'bold' });
+        // تسجيل الخط كما هو فقط
+        registerFont(mainFontPath, { family: 'Cairo' }); // للاستخدام الجديد
+        registerFont(mainFontPath, { family: 'Bein' });  // للاستخدام القديم
 
-        console.log(`[Fonts] ✅ تم تحميل الخط وإصلاح مشكلة تباعد الأرقام (Fake Bold Fix).`);
+        console.log(`[Fonts] ✅ تم تحميل الخط بشكل طبيعي: bein-ar-normal.ttf`);
     } else {
         console.warn(`[Fonts] ⚠️ خطأ: الملف غير موجود في fonts/bein-ar-normal.ttf`);
     }
 
-    // 2. تحميل NotoEmoji من مجلد efonts (لم نلمسه)
+    // تحميل الايموجي
     const emojiPath = path.join(__dirname, 'efonts', 'NotoEmoj.ttf');
     const emojiPathAlt = path.join(__dirname, 'efonts', 'NotoEmoji.ttf');
 
     if (fs.existsSync(emojiPath)) {
         registerFont(emojiPath, { family: 'NotoEmoji' });
-        console.log(`[Fonts] ✅ تم تحميل خط الإيموجي: NotoEmoj.ttf`);
     } else if (fs.existsSync(emojiPathAlt)) {
         registerFont(emojiPathAlt, { family: 'NotoEmoji' });
-        console.log(`[Fonts] ✅ تم تحميل خط الإيموجي: NotoEmoji.ttf`);
-    } else {
-        console.warn(`[Fonts] ⚠️ الملف غير موجود في efonts: NotoEmoj.ttf`);
     }
 
 } catch (e) {
-    console.warn("[Fonts] ⚠️ مكتبة Canvas غير مثبتة أو حدث خطأ عام: " + e.message);
+    console.warn("[Fonts] Error: " + e.message);
 }
 
 // ==================================================================
