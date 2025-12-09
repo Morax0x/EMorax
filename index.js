@@ -25,14 +25,12 @@ try {
     const { registerFont } = require('canvas');
 
     // 1️⃣ تحميل خط النصوص (Bein) من مجلد fonts
-    // تأكد أن اسم الملف لديك هو bein-ar-normal.ttf بالضبط (حساس للأحرف الصغيرة والكبيرة)
     const beinPath = path.join(__dirname, 'fonts', 'bein-ar-normal.ttf');
     
     if (fs.existsSync(beinPath)) {
-        registerFont(beinPath, { family: 'Bein' }); // سجلناه باسم Bein
+        registerFont(beinPath, { family: 'Bein' });
         console.log(`[Fonts] ✅ تم تحميل خط النصوص: Bein`);
     } else {
-        // محاولة احتياطية لاسم آخر قد يكون مستخدماً
         const beinPathAlt = path.join(__dirname, 'fonts', 'Bein-Normal.ttf');
         if (fs.existsSync(beinPathAlt)) {
             registerFont(beinPathAlt, { family: 'Bein' });
@@ -77,6 +75,7 @@ try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id IN
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
+// ✅ (تم الإصلاح: هذا هو التعريف الأول والوحيد المطلوب)
 const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
 
 const questsConfig = require('./json/quests-config.json');
@@ -405,7 +404,8 @@ function updateMarketPrices() {
 }
 
 // ( 🌟 استدعاء دالة القروض الجديدة 🌟 )
-const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
+// ⚠️ ملاحظة: تم حذف سطر التعريف المكرر هنا لإصلاح الخطأ SyntaxError. 
+// الدالة checkLoanPayments لا تزال مستوردة في أعلى الملف وتعمل بشكل صحيح في الأسفل.
 
 async function processFarmYields() {
     if (!sql.open) return;
