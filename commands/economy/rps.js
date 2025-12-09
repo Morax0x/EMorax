@@ -43,7 +43,7 @@ module.exports = {
 
     async execute(interactionOrMessage, args) {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
-        let interaction, message, user, guild, client, channel, member;
+        let interaction, message, user, member, guild, client, channel;
         let betInput, opponentInput;
 
         if (isSlash) {
@@ -80,23 +80,20 @@ module.exports = {
 
         // تهيئة المتغيرات
         if (!client.activeGames) client.activeGames = new Set();
-        if (!client.activePlayers) client.activePlayers = new Set(); // لتتبع اللاعبين النشطين
+        if (!client.activePlayers) client.activePlayers = new Set();
 
-        // 1. التحقق من اللاعب النشط (لمنع السبام ولعب أكثر من لعبة)
+        // 🛑🛑 1. الحماية من التكرار (أهم نقطة) 🛑🛑
         if (client.activePlayers.has(user.id)) {
-            return reply({ content: "🚫 لديك لعبة نشطة بالفعل! أكملها أولاً.", ephemeral: true });
-        }
-
-        // 2. التحقق من القناة (لمنع التداخل)
-        if (client.activeGames.has(channel.id)) {
-            return reply({ content: "🚫 هناك لعبة جارية في هذه القناة. انتظر انتهائها.", ephemeral: true });
+            // اذا اللاعب مشغول، نتجاهل الأمر تماماً أو نرسل رسالة مؤقتة
+            if (isSlash) return interaction.editReply({ content: "🚫 لديك لعبة أو طلب معلق حالياً! أكمله أولاً." });
+            return; // في الرسائل العادية نتجاهل عشان ما يصير سبام
         }
 
         const sql = client.sql;
         let userData = client.getLevel.get(user.id, guild.id);
         if (!userData) userData = { ...client.defaultData, user: user.id, guild: guild.id };
 
-        // 3. التحقق من الكولداون
+        // 2. التحقق من الكولداون
         const now = Date.now();
         if (user.id !== OWNER_ID) {
             const timeLeft = (userData.lastRPS || 0) + COOLDOWN_MS - now;
@@ -105,13 +102,16 @@ module.exports = {
             }
         }
 
-        // --- المراهنة التلقائية ---
+        // --- منطق المراهنة التلقائية ---
         if (!betInput) {
             let proposedBet = 100;
             const userBalance = userData.mora;
 
             if (userBalance < MIN_BET) return reply({ content: `❌ لا تملك مورا كافية للعب (الحد الأدنى ${MIN_BET})!`, ephemeral: true });
             if (userBalance < 100) proposedBet = userBalance;
+
+            // 🔒 حجز اللاعب فوراً لمنع التكرار
+            client.activePlayers.add(user.id);
 
             const autoBetEmbed = new EmbedBuilder()
                 .setColor(Colors.Blue)
@@ -128,9 +128,8 @@ module.exports = {
 
             const confirmMsg = await reply({ embeds: [autoBetEmbed], components: [row], fetchReply: true });
             
-            // حجز القناة واللاعب مؤقتاً
+            // حجز القناة أيضاً (اختياري)
             client.activeGames.add(channel.id);
-            client.activePlayers.add(user.id);
 
             const filter = i => i.user.id === user.id && (i.customId === 'rps_auto_confirm' || i.customId === 'rps_auto_cancel');
             
@@ -139,6 +138,7 @@ module.exports = {
                 
                 if (confirmation.customId === 'rps_auto_cancel') {
                     await confirmation.update({ content: '❌ تم الإلغاء.', embeds: [], components: [] });
+                    // 🔓 تحرير اللاعب والقناة
                     client.activeGames.delete(channel.id);
                     client.activePlayers.delete(user.id);
                     return;
@@ -149,14 +149,14 @@ module.exports = {
                     if (!isSlash) await confirmMsg.delete().catch(() => {});
                     else await confirmation.editReply({ content: '✅', embeds: [], components: [] });
 
-                    // إزالة الحجز المؤقت لبدء اللعبة الفعلية (سيتم إعادة الحجز داخل الدالة)
+                    // إزالة حجز القناة فقط، ونبقي حجز اللاعب لأنه بدأ اللعب
                     client.activeGames.delete(channel.id);
-                    client.activePlayers.delete(user.id);
+                    // (activePlayers.delete(user.id) لا نحذفها هنا، ستُحذف عند انتهاء اللعبة)
 
-                    // تمرير member بدلاً من user لحساب البفات
                     return startGame(channel, user, member, opponentInput, proposedBet, client, guild, sql, isSlash ? interaction : null);
                 }
             } catch (e) {
+                // 🔓 تحرير اللاعب والقناة عند انتهاء الوقت
                 client.activeGames.delete(channel.id);
                 client.activePlayers.delete(user.id);
                 if (!isSlash) await confirmMsg.delete().catch(() => {});
@@ -164,24 +164,28 @@ module.exports = {
                 return;
             }
         } else {
+            // إذا حدد مبلغ، نحجزه ونبدأ
+            client.activePlayers.add(user.id);
             return startGame(channel, user, member, opponentInput, betInput, client, guild, sql, isSlash ? interaction : null);
         }
     }
 };
 
 async function startGame(channel, user, member, opponent, bet, client, guild, sql, interaction) {
+    // التحقق من القناة
     if (client.activeGames.has(channel.id)) {
+        client.activePlayers.delete(user.id); // تحرير اللاعب لأنه فشل
         const msg = "🚫 هناك لعبة جارية في هذه القناة.";
         if (interaction && !interaction.replied) await interaction.followUp({ content: msg, ephemeral: true });
         else channel.send(msg);
         return;
     }
     
-    // التحقق مرة أخرى من اللاعب النشط
-    if (client.activePlayers.has(user.id)) return;
+    // (ملاحظة: user محجوز مسبقاً في activePlayers)
 
     let userData = client.getLevel.get(user.id, guild.id);
     if (!userData || userData.mora < bet) {
+        client.activePlayers.delete(user.id); // تحرير
         const msg = `❌ ليس لديك مورا كافية! (رصيدك: ${userData ? userData.mora : 0})`;
         if (interaction && !interaction.replied) await interaction.followUp({ content: msg, ephemeral: true });
         else channel.send(msg);
@@ -190,7 +194,9 @@ async function startGame(channel, user, member, opponent, bet, client, guild, sq
 
     // --- PvP ---
     if (opponent && opponent.id !== user.id && !opponent.bot) {
+        // التحقق من الخصم
         if (client.activePlayers.has(opponent.id)) {
+            client.activePlayers.delete(user.id); // تحرير
             const msg = `🚫 اللاعب ${opponent} لديه لعبة نشطة بالفعل.`;
             if (interaction) await interaction.followUp(msg); else channel.send(msg);
             return;
@@ -198,14 +204,15 @@ async function startGame(channel, user, member, opponent, bet, client, guild, sq
 
         let opponentData = client.getLevel.get(opponent.id, guild.id);
         if (!opponentData || opponentData.mora < bet) {
+            client.activePlayers.delete(user.id); // تحرير
             const msg = `❌ الخصم ${opponent} لا يملك مورا كافية!`;
             if (interaction && !interaction.replied) await interaction.followUp(msg);
             else channel.send(msg);
             return;
         }
 
+        // حجز الجميع
         client.activeGames.add(channel.id);
-        client.activePlayers.add(user.id);
         client.activePlayers.add(opponent.id);
 
         const inviteEmbed = new EmbedBuilder()
@@ -231,6 +238,7 @@ async function startGame(channel, user, member, opponent, bet, client, guild, sq
             const response = await inviteMsg.awaitMessageComponent({ filter, time: 30000 });
             
             if (response.customId === 'rps_decline') {
+                // تحرير الجميع
                 client.activeGames.delete(channel.id);
                 client.activePlayers.delete(user.id);
                 client.activePlayers.delete(opponent.id);
@@ -267,9 +275,13 @@ async function startGame(channel, user, member, opponent, bet, client, guild, sq
 
     } else {
         // --- Solo ---
-        if (opponent && opponent.bot) return channel.send("🤖 لا يمكنك تحدي البوتات في PvP، العب فردي.");
+        if (opponent && opponent.bot) {
+            client.activePlayers.delete(user.id);
+            return channel.send("🤖 لا يمكنك تحدي البوتات في PvP، العب فردي.");
+        }
         
         if (bet > MAX_BET_SOLO) {
+             client.activePlayers.delete(user.id);
              const msg = `🚫 الحد الأقصى للرهان الفردي هو **${MAX_BET_SOLO}** ${EMOJI_MORA}.`;
              if (interaction && !interaction.replied) await interaction.followUp({ content: msg, ephemeral: true });
              else channel.send(msg);
@@ -277,7 +289,7 @@ async function startGame(channel, user, member, opponent, bet, client, guild, sq
         }
 
         client.activeGames.add(channel.id);
-        client.activePlayers.add(user.id);
+        // user is already in activePlayers
 
         userData.mora -= bet;
         if (user.id !== OWNER_ID) userData.lastRPS = Date.now();
@@ -355,7 +367,7 @@ async function runRPSRound(message, player1, member1, player2, bet, isPvP, clien
     });
 
     collector.on('end', async (collected, reason) => {
-        // تنظيف الحالة
+        // 🔥 تحرير اللاعبين والقناة عند انتهاء اللعبة
         client.activeGames.delete(message.channel.id);
         client.activePlayers.delete(player1.id);
         if (player2) client.activePlayers.delete(player2.id);
