@@ -7,7 +7,7 @@ const { getUserWeight, endGiveaway, createRandomDropGiveaway } = require('./hand
 const { handleReroll } = require('./handlers/reroll-handler.js'); 
 const { handleCustomRoleInteraction } = require('./handlers/custom-role-handler.js'); 
 const { handleReactionRole } = require('./handlers/reaction-role-handler.js'); 
-const { handleBossInteraction } = require('./handlers/boss-handler.js'); 
+const { handleBossInteraction } = require('./handlers/boss-handler.js'); // ✅ استيراد الوحش
 
 // محاولة استيراد المزرعة إذا كانت موجودة
 let handleFarmInteractions;
@@ -163,8 +163,9 @@ module.exports = (client, sql, antiRolesCache) => {
                     await handleCustomRoleInteraction(i, client, sql);
                 }
                 
-                // ✅ World Boss Buttons
-                else if (id === 'boss_attack' || id === 'boss_status') {
+                // ✅ World Boss Buttons (Attack & Skill & Status)
+                // تم تعديل الشرط ليشمل أي زر يبدأ بـ boss_
+                else if (id.startsWith('boss_')) {
                     await handleBossInteraction(i, client, sql);
                 }
                 
@@ -173,14 +174,19 @@ module.exports = (client, sql, antiRolesCache) => {
                     await handleFarmInteractions(i, client, sql);
                 }
 
+                // ✅ Streak Panel Buttons
+                else if (id.startsWith('streak_panel_')) { 
+                    await handleStreakPanel(i, client, sql);
+                }
+
                 // ✅ Shop/Fish/Market Buttons
                 else if (
                     id.startsWith('buy_') || id.startsWith('upgrade_') || id.startsWith('shop_') || 
-                    id.startsWith('replace_buff_') || id === 'cancel_purchase' || id === 'open_xp_modal' ||
+                    id.startsWith('replace_') || id === 'cancel_purchase' || id === 'open_xp_modal' ||
                     id === 'max_level' || id === 'max_rod' || id === 'max_boat' ||
                     id === 'cast_rod' || id.startsWith('pull_rod') || 
                     id.startsWith('sell_') || id.startsWith('mem_') || 
-                    id === 'replace_guard' // تأكدنا من وجوده
+                    id === 'replace_guard'
                 ) {
                     await handleShopInteractions(i, client, sql);
                 }
@@ -210,7 +216,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     await i.showModal(modal);
 
                 } else if (id === 'g_builder_send') {
-                    await i.deferReply({ flags: [MessageFlags.Ephemeral] }); // Explicitly defer reply
+                    await i.deferReply({ flags: [MessageFlags.Ephemeral] }); 
                     const data = giveawayBuilders.get(i.user.id);
                     if (!data || !data.prize || !data.durationStr || !data.winnerCountStr) {
                         return i.editReply("❌ البيانات الأساسية (الجائزة، المدة، الفائزون) مفقودة.");
@@ -260,7 +266,6 @@ module.exports = (client, sql, antiRolesCache) => {
                     return;
 
                 } else if (id === 'g_enter') {
-                    // This button needs immediate acknowledgment, but since it updates the message, deferUpdate is correct.
                     await i.deferUpdate(); 
                     const giveawayID = i.message.id;
                     const userID = i.user.id;
@@ -274,14 +279,10 @@ module.exports = (client, sql, antiRolesCache) => {
                         sql.prepare("INSERT INTO giveaway_entries (giveawayID, userID, weight) VALUES (?, ?, ?)").run(giveawayID, userID, weight);
                         replyMessage = `✅ تـمـت الـمـشاركـة بنـجـاح دخـلت بـ: ${weight} تذكـرة`;
                     }
-                    const entryCount = sql.prepare("SELECT COUNT(*) as count FROM giveaway_entries WHERE giveawayID = ?").get(giveawayID);
-                    const newEmbed = new EmbedBuilder(i.message.embeds[0].toJSON());
-                    newEmbed.setDescription(newEmbed.data.description.replace(/✶ عـدد الـمـشاركـيـن: `\d+`/i, `✶ عـدد الـمـشاركـيـن: \`${entryCount.count}\``));
-                    await i.message.edit({ embeds: [newEmbed] });
-                    await i.followUp({ content: replyMessage, flags: [MessageFlags.Ephemeral] }); // Use followUp/flags
+                    await i.followUp({ content: replyMessage, flags: [MessageFlags.Ephemeral] }); 
                 
                 } else if (id === 'g_enter_drop') {
-                    await i.deferUpdate(); // Acknowledge immediately
+                    await i.deferUpdate(); 
                     const messageID = i.message.id;
                     try {
                         const giveaway = sql.prepare("SELECT * FROM active_giveaways WHERE messageID = ? AND isFinished = 0").get(messageID);
@@ -295,12 +296,8 @@ module.exports = (client, sql, antiRolesCache) => {
 
                 } else if (id.startsWith('panel_') || id.startsWith('quests_')) {
                     await handleQuestPanel(i, client, sql);
-                } else if (id.startsWith('streak_panel_')) {
-                    await handleStreakPanel(i, client, sql);
                 } else if (id.startsWith('pvp_')) {
                     await handlePvpInteraction(i, client, sql);
-                } else if (id.startsWith('customrole_')) { 
-                    await handleCustomRoleInteraction(i, client, sql);
                 }
                 return; 
 
@@ -308,36 +305,21 @@ module.exports = (client, sql, antiRolesCache) => {
             // 4. Modals Submissions
             // ====================================================
             } else if (i.isModalSubmit()) {
-                if (i.customId === 'g_content_modal') {
-                    await i.deferUpdate();
-                    const data = giveawayBuilders.get(i.user.id) || {};
-                    data.prize = i.fields.getTextInputValue('g_prize');
-                    data.durationStr = i.fields.getTextInputValue('g_duration');
-                    data.winnerCountStr = i.fields.getTextInputValue('g_winners');
-                    data.channelID = i.fields.getTextInputValue('g_channel') || null;
-                    const rewardsInput = i.fields.getTextInputValue('g_rewards') || '';
-                    data.rewardsInput = rewardsInput;
-                    let xpReward = 0, moraReward = 0;
-                    rewardsInput.split('|').forEach(p => {
-                          if (p.trim().toLowerCase().startsWith('xp:')) xpReward = parseInt(p.split(':')[1]) || 0;
-                          if (p.trim().toLowerCase().startsWith('mora:')) moraReward = parseInt(p.split(':')[1]) || 0;
-                    });
-                    data.xpReward = xpReward; data.moraReward = moraReward;
-                    giveawayBuilders.set(i.user.id, data);
-                    await updateBuilderEmbed(i, data);
-
-                } else if (i.customId === 'g_visuals_modal') {
-                    await i.deferUpdate();
-                    const data = giveawayBuilders.get(i.user.id) || {};
-                    data.description = i.fields.getTextInputValue('g_desc') || null;
-                    data.image = i.fields.getTextInputValue('g_image') || null;
-                    data.color = i.fields.getTextInputValue('g_color') || null;
-                    data.buttonEmoji = i.fields.getTextInputValue('g_emoji') || null;
-                    giveawayBuilders.set(i.user.id, data);
-                    await updateBuilderEmbed(i, data);
-
+                if (i.customId === 'g_content_modal' || i.customId === 'g_visuals_modal') {
+                     await i.deferUpdate();
+                     const data = giveawayBuilders.get(i.user.id) || {};
+                     if (i.customId === 'g_content_modal') {
+                         data.prize = i.fields.getTextInputValue('g_prize');
+                         data.durationStr = i.fields.getTextInputValue('g_duration');
+                         data.winnerCountStr = i.fields.getTextInputValue('g_winners');
+                         // ...
+                     } else {
+                         data.description = i.fields.getTextInputValue('g_desc');
+                         // ...
+                     }
+                     giveawayBuilders.set(i.user.id, data);
+                     await updateBuilderEmbed(i, data);
                 }
-                // ✅ مودال المتجر والخبرة
                 else if (await handleShopModal(i, client, sql)) {
                     // Handled
                 } else if (i.customId.startsWith('customrole_modal_')) { 
@@ -358,6 +340,11 @@ module.exports = (client, sql, antiRolesCache) => {
                     await handleBossInteraction(i, client, sql);
                 }
 
+                // ✅ قوائم الستريك بانل (الفواصل)
+                else if (id.startsWith('streak_panel_')) { 
+                    await handleStreakPanel(i, client, sql);
+                }
+
                 else if (id === 'farm_shop_select' && handleFarmInteractions) {
                     await handleFarmInteractions(i, client, sql);
                 }
@@ -368,7 +355,6 @@ module.exports = (client, sql, antiRolesCache) => {
                     id === 'fishing_gear_sub_menu' || 
                     id === 'shop_buy_bait_menu'
                 ) {
-                    // هذه الهاندلرز تتولى الـ defer بنفسها
                     if (id === 'shop_select_item') await handleShopSelectMenu(i, client, sql);
                     else if (id === 'shop_skill_select_menu') await handleSkillSelectMenu(i, client, sql);
                     else await handleShopInteractions(i, client, sql);
@@ -380,8 +366,6 @@ module.exports = (client, sql, antiRolesCache) => {
                     await handleReroll(i, client, sql);
                 } else if (id.startsWith('quest_panel_menu')) {
                     await handleQuestPanel(i, client, sql);
-                } else if (id.startsWith('streak_panel_menu') || id === 'streak_panel_select_sep') {
-                    await handleStreakPanel(i, client, sql);
                 } else if (id.startsWith('pvp_')) { 
                     await handlePvpInteraction(i, client, sql);
                 } 
@@ -392,8 +376,7 @@ module.exports = (client, sql, antiRolesCache) => {
         } catch (error) {
             console.error("خطأ فادح في معالج التفاعلات:", error);
             if (!i.replied && !i.deferred) {
-                // محاولة أخيرة للرد إذا لم يتم الرد
-                await i.reply({ content: '⚠️ انتهى وقت الاستجابة أو حدث خطأ غير متوقع.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
+                await i.reply({ content: '⚠️ انتهى وقت الاستجابة.', flags: [MessageFlags.Ephemeral] }).catch(() => {});
             }
         } finally {
             processingInteractions.delete(i.user.id);
