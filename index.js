@@ -19,38 +19,41 @@ try {
 }
 
 // ==================================================================
-// 2. تحميل الخطوط (تم تصحيح المسار إلى efonts) ✅
+// 2. تحميل الخطوط (الحل الجذري للمربعات) ✅
 // ==================================================================
 try {
     const { registerFont } = require('canvas');
-    // 📂 المجلد اسمه efonts
-    const fontsDir = path.join(__dirname, 'efonts');
-    
-    const fontsToLoad = [
-        { file: 'Bein-Normal.ttf', family: 'Bein' },
-        { file: 'NotoEmoji.ttf', family: 'NotoEmoji' },
-        { file: 'bein-ar-normal.ttf', family: 'Bein' } 
-    ];
 
-    if (fs.existsSync(fontsDir)) {
-        fontsToLoad.forEach(font => {
-            const fontPath = path.join(fontsDir, font.file);
-            if (fs.existsSync(fontPath)) {
-                try {
-                    registerFont(fontPath, { family: font.family });
-                    console.log(`[Fonts] ✅ تم تحميل الخط: ${font.file}`);
-                } catch (e) {
-                    console.warn(`[Fonts] ⚠️ فشل تحميل ${font.file}: ${e.message}`);
-                }
-            } else {
-                console.warn(`[Fonts] ⚠️ الملف غير موجود: ${font.file}`);
-            }
-        });
+    // 1️⃣ تحميل خط النصوص (Bein) من مجلد fonts
+    // تأكد أن اسم الملف لديك هو bein-ar-normal.ttf بالضبط (حساس للأحرف الصغيرة والكبيرة)
+    const beinPath = path.join(__dirname, 'fonts', 'bein-ar-normal.ttf');
+    
+    if (fs.existsSync(beinPath)) {
+        registerFont(beinPath, { family: 'Bein' }); // سجلناه باسم Bein
+        console.log(`[Fonts] ✅ تم تحميل خط النصوص: Bein`);
     } else {
-        console.warn(`[Fonts] ⚠️ مجلد الخطوط 'efonts' غير موجود في المسار الرئيسي!`);
+        // محاولة احتياطية لاسم آخر قد يكون مستخدماً
+        const beinPathAlt = path.join(__dirname, 'fonts', 'Bein-Normal.ttf');
+        if (fs.existsSync(beinPathAlt)) {
+            registerFont(beinPathAlt, { family: 'Bein' });
+            console.log(`[Fonts] ✅ تم تحميل خط النصوص (اسم بديل): Bein`);
+        } else {
+            console.error(`[Fonts] ❌ خطأ فادح: ملف bein-ar-normal.ttf غير موجود في مجلد fonts! ستظهر مربعات.`);
+        }
     }
+
+    // 2️⃣ تحميل خط الإيموجي (NotoEmoji) من مجلد efonts
+    const emojiPath = path.join(__dirname, 'efonts', 'NotoEmoji.ttf');
+    
+    if (fs.existsSync(emojiPath)) {
+        registerFont(emojiPath, { family: 'NotoEmoji' });
+        console.log(`[Fonts] ✅ تم تحميل خط الإيموجي: NotoEmoji`);
+    } else {
+        console.error(`[Fonts] ❌ ملف NotoEmoji.ttf غير موجود في مجلد efonts!`);
+    }
+
 } catch (e) {
-    console.warn("[Fonts] ⚠️ مكتبة Canvas غير مثبتة أو حدث خطأ عام.");
+    console.warn("[Fonts] ⚠️ مشكلة في مكتبة Canvas: " + e.message);
 }
 
 // ==================================================================
@@ -62,6 +65,7 @@ try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN boatLevel INTEGER 
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN currentLocation TEXT DEFAULT 'beach'").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastMemory INTEGER DEFAULT 0").run(); } catch (e) {} 
 try { if(sql.open) sql.prepare("ALTER TABLE user_total_stats ADD COLUMN total_emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE user_total_stats ADD COLUMN total_disboard_bumps INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE user_daily_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE user_weekly_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
@@ -73,7 +77,7 @@ try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id IN
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
-const { checkLoanPayments } = require('./handlers/loan-handler.js'); // ✅ التعريف الوحيد والصحيح
+const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
 
 const questsConfig = require('./json/quests-config.json');
 const farmAnimals = require('./json/farm-animals.json');
@@ -155,7 +159,7 @@ if (sql.open) {
     client.setWeeklyStats = sql.prepare("INSERT OR REPLACE INTO user_weekly_stats (id, userID, guildID, weekStartDate, messages, images, stickers, emojis_sent, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @weekStartDate, @messages, @images, @stickers, @emojis_sent, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
     
     client.getTotalStats = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?");
-    client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_emojis_sent, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_emojis_sent, @total_reactions_added, @total_replies_sent, @total_mentions_received, @total_vc_minutes, @total_disboard_bumps);");
+    client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_emojis_sent, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_emojis_sent, @total_reactions_added, @total_replies_sent, @total_mentions_received, @total_vc_minutes, total_disboard_bumps);");
     
     client.getQuestNotif = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?");
     client.setQuestNotif = sql.prepare("INSERT OR REPLACE INTO quest_notifications (id, userID, guildID, dailyNotif, weeklyNotif, achievementsNotif, levelNotif) VALUES (@id, @userID, @guildID, @dailyNotif, @weeklyNotif, @achievementsNotif, @levelNotif);");
@@ -399,6 +403,9 @@ function updateMarketPrices() {
         console.log(`[Market] Prices updated.`);
     } catch (err) { console.error("[Market] Error updating prices:", err.message); }
 }
+
+// ( 🌟 استدعاء دالة القروض الجديدة 🌟 )
+const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
 
 async function processFarmYields() {
     if (!sql.open) return;
