@@ -3,9 +3,7 @@ const SQLite = require("better-sqlite3");
 const fs = require('fs');
 const path = require('path');
 
-// ==================================================================
 // 1. إعداد قاعدة البيانات
-// ==================================================================
 const sql = new SQLite('./mainDB.sqlite');
 sql.pragma('journal_mode = WAL');
 
@@ -15,45 +13,50 @@ try {
 } catch (err) {
     console.error("!!! Database Setup Fatal Error !!!");
     console.error(err);
-    process.exit(1);
 }
 
-// ==================================================================
-// 2. تحميل الخطوط (النسخة الكلاسيكية المستقرة) ✅
-// ==================================================================
+// 2. تحميل الخطوط (نظام ذكي يبحث في كل المسارات)
 try {
     const { registerFont } = require('canvas');
+    
+    // قائمة الخطوط التي نريد تحميلها
+    const fontsToLoad = [
+        { file: 'Bein-Normal.ttf', family: 'Bein' },
+        { file: 'bein-ar-normal.ttf', family: 'Bein' },
+        { file: 'NotoEmoji.ttf', family: 'NotoEmoji' }
+    ];
 
-    // تحديد مسار الخط
-    const mainFontPath = path.join(__dirname, 'fonts', 'bein-ar-normal.ttf');
+    // المجلدات المحتملة
+    const possibleDirs = [
+        path.join(__dirname, 'fonts'),
+        path.join(__dirname, 'efonts')
+    ];
 
-    if (fs.existsSync(mainFontPath)) {
-        // تسجيل بسيط ومباشر بدون أي فلسفة
-        registerFont(mainFontPath, { family: 'Bein' });  // للاستخدامات القديمة
-        registerFont(mainFontPath, { family: 'Cairo' }); // للاستخدامات الجديدة (رانك/بروفايل)
-
-        console.log(`[Fonts] ✅ تم تحميل الخط بنجاح: bein-ar-normal.ttf`);
-    } else {
-        console.warn(`[Fonts] ⚠️ خطأ: الملف غير موجود في fonts/bein-ar-normal.ttf`);
-    }
-
-    // تحميل الايموجي
-    const emojiPath = path.join(__dirname, 'efonts', 'NotoEmoj.ttf');
-    const emojiPathAlt = path.join(__dirname, 'efonts', 'NotoEmoji.ttf');
-
-    if (fs.existsSync(emojiPath)) {
-        registerFont(emojiPath, { family: 'NotoEmoji' });
-    } else if (fs.existsSync(emojiPathAlt)) {
-        registerFont(emojiPathAlt, { family: 'NotoEmoji' });
-    }
+    fontsToLoad.forEach(fontObj => {
+        let loaded = false;
+        for (const dir of possibleDirs) {
+            const fullPath = path.join(dir, fontObj.file);
+            if (fs.existsSync(fullPath)) {
+                try {
+                    registerFont(fullPath, { family: fontObj.family });
+                    console.log(`[Fonts] ✅ تم تحميل: ${fontObj.file} من ${dir}`);
+                    loaded = true;
+                    break; // وجدناه، ننتقل للخط التالي
+                } catch (e) {
+                    console.warn(`[Fonts] خطأ في تحميل ${fontObj.file}: ${e.message}`);
+                }
+            }
+        }
+        if (!loaded) {
+            console.log(`[Fonts] ⚠️ لم يتم العثور على ملف الخط: ${fontObj.file} (سيتم العمل بدونه)`);
+        }
+    });
 
 } catch (e) {
-    console.warn("[Fonts] ⚠️ خطأ في الكانفس: " + e.message);
+    console.warn("[Fonts] ⚠️ نظام الكانفاس غير جاهز أو حدث خطأ عام.");
 }
 
-// ==================================================================
 // 3. تحديثات الجداول
-// ==================================================================
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastFish INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN rodLevel INTEGER DEFAULT 1").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN boatLevel INTEGER DEFAULT 1").run(); } catch (e) {}
@@ -67,12 +70,10 @@ try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID 
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN shopLogChannelID TEXT").run(); } catch (e) {} 
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id INTEGER PRIMARY KEY AUTOINCREMENT, guildID TEXT NOT NULL, trigger TEXT NOT NULL, response TEXT NOT NULL, images TEXT, matchType TEXT DEFAULT 'exact', cooldown INTEGER DEFAULT 0, allowedChannels TEXT, ignoredChannels TEXT, UNIQUE(guildID, trigger))").run(); } catch(e) {}
 
-// ==================================================================
 // 4. استيراد الهاندلرز
-// ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
-const { checkLoanPayments } = require('./handlers/loan-handler.js');
+const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
 
 const questsConfig = require('./json/quests-config.json');
 const farmAnimals = require('./json/farm-animals.json');
@@ -83,9 +84,7 @@ const { checkUnjailTask } = require('./handlers/report-handler.js');
 const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
 const { handleShopInteractions } = require('./handlers/shop-handler.js'); 
 
-// ==================================================================
-// 5. إعداد العميل (Client)
-// ==================================================================
+// 5. إعداد العميل
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -221,7 +220,7 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
         let currentProgress = 0;
         const streakData = sql.prepare("SELECT * FROM streaks WHERE guildID = ? AND userID = ?").get(member.id, member.guild.id);
         const mediaStreakData = sql.prepare("SELECT * FROM media_streaks WHERE guildID = ? AND userID = ?").get(member.guild.id, member.id);
-           
+          
         if (!totalStatsData) totalStatsData = client.getTotalStats.get(`${member.id}-${member.guild.id}`) || {};
         totalStatsData = client.safeMerge(totalStatsData, defaultTotalStats); 
 
@@ -308,7 +307,7 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         if (stat === 'replies_sent') totalStats.total_replies_sent = (totalStats.total_replies_sent || 0) + amount;
         if (stat === 'mentions_received') totalStats.total_mentions_received = (totalStats.total_mentions_received || 0) + amount;
         if (stat === 'vc_minutes') totalStats.total_vc_minutes = (totalStats.total_vc_minutes || 0) + amount;
-           
+          
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
         client.setTotalStats.run({
@@ -398,6 +397,9 @@ function updateMarketPrices() {
         console.log(`[Market] Prices updated.`);
     } catch (err) { console.error("[Market] Error updating prices:", err.message); }
 }
+
+// ( 🌟 استدعاء دالة القروض الجديدة 🌟 )
+const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
 
 async function processFarmYields() {
     if (!sql.open) return;
