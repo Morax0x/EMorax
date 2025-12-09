@@ -1,9 +1,9 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, Colors, SlashCommandBuilder, Collection } = require("discord.js");
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, Colors, Collection } = require("discord.js");
 const { calculateMoraBuff } = require('../../streak-handler.js');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const MIN_BET = 25;
-const MAX_BET_SOLO = 100; // 🔒 الحد الأقصى ضد البوت فقط
+const MAX_BET_SOLO = 100; // 🔒 الحد الأقصى ضد البوت
 const SOLO_ATTEMPTS = 7;
 const COOLDOWN_MS = 1 * 60 * 60 * 1000;
 const OWNER_ID = "1145327691772481577";
@@ -68,7 +68,7 @@ module.exports = {
             channel = message.channel;
             if (args[0] && !isNaN(parseInt(args[0]))) {
                 betInput = parseInt(args[0]);
-                opponents = message.mentions.members;
+                if (message.mentions.members.size > 0) opponents = message.mentions.members;
             } else if (message.mentions.members.size > 0) {
                 opponents = message.mentions.members;
                 if (args[1] && !isNaN(parseInt(args[1]))) betInput = parseInt(args[1]);
@@ -92,10 +92,11 @@ module.exports = {
 
         // 1. التحقق من اللاعب النشط (منع السبام لنفس الشخص)
         if (client.activePlayers.has(author.id)) {
-            return replyError("🚫 **لديك لعبة نشطة بالفعل!** أكملها أولاً.");
+            if (isSlash) return interaction.editReply({ content: "🚫 **لديك لعبة نشطة بالفعل!** أكملها أولاً." });
+            return; // في الرسائل العادية نتجاهل
         }
 
-        // 2. التحقق من القناة (لعبة واحدة لكل قناة لمنع الفوضى)
+        // 2. التحقق من القناة (لعبة واحدة لكل قناة)
         if (client.activeGames.has(channel.id)) {
             return replyError("🚫 **هناك لعبة جارية في هذه القناة.** انتظر انتهائها.");
         }
@@ -121,7 +122,7 @@ module.exports = {
             if (userBalance < MIN_BET) return replyError(`❌ لا تملك مورا كافية للعب (الحد الأدنى ${MIN_BET})!`);
             if (userBalance < 100) proposedBet = userBalance;
 
-            // حجز اللاعب والقناة مؤقتاً أثناء الاختيار
+            // 🔒 حجز اللاعب والقناة
             client.activePlayers.add(author.id);
             client.activeGames.add(channel.id);
 
@@ -160,8 +161,7 @@ module.exports = {
 
                     // إزالة حجز القناة فقط لبدء اللعبة الفعلية (اللاعب يبقى محجوزاً)
                     client.activeGames.delete(channel.id); 
-                    // activePlayers لا نحذفه هنا، سيحذف عند انتهاء اللعبة في startGuessGame
-
+                    
                     return startGuessGame(channel, author, opponents, proposedBet, client, guild, sql, replyError, reply);
                 }
             } catch (e) {
@@ -185,7 +185,10 @@ async function startGuessGame(channel, author, opponents, bet, client, guild, sq
     // فحص مزدوج للقناة
     if (client.activeGames.has(channelId)) {
         client.activePlayers.delete(author.id);
-        return replyError("🚫 هناك لعبة نشطة بالفعل في هذه القناة!");
+        const msg = "🚫 هناك لعبة نشطة بالفعل في هذه القناة!";
+        if (replyFunction) await replyFunction({ content: msg, ephemeral: true });
+        else channel.send(msg);
+        return;
     }
 
     if (bet < MIN_BET) {
@@ -312,6 +315,7 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
     const channelId = channel.id;
     const requiredOpponentsIDs = opponents.map(o => o.id);
 
+    // التحقق من الخصوم
     for (const opponent of opponents.values()) {
         if (opponent.id === author.id) {
             client.activeGames.delete(channelId);
@@ -383,6 +387,11 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
             data.mora -= bet;
             if (player.id !== OWNER_ID && player.id !== author.id) data.lastGuess = Date.now();
             setScore.run(data);
+        }
+        // تحديث كولداون صاحب التحدي
+        if (author.id !== OWNER_ID) {
+            authorData.lastGuess = Date.now();
+            setScore.run(authorData);
         }
 
         const targetNumber = Math.floor(Math.random() * 100) + 1;
