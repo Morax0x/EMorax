@@ -75,6 +75,7 @@ try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id IN
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
+// ✅ هذا هو التعريف الوحيد الصحيح (الاستدعاء الأول)
 const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
 
 const questsConfig = require('./json/quests-config.json');
@@ -157,7 +158,6 @@ if (sql.open) {
     client.setWeeklyStats = sql.prepare("INSERT OR REPLACE INTO user_weekly_stats (id, userID, guildID, weekStartDate, messages, images, stickers, emojis_sent, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @weekStartDate, @messages, @images, @stickers, @emojis_sent, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
     
     client.getTotalStats = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?");
-    // ✅ تم الإصلاح: أضفنا @ قبل total_disboard_bumps
     client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_emojis_sent, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_emojis_sent, @total_reactions_added, @total_replies_sent, @total_mentions_received, @total_vc_minutes, @total_disboard_bumps);");
     
     client.getQuestNotif = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?");
@@ -403,7 +403,7 @@ function updateMarketPrices() {
     } catch (err) { console.error("[Market] Error updating prices:", err.message); }
 }
 
-const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
+// ⚠️ تم حذف سطر checkLoanPayments المكرر هنا
 
 async function processFarmYields() {
     if (!sql.open) return;
