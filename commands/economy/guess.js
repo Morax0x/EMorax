@@ -51,6 +51,7 @@ module.exports = {
             client = interaction.client;
             guild = interaction.guild;
             channel = interaction.channel;
+            sql = client.sql; // ✅ تعريف واحد
             betInput = interaction.options.getInteger('الرهان');
             for (let i = 1; i <= 5; i++) {
                 const user = interaction.options.getUser(`الخصم${i}`);
@@ -66,6 +67,7 @@ module.exports = {
             client = message.client;
             guild = message.guild;
             channel = message.channel;
+            sql = client.sql; // ✅ تعريف واحد
             if (args[0] && !isNaN(parseInt(args[0]))) {
                 betInput = parseInt(args[0]);
                 if (message.mentions.members.size > 0) opponents = message.mentions.members;
@@ -90,18 +92,16 @@ module.exports = {
         if (!client.activeGames) client.activeGames = new Set();
         if (!client.activePlayers) client.activePlayers = new Set();
 
-        // 1. التحقق من اللاعب النشط (منع السبام لنفس الشخص)
+        // 1. التحقق من اللاعب النشط
         if (client.activePlayers.has(author.id)) {
-            if (isSlash) return interaction.editReply({ content: "🚫 **لديك لعبة نشطة بالفعل!** أكملها أولاً." });
-            return; // في الرسائل العادية نتجاهل
+            return reply({ content: "🚫 **لديك لعبة نشطة بالفعل!** أكملها أولاً.", ephemeral: true });
         }
 
-        // 2. التحقق من القناة (لعبة واحدة لكل قناة)
+        // 2. التحقق من القناة
         if (client.activeGames.has(channel.id)) {
-            return replyError("🚫 **هناك لعبة جارية في هذه القناة.** انتظر انتهائها.");
+            return reply({ content: "🚫 **هناك لعبة جارية في هذه القناة.** انتظر انتهائها.", ephemeral: true });
         }
 
-        const sql = client.sql;
         let userData = client.getLevel.get(author.id, guild.id);
         if (!userData) userData = { ...client.defaultData, user: author.id, guild: guild.id };
 
@@ -110,7 +110,7 @@ module.exports = {
         if (author.id !== OWNER_ID) {
             const timeLeft = (userData.lastGuess || 0) + COOLDOWN_MS - now;
             if (timeLeft > 0) {
-                return replyError(`🕐 انتظر **\`${formatTime(timeLeft)}\`** قبل اللعب مرة أخرى.`);
+                return reply({ content: `🕐 انتظر **\`${formatTime(timeLeft)}\`** قبل اللعب مرة أخرى.` });
             }
         }
 
@@ -122,7 +122,7 @@ module.exports = {
             if (userBalance < MIN_BET) return replyError(`❌ لا تملك مورا كافية للعب (الحد الأدنى ${MIN_BET})!`);
             if (userBalance < 100) proposedBet = userBalance;
 
-            // 🔒 حجز اللاعب والقناة
+            // حجز اللاعب والقناة
             client.activePlayers.add(author.id);
             client.activeGames.add(channel.id);
 
