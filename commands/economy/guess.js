@@ -1,15 +1,12 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, Colors, SlashCommandBuilder, Collection } = require("discord.js");
-// ( 🌟 تم إعادة استدعاء دالة البفات للعب الفردي فقط 🌟 )
 const { calculateMoraBuff } = require('../../streak-handler.js');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
-
 const MIN_BET = 25;
 const MAX_BET_SOLO = 100; // 🔒 الحد الأقصى ضد البوت فقط
 const SOLO_ATTEMPTS = 7;
 const COOLDOWN_MS = 1 * 60 * 60 * 1000;
-
-const activeGames = new Set();
+const OWNER_ID = "1145327691772481577";
 
 function formatTime(ms) {
     if (ms < 0) ms = 0;
@@ -17,17 +14,9 @@ function formatTime(ms) {
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
-
-    const hh = String(hours).padStart(2, '0');
-    const mm = String(minutes).padStart(2, '0');
-    const ss = String(seconds).padStart(2, '0');
-
-    if (hours > 0) {
-        return `${hh}:${mm}:${ss}`;
-    }
-    return `${mm}:${ss}`;
+    if (hours > 0) return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
-
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -36,7 +25,7 @@ module.exports = {
         .addIntegerOption(option =>
             option.setName('الرهان')
                 .setDescription(`المبلغ الذي تريد المراهنة به (اختياري)`)
-                .setRequired(false) // (صار اختياري عشان المراهنة التلقائية)
+                .setRequired(false)
                 .setMinValue(MIN_BET)
         )
         .addUserOption(option => option.setName('الخصم1').setDescription('الخصم الأول (لعبة جماعية)').setRequired(false))
@@ -53,141 +42,159 @@ module.exports = {
     async execute(interactionOrMessage, args) {
 
         const isSlash = !!interactionOrMessage.isChatInputCommand;
-        let interaction, message, author, client, guild, sql, channel, channelId;
+        let interaction, message, author, client, guild, sql, channel;
         let betInput, opponents = new Collection();
 
-        try {
-            if (isSlash) {
-                interaction = interactionOrMessage;
-                author = interaction.member;
-                client = interaction.client;
-                guild = interaction.guild;
-                sql = client.sql;
-                channel = interaction.channel;
-                channelId = interaction.channel.id;
-
-                betInput = interaction.options.getInteger('الرهان');
-
-                // جمع الخصوم
-                for (let i = 1; i <= 5; i++) {
-                    const user = interaction.options.getUser(`الخصم${i}`);
-                    if (user) {
-                        const member = await guild.members.fetch(user.id).catch(() => null);
-                        if (member) {
-                            opponents.set(member.id, member);
-                        }
-                    }
-                }
-                await interaction.deferReply();
-
-            } else {
-                message = interactionOrMessage;
-                author = message.member;
-                client = message.client;
-                guild = message.guild;
-                sql = client.sql;
-                channel = message.channel;
-                channelId = message.channel.id;
-
-                // تحليل المدخلات (مبلغ أو منشن)
-                if (args[0] && !isNaN(parseInt(args[0]))) {
-                    betInput = parseInt(args[0]);
-                    opponents = message.mentions.members;
-                } else if (message.mentions.members.size > 0) {
-                    // إذا بدأ بالمنشن، نبحث عن الرقم في الخانة الثانية
-                    opponents = message.mentions.members;
-                    if (args[1] && !isNaN(parseInt(args[1]))) betInput = parseInt(args[1]);
+        if (isSlash) {
+            interaction = interactionOrMessage;
+            author = interaction.member;
+            client = interaction.client;
+            guild = interaction.guild;
+            channel = interaction.channel;
+            betInput = interaction.options.getInteger('الرهان');
+            for (let i = 1; i <= 5; i++) {
+                const user = interaction.options.getUser(`الخصم${i}`);
+                if (user) {
+                    const member = await guild.members.fetch(user.id).catch(() => null);
+                    if (member) opponents.set(member.id, member);
                 }
             }
+            await interaction.deferReply();
+        } else {
+            message = interactionOrMessage;
+            author = message.member;
+            client = message.client;
+            guild = message.guild;
+            channel = message.channel;
+            if (args[0] && !isNaN(parseInt(args[0]))) {
+                betInput = parseInt(args[0]);
+                opponents = message.mentions.members;
+            } else if (message.mentions.members.size > 0) {
+                opponents = message.mentions.members;
+                if (args[1] && !isNaN(parseInt(args[1]))) betInput = parseInt(args[1]);
+            }
+        }
 
-            const reply = async (payload) => {
-                if (isSlash) return interaction.editReply(payload);
-                return message.channel.send(payload);
-            };
+        const reply = async (payload) => {
+            if (isSlash) return interaction.editReply(payload);
+            return message.channel.send(payload);
+        };
 
-            const replyError = async (content) => {
-                const payload = { content, ephemeral: true };
-                if (isSlash) return interaction.editReply(payload);
-                return message.reply(payload);
-            };
+        const replyError = async (content) => {
+             const payload = { content, ephemeral: true };
+             if (isSlash) return interaction.editReply(payload);
+             return message.reply(payload);
+        };
 
-            let userData = client.getLevel.get(author.id, guild.id);
-            if (!userData) userData = { ...client.defaultData, user: author.id, guild: guild.id };
+        // تهيئة المتغيرات
+        if (!client.activeGames) client.activeGames = new Set();
+        if (!client.activePlayers) client.activePlayers = new Set();
 
-            // --- منطق المراهنة التلقائية ---
-            if (!betInput) {
-                let proposedBet = 100;
-                const userBalance = userData.mora;
+        // 1. التحقق من اللاعب النشط (منع السبام لنفس الشخص)
+        if (client.activePlayers.has(author.id)) {
+            return replyError("🚫 **لديك لعبة نشطة بالفعل!** أكملها أولاً.");
+        }
 
-                if (userBalance <= 0) {
-                    return replyError(`❌ لا تملك أي مورا للعب!`);
-                }
+        // 2. التحقق من القناة (لعبة واحدة لكل قناة لمنع الفوضى)
+        if (client.activeGames.has(channel.id)) {
+            return replyError("🚫 **هناك لعبة جارية في هذه القناة.** انتظر انتهائها.");
+        }
 
-                if (userBalance < 100) {
-                    proposedBet = userBalance;
-                }
+        const sql = client.sql;
+        let userData = client.getLevel.get(author.id, guild.id);
+        if (!userData) userData = { ...client.defaultData, user: author.id, guild: guild.id };
 
-                const autoBetEmbed = new EmbedBuilder()
-                    .setColor(Colors.Blue)
-                    .setDescription(
-                        `✥ المـراهـنـة التلقائية بـ **${proposedBet}** ${EMOJI_MORA} ؟\n` +
-                        `✥ طريقة الاستخدام لتحديد المبلغ:\n` +
-                        `\`خمن <مبلغ الرهان> [@لاعب اختياري]\``
-                    );
+        // 3. التحقق من الكولداون
+        const now = Date.now();
+        if (author.id !== OWNER_ID) {
+            const timeLeft = (userData.lastGuess || 0) + COOLDOWN_MS - now;
+            if (timeLeft > 0) {
+                return replyError(`🕐 انتظر **\`${formatTime(timeLeft)}\`** قبل اللعب مرة أخرى.`);
+            }
+        }
 
-                const row = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('guess_auto_confirm').setLabel('مـراهـنـة').setStyle(ButtonStyle.Success),
-                    new ButtonBuilder().setCustomId('guess_auto_cancel').setLabel('رفـض').setStyle(ButtonStyle.Danger)
+        // --- المراهنة التلقائية ---
+        if (!betInput) {
+            let proposedBet = 100;
+            const userBalance = userData.mora;
+
+            if (userBalance < MIN_BET) return replyError(`❌ لا تملك مورا كافية للعب (الحد الأدنى ${MIN_BET})!`);
+            if (userBalance < 100) proposedBet = userBalance;
+
+            // حجز اللاعب والقناة مؤقتاً أثناء الاختيار
+            client.activePlayers.add(author.id);
+            client.activeGames.add(channel.id);
+
+            const autoBetEmbed = new EmbedBuilder()
+                .setColor(Colors.Blue)
+                .setDescription(
+                    `✥ المـراهـنـة التلقائية بـ **${proposedBet}** ${EMOJI_MORA} ؟\n` +
+                    `✥ طريقة الاستخدام لتحديد المبلغ:\n` +
+                    `\`خمن <مبلغ الرهان> [@لاعب اختياري]\``
                 );
 
-                const confirmMsg = await reply({ embeds: [autoBetEmbed], components: [row], fetchReply: true });
-                
-                const filter = i => i.user.id === author.id && (i.customId === 'guess_auto_confirm' || i.customId === 'guess_auto_cancel');
-                
-                try {
-                    const confirmation = await confirmMsg.awaitMessageComponent({ filter, time: 15000 });
-                    
-                    if (confirmation.customId === 'guess_auto_cancel') {
-                        await confirmation.update({ content: '❌ تم الإلغاء.', embeds: [], components: [] });
-                        return;
-                    }
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('guess_auto_confirm').setLabel('مـراهـنـة').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('guess_auto_cancel').setLabel('رفـض').setStyle(ButtonStyle.Danger)
+            );
 
-                    if (confirmation.customId === 'guess_auto_confirm') {
-                        await confirmation.deferUpdate();
-                        if (!isSlash) await confirmMsg.delete().catch(() => {}); 
-                        else await confirmation.editReply({ content: '✅', embeds: [], components: [] });
-
-                        return startGuessGame(channel, author, opponents, proposedBet, client, guild, sql, replyError, reply);
-                    }
-                } catch (e) {
-                    if (!isSlash) await confirmMsg.delete().catch(() => {});
-                    else await interaction.editReply({ content: '⏰ انتهى الوقت.', embeds: [], components: [] });
+            const confirmMsg = await reply({ embeds: [autoBetEmbed], components: [row], fetchReply: true });
+            
+            const filter = i => i.user.id === author.id && (i.customId === 'guess_auto_confirm' || i.customId === 'guess_auto_cancel');
+            
+            try {
+                const confirmation = await confirmMsg.awaitMessageComponent({ filter, time: 15000 });
+                
+                if (confirmation.customId === 'guess_auto_cancel') {
+                    await confirmation.update({ content: '❌ تم الإلغاء.', embeds: [], components: [] });
+                    // 🔓 تحرير
+                    client.activeGames.delete(channel.id);
+                    client.activePlayers.delete(author.id);
                     return;
                 }
-            } else {
-                // إذا حدد المبلغ، ابدأ مباشرة
-                return startGuessGame(channel, author, opponents, betInput, client, guild, sql, replyError, reply);
-            }
 
-        } catch (error) {
-            console.error("Error in guess command:", error);
+                if (confirmation.customId === 'guess_auto_confirm') {
+                    await confirmation.deferUpdate();
+                    if (!isSlash) await confirmMsg.delete().catch(() => {});
+                    else await confirmation.editReply({ content: '✅', embeds: [], components: [] });
+
+                    // إزالة حجز القناة فقط لبدء اللعبة الفعلية (اللاعب يبقى محجوزاً)
+                    client.activeGames.delete(channel.id); 
+                    // activePlayers لا نحذفه هنا، سيحذف عند انتهاء اللعبة في startGuessGame
+
+                    return startGuessGame(channel, author, opponents, proposedBet, client, guild, sql, replyError, reply);
+                }
+            } catch (e) {
+                client.activeGames.delete(channel.id);
+                client.activePlayers.delete(author.id);
+                if (!isSlash) await confirmMsg.delete().catch(() => {});
+                else await interaction.editReply({ content: '⏰ انتهى الوقت.', embeds: [], components: [] });
+                return;
+            }
+        } else {
+            // إذا حدد مبلغ، نحجزه ونبدأ
+            client.activePlayers.add(author.id);
+            return startGuessGame(channel, author, opponents, betInput, client, guild, sql, replyError, reply);
         }
     }
 };
 
-// --- دالة بدء اللعبة الفعلية (لتوحيد المنطق) ---
 async function startGuessGame(channel, author, opponents, bet, client, guild, sql, replyError, replyFunction) {
     const channelId = channel.id;
 
-    if (activeGames.has(channelId)) {
-        return replyError("هناك لعبة نشطة بالفعل في هذه القناة!");
+    // فحص مزدوج للقناة
+    if (client.activeGames.has(channelId)) {
+        client.activePlayers.delete(author.id);
+        return replyError("🚫 هناك لعبة نشطة بالفعل في هذه القناة!");
     }
 
     if (bet < MIN_BET) {
+        client.activePlayers.delete(author.id);
         return replyError(`الحد الأدنى للرهان هو **${MIN_BET}** ${EMOJI_MORA} !`);
     }
 
     if (opponents.size === 0 && bet > MAX_BET_SOLO) {
+        client.activePlayers.delete(author.id);
         return replyError(`🚫 **تنبيه:** الحد الأقصى للرهان في اللعب الفردي (ضد البوت) هو **${MAX_BET_SOLO}** ${EMOJI_MORA}!\n(للعب بمبالغ أكبر، تحدى لاعبين آخرين).`);
     }
 
@@ -196,32 +203,33 @@ async function startGuessGame(channel, author, opponents, bet, client, guild, sq
     let authorData = getScore.get(author.id, guild.id);
     if (!authorData) authorData = { ...client.defaultData, user: author.id, guild: guild.id };
 
-    const now = Date.now();
-    const timeLeft = (authorData.lastGuess || 0) + COOLDOWN_MS - now;
-
-    if (timeLeft > 0) {
-        const timeString = formatTime(timeLeft);
-        return replyError(`🕐 يمكنك لعب تخمين الرقم مرة واحدة كل ساعة. يرجى الانتظار **\`${timeString}\`**.`);
-    }
-
     if (authorData.mora < bet) {
+        client.activePlayers.delete(author.id);
         return replyError(`ليس لديك مورا كافية لهذا الرهان! (رصيدك: ${authorData.mora})`);
     }
 
-    activeGames.add(channelId);
-    authorData.lastGuess = now;
+    // حجز القناة الآن
+    client.activeGames.add(channelId);
+    
+    // تسجيل وقت اللعب لصاحب الأمر
+    if (author.id !== OWNER_ID) authorData.lastGuess = Date.now();
+    setScore.run(authorData);
 
     if (opponents.size === 0) {
-        await playSolo(channel, author, bet, authorData, getScore, setScore, sql, replyFunction);
+        await playSolo(channel, author, bet, authorData, getScore, setScore, sql, replyFunction, client);
     } else {
-        await playChallenge(channel, author, opponents, bet, authorData, getScore, setScore, sql, replyFunction);
+        await playChallenge(channel, author, opponents, bet, authorData, getScore, setScore, sql, replyFunction, client);
     }
 }
 
-async function playSolo(channel, author, bet, authorData, getScore, setScore, sql, replyFunction) {
+async function playSolo(channel, author, bet, authorData, getScore, setScore, sql, replyFunction, client) {
     const channelId = channel.id;
     const targetNumber = Math.floor(Math.random() * 100) + 1;
     let attempts = 0;
+
+    // خصم الرهان
+    authorData.mora -= bet;
+    setScore.run(authorData);
 
     const startingPrize = bet * 7;
     let currentWinnings = startingPrize;
@@ -236,7 +244,7 @@ async function playSolo(channel, author, bet, authorData, getScore, setScore, sq
 
     await replyFunction({ embeds: [embed] });
 
-    const filter = (m) => m.author.id === author.id;
+    const filter = (m) => m.author.id === author.id && !m.author.bot;
     const collector = channel.createMessageCollector({ filter, time: 60000, max: SOLO_ATTEMPTS });
 
     collector.on('collect', (msg) => {
@@ -255,18 +263,19 @@ async function playSolo(channel, author, bet, authorData, getScore, setScore, sq
             setScore.run(authorData);
 
             let buffString = "";
-            const buffPercent = (moraMultiplier - 1) * 100;
-            if (buffPercent > 0) buffString = ` (+${buffPercent.toFixed(0)}%)`;
+            const buffPercent = Math.round((moraMultiplier - 1) * 100);
+            if (buffPercent > 0) buffString = ` (+${buffPercent}%)`;
 
             const winEmbed = new EmbedBuilder()
                 .setTitle(`✥ الـفـائـز ${author.displayName}!`)
                 .setDescription(`✶ نجح في تخمين الرقم الصحيح **${targetNumber}**!\n\nربـح **${finalWinnings.toLocaleString()}** ${EMOJI_MORA}!${buffString}`)
                 .setColor("Green")
                 .setImage('https://i.postimg.cc/NfMfDwp4/download-2.gif')
-                .setThumbnail(author.displayAvatarURL());
+                .setThumbnail(author.user.displayAvatarURL());
 
             channel.send({ embeds: [winEmbed] });
             collector.stop('win');
+
         } else if (attemptsLeft > 0) {
             currentWinnings -= penaltyPerGuess;
             if (currentWinnings < 0) currentWinnings = 0;
@@ -284,10 +293,11 @@ async function playSolo(channel, author, bet, authorData, getScore, setScore, sq
     });
 
     collector.on('end', (collected, reason) => {
-        activeGames.delete(channelId);
+        // 🔓 تحرير عند الانتهاء
+        client.activeGames.delete(channelId);
+        client.activePlayers.delete(author.id);
+
         if (reason === 'lose' || reason === 'time') {
-            authorData.mora -= bet;
-            setScore.run(authorData);
             const loseEmbed = new EmbedBuilder()
                 .setTitle(reason === 'time' ? '⏰ انتهى الوقت! لقد خسرت...' : '💔 لقد خسرت...')
                 .setDescription(`انتهت المحاولات أو الوقت.\nكـان الـرقـم **${targetNumber}**.\nخسرت **${bet}** ${EMOJI_MORA}.`)
@@ -298,25 +308,36 @@ async function playSolo(channel, author, bet, authorData, getScore, setScore, sq
     });
 }
 
-async function playChallenge(channel, author, opponents, bet, authorData, getScore, setScore, sql, replyFunction) {
+async function playChallenge(channel, author, opponents, bet, authorData, getScore, setScore, sql, replyFunction, client) {
     const channelId = channel.id;
     const requiredOpponentsIDs = opponents.map(o => o.id);
 
     for (const opponent of opponents.values()) {
         if (opponent.id === author.id) {
-            activeGames.delete(channelId);
+            client.activeGames.delete(channelId);
+            client.activePlayers.delete(author.id);
             return replyFunction({ content: "تتـحـدى نفـسـك؟ متوحـد انـت؟؟  <a:MugiStronk:1438795606872166462>", ephemeral: true });
         }
+        if (client.activePlayers.has(opponent.id)) {
+            client.activeGames.delete(channelId);
+            client.activePlayers.delete(author.id);
+            return replyFunction({ content: `اللاعب ${opponent.displayName} مشغول في لعبة أخرى!`, ephemeral: true });
+        }
         if (opponent.user.bot) {
-            activeGames.delete(channelId);
+            client.activeGames.delete(channelId);
+            client.activePlayers.delete(author.id);
             return replyFunction({ content: "لا يمكنك تحدي البوت في اللعب الجماعي!", ephemeral: true });
         }
         let opponentData = getScore.get(opponent.id, channel.guild.id);
         if (!opponentData || opponentData.mora < bet) {
-            activeGames.delete(channelId);
+            client.activeGames.delete(channelId);
+            client.activePlayers.delete(author.id);
             return replyFunction({ content: `اللاعب ${opponent.displayName} لا يملك مورا كافية لهذا الرهان!`, ephemeral: true });
         }
     }
+
+    // حجز الخصوم
+    opponents.forEach(o => client.activePlayers.add(o.id));
 
     const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('guess_pvp_accept').setLabel('قبول').setStyle(ButtonStyle.Success),
@@ -360,7 +381,7 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
             let data = getScore.get(player.id, channel.guild.id);
             if (!data) data = { ...channel.client.defaultData, user: player.id, guild: channel.guild.id };
             data.mora -= bet;
-            if (player.id !== author.id) data.lastGuess = Date.now();
+            if (player.id !== OWNER_ID && player.id !== author.id) data.lastGuess = Date.now();
             setScore.run(data);
         }
 
@@ -408,7 +429,10 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
         });
 
         gameCollector.on('end', (collected, reason) => {
-            activeGames.delete(channelId);
+            // تحرير الجميع
+            client.activeGames.delete(channelId);
+            finalPlayers.forEach(p => client.activePlayers.delete(p.id));
+
             if (reason !== 'win') {
                 const loseEmbed = new EmbedBuilder()
                     .setTitle('✥ انتهى الوقت!')
@@ -418,7 +442,7 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
 
                 channel.send({ embeds: [loseEmbed] });
 
-                // إرجاع الأموال للجميع
+                // إرجاع الأموال
                 for (const player of finalPlayers) {
                     let data = getScore.get(player.id, channel.guild.id);
                     data.mora += bet;
@@ -457,12 +481,13 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
     });
 
     challengeCollector.on('end', async (collected, reason) => {
-        if (reason === 'decline') {
-            activeGames.delete(channelId);
-            return;
+        if (reason === 'decline' || reason !== 'started') {
+            // تحرير الجميع عند الفشل
+            client.activeGames.delete(channelId);
+            client.activePlayers.delete(author.id);
+            opponents.forEach(o => client.activePlayers.delete(o.id));
         }
-        if (reason !== 'started') {
-            activeGames.delete(channelId);
+        if (reason !== 'started' && reason !== 'decline') {
             return challengeMsg.edit({ content: `✶ انتـهـى الـوقـت لـم يقـبل الجـميع التحـدي!`, embeds: [], components: [] });
         }
     });
