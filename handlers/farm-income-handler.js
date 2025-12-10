@@ -31,10 +31,10 @@ async function checkFarmIncome(client, sql) {
             const { userID, guildID } = owner;
             const payoutID = `${userID}-${guildID}`;
 
-            // ---[ الخطوة 1: فحص الوقت بدقة لمنع السبام ]---
+            // ---[ الخطوة 1: فحص الوقت بدقة ]---
             const lastPayoutData = stmtCheckPayout.get(payoutID);
             
-            // إذا وجد سجل، والوقت الحالي أقل من 24 ساعة منذ آخر سحب، تخطى هذا المستخدم
+            // إذا وجد سجل، والوقت الحالي أقل من وقت الحصاد القادم، تخطى فوراً
             if (lastPayoutData && (now - lastPayoutData.lastPayoutDate) < ONE_DAY) {
                 continue; 
             }
@@ -49,7 +49,6 @@ async function checkFarmIncome(client, sql) {
             for (const row of userFarm) {
                 const animal = farmAnimals.find(a => a.id === row.animalID);
                 if (animal) {
-                    // ✅ تصحيح: النظام يخزن كل حيوان كصف مستقل، لذا نجمع الدخل مباشرة
                     totalIncome += animal.income_per_day; 
                     totalAnimals += 1;
                 }
@@ -60,19 +59,18 @@ async function checkFarmIncome(client, sql) {
             // ---[ الخطوة 3: تحديث الرصيد وقاعدة البيانات ]---
             let userData = client.getLevel.get(userID, guildID);
             
+            // معالجة حالة عدم وجود بيانات للمستخدم
             if (!userData) {
                 if (!client.defaultData) {
-                    // تخطي إذا لم تكن البيانات الافتراضية محملة
                     continue;
                 }
                 userData = { ...client.defaultData, user: userID, guild: guildID };
             }
 
-            // إضافة الدخل
             userData.mora = (userData.mora || 0) + totalIncome;
             client.setLevel.run(userData);
 
-            // ⚠️ مهم جداً: تسجيل وقت الدفع الحالي فوراً لمنع التكرار في الدورة القادمة
+            // تسجيل وقت الحصاد الجديد فوراً
             stmtUpdatePayout.run(payoutID, now);
 
             // ---[ الخطوة 4: إرسال الإشعار ]---
@@ -85,7 +83,6 @@ async function checkFarmIncome(client, sql) {
             const channel = guild.channels.cache.get(settings.casinoChannelID);
             if (!channel) continue;
 
-            // جلب العضو (مع حماية ضد الأخطاء إذا خرج من السيرفر)
             const member = await guild.members.fetch(userID).catch(() => null);
             if (!member) continue; 
 
