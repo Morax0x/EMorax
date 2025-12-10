@@ -1,4 +1,4 @@
-const { EmbedBuilder, Colors, MessageFlags, ButtonBuilder, ButtonStyle, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require("discord.js");
+const { EmbedBuilder, Colors, MessageFlags, ButtonBuilder, ButtonStyle, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ComponentType } = require("discord.js");
 const { sendLevelUpMessage } = require('./handler-utils.js');
 const shopItems = require('../json/shop-items.json');
 const farmAnimals = require('../json/farm-animals.json');
@@ -176,10 +176,7 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
     }
 
     const filter = i => i.user.id === userID;
-    // NOTE: ComponentType.Button is not defined here. Assuming it is imported globally or available in the environment.
-    // Since the context does not show the discord.js imports for ComponentType, I will assume it's available or should be.
-    // However, I will use 2 as a fallback for ComponentType.Button if the environment doesn't define ComponentType.
-    const collector = msg.createMessageComponentCollector({ filter, componentType: 2, time: 60000 }); // Using 2 for Button type
+    const collector = msg.createMessageComponentCollector({ filter, componentType: ComponentType.Button, time: 60000 });
 
     collector.on('collect', async i => {
         if (i.customId === 'skip_coupon') {
@@ -255,12 +252,8 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     } 
     else if (callbackType === 'weapon') {
         const newLevel = itemData.currentLevel + 1;
-        if (itemData.isBuy) {
-            sql.prepare("INSERT INTO user_weapons (userID, guildID, raceName, weaponLevel) VALUES (?, ?, ?, ?)").run(interaction.user.id, interaction.guild.id, itemData.raceName, newLevel);
-        } else {
-            // FIX: استخدام userID و guildID و raceName لتحديث السلاح بدلاً من dbId لضمان دقة التحديث
-            sql.prepare("UPDATE user_weapons SET weaponLevel = ? WHERE userID = ? AND guildID = ? AND raceName = ?").run(newLevel, interaction.user.id, interaction.guild.id, itemData.raceName);
-        }
+        if (itemData.isBuy) sql.prepare("INSERT INTO user_weapons (userID, guildID, raceName, weaponLevel) VALUES (?, ?, ?, ?)").run(interaction.user.id, interaction.guild.id, itemData.raceName, newLevel);
+        else sql.prepare("UPDATE user_weapons SET weaponLevel = ? WHERE userID = ? AND guildID = ? AND raceName = ?").run(newLevel, interaction.user.id, interaction.guild.id, itemData.raceName);
     } 
     else if (callbackType === 'skill') {
         const newLevel = itemData.currentLevel + 1;
@@ -281,7 +274,8 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     // Log (للمتجر فقط، المزرعة والسوق لا)
     sendShopLog(client, interaction.guild.id, interaction.member, itemData.name || itemData.raceName || "Unknown", finalPrice, `شراء ${discountUsed > 0 ? '(مع كوبون)' : ''}`);
     
-    // تحديث الواجهات بعد الشراء
+    // تحديث الواجهات بعد الشراء (تمت إزالتها حسب طلب المستخدم لضمان إتمام العملية مرة واحدة وإظهار رسالة النجاح فقط)
+    /*
     if (callbackType === 'weapon') await _handleWeaponUpgrade(interaction, client, sql); 
     if (callbackType === 'skill') {
         const allUserSkills = getAllUserAvailableSkills(interaction.member, sql);
@@ -289,6 +283,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         const updatedEmbed = buildSkillEmbedWithPagination(allUserSkills, skillIndex, sql, interaction);
         await interaction.followUp({ ...updatedEmbed, flags: MessageFlags.Ephemeral });
     }
+    */
 }
 
 // ============================================================================
@@ -514,13 +509,6 @@ async function _handleWeaponUpgrade(i, client, sql) {
             return; 
         }
 
-        // حساب الضرر بناءً على المستوى
-        // الضرر الابتدائي (Base Damage) يُطبق عند المستوى 1 (currentLevel > 0).
-        // إذا كان المستوى 0، فـ currentLevel-1 = -1، مما سيقلل من base_damage.
-        // يجب أن يكون حساب الضرر الحالي:
-        // إذا كان المستوى = 0، الضرر = 0
-        // إذا كان المستوى = 1، الضرر = base_damage
-        // إذا كان المستوى > 1، الضرر = base_damage + (damage_increment * (currentLevel - 1))
         const calculatedDamage = (currentLevel === 0) 
             ? 0 
             : weaponConfig.base_damage + (weaponConfig.damage_increment * (currentLevel - 1));
@@ -537,7 +525,7 @@ async function _handleWeaponUpgrade(i, client, sql) {
                 : weaponConfig.base_price + (weaponConfig.price_increment * currentLevel); 
             
             const nextDamage = (currentLevel === 0) 
-                ? weaponConfig.base_damage // الضرر عند شراء المستوى 1
+                ? weaponConfig.base_damage
                 : calculatedDamage + weaponConfig.damage_increment; 
                 
             const buttonId = currentLevel === 0 ? `buy_weapon_${exactRaceName}` : `upgrade_weapon_${exactRaceName}`; 
