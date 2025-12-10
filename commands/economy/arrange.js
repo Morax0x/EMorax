@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags } = require('discord.js');
 const path = require('path');
 
 // محاولة استدعاء ملف الهاندلر لحساب البفات
@@ -21,12 +21,12 @@ function getRandomInt(min, max) {
 }
 
 module.exports = {
-    // ⬇️ بيانات السلاش كوماند (مهم جداً عشان يشتغل بدون بريفكس)
+    // ⬇️ بيانات السلاش كوماند
     data: new SlashCommandBuilder()
         .setName('arrange')
         .setDescription('لعبة ترتيب الأرقام (رهان)')
         .addIntegerOption(option => 
-            option.setName('الرهان')
+            option.setName('amount')
                 .setDescription('مبلغ الرهان')
                 .setRequired(false)
                 .setMinValue(20)
@@ -34,6 +34,7 @@ module.exports = {
 
     name: 'arrange',
     aliases: ['رتب', 'ترتيب'],
+    category: "Economy", // ✅ تمت الإضافة: ضروري جداً ليعمل في الكازينو بدون بريفكس
     description: 'لعبة ترتيب الأرقام (رهان)',
     
     async execute(interactionOrMessage, args) {
@@ -41,13 +42,13 @@ module.exports = {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
         let interaction, message, user, guild, channel, betArg;
 
-        // تجهيز المتغيرات حسب نوع الأمر (سلاش أو رسالة)
+        // تجهيز المتغيرات
         if (isSlash) {
             interaction = interactionOrMessage;
             user = interaction.user;
             guild = interaction.guild;
             channel = interaction.channel;
-            betArg = interaction.options.getInteger('الرهان');
+            betArg = interaction.options.getInteger('amount');
             await interaction.deferReply();
         } else {
             message = interactionOrMessage;
@@ -67,12 +68,12 @@ module.exports = {
         };
 
         const replyError = async (content) => {
-            if (isSlash) return interaction.editReply({ content: content });
-            return message.reply(content);
+            const payload = { content: content };
+            if (isSlash) return interaction.editReply(payload);
+            return message.reply(payload);
         };
 
         // التحقق من قاعدة البيانات
-        // ملاحظة: في السلاش interaction.client هو المصدر، في الرسالة message.client
         const client = isSlash ? interaction.client : message.client;
         if (!client.sql) return replyError("❌ خطأ: قاعدة البيانات غير متصلة.");
         
@@ -110,7 +111,7 @@ module.exports = {
         // --- دالة تشغيل اللعبة ---
         const startGame = async (finalBetAmount) => {
             try {
-                // التحقق من الرصيد والخصم
+                // التحقق من الرصيد
                 const userCheck = db.prepare('SELECT mora FROM levels WHERE user = ? AND guild = ?').get(userId, guildId);
                 if (!userCheck || userCheck.mora < finalBetAmount) {
                       clearActive(); 
@@ -120,7 +121,7 @@ module.exports = {
                 // خصم المبلغ
                 db.prepare('UPDATE levels SET mora = mora - ? WHERE user = ? AND guild = ?').run(finalBetAmount, userId, guildId);
 
-                // تفعيل الكولداون (لغير المالك)
+                // تفعيل الكولداون
                 if (userId !== OWNER_ID) {
                     cooldowns.set(userId, Date.now());
                 }
@@ -155,7 +156,7 @@ module.exports = {
                     .setFooter({ text: '❖ لــديــك 25 ثـانيــة' });
 
                 const gameMsg = isSlash 
-                    ? await interaction.editReply({ embeds: [gameEmbed], components: [row1, row2, row3] })
+                    ? await interaction.editReply({ content: '', embeds: [gameEmbed], components: [row1, row2, row3] })
                     : await message.channel.send({ embeds: [gameEmbed], components: [row1, row2, row3] });
 
                 const startTime = Date.now();
@@ -214,8 +215,8 @@ module.exports = {
                         if (reason === 'win') {
                             const timeTaken = ((Date.now() - startTime) / 1000).toFixed(2);
                             
-                            // حساب البفات (استخدام member من المتغير الصحيح)
                             let moraMultiplier = 1.0;
+                            // التأكد من تمرير العضو الصحيح (member)
                             const memberObj = isSlash ? interaction.member : message.member;
 
                             if (streakHandler && streakHandler.calculateMoraBuff) {
@@ -264,7 +265,7 @@ module.exports = {
         };
 
         // ============================================================
-        //  معالجة الأمر
+        //  بداية معالجة الأمر
         // ============================================================
         let finalBetAmount = betArg;
 
@@ -314,16 +315,21 @@ module.exports = {
 
             if (confirmation.customId === 'arrange_auto_confirm') {
                 await confirmation.deferUpdate();
-                if (!isSlash) await confirmMsg.delete().catch(() => {});
-                else await confirmation.editReply({ content: '✅', embeds: [], components: [] });
+                
+                // في السلاش: لا تحذف، بل اترك startGame يعدلها
+                // في البريفكس: احذف ليكون الشكل أنظف
+                if (!isSlash) {
+                    await confirmMsg.delete().catch(() => {});
+                }
                 
                 startGame(proposedBet);
             }
 
         } catch (e) {
             clearActive(); 
-            if (!isSlash) await confirmMsg.edit({ content: '⏰ انتهى وقت الانتظار.', embeds: [], components: [] }).catch(() => {});
-            else await interaction.editReply({ content: '⏰ انتهى وقت الانتظار.', embeds: [], components: [] });
+            const timeoutPayload = { content: '⏰ انتهى وقت الانتظار.', embeds: [], components: [] };
+            if (isSlash) await interaction.editReply(timeoutPayload).catch(() => {});
+            else await confirmMsg.edit(timeoutPayload).catch(() => {});
         }
     }
 };
