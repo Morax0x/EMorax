@@ -42,6 +42,7 @@ const COMMANDS_TO_CHECK = [
     { name: 'guess', db_column: 'lastGuess', cooldown: 1 * 60 * 60 * 1000, label: 'تخمين' },
     { name: 'roulette', db_column: 'lastRoulette', cooldown: 1 * 60 * 60 * 1000, label: 'روليت' },
     { name: 'emoji', db_column: 'lastMemory', cooldown: 1 * 60 * 60 * 1000, label: 'ايموجي' }, // ✅ تمت الإضافة
+    { name: 'arrange', db_column: 'lastArrange', cooldown: 1 * 60 * 60 * 1000, label: 'رتب' }, // ✅ تمت إضافة رتب هنا
     { name: 'pvp', db_column: 'lastPVP', cooldown: 5 * 60 * 1000, label: 'تحدي' },
     { name: 'transfer', db_column: 'lastTransfer', cooldown: 5 * 60 * 1000, label: 'تحويل' },
     { name: 'deposit', db_column: 'lastDeposit', cooldown: 1 * 60 * 60 * 1000, label: 'إيداع' },
@@ -105,6 +106,7 @@ module.exports = {
 
             // 1. حساب الأوامر الثابتة
             for (const cmd of COMMANDS_TO_CHECK) {
+                // تأكد من وجود العمود في الداتابيس، وإلا اعتبر القيمة 0
                 const lastUsed = data[cmd.db_column] || 0;
                 const cooldownAmount = cmd.cooldown;
                 const timeLeft = lastUsed + cooldownAmount - now;
