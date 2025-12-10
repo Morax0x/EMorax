@@ -20,7 +20,7 @@ async function checkFarmIncome(client, sql) {
     const farmOwners = sql.prepare("SELECT DISTINCT userID, guildID FROM user_farm").all();
     if (!farmOwners.length) return;
 
-    // تجهيز الاستعلامات مسبقاً لتحسين الأداء (Prepared Statements)
+    // تجهيز الاستعلامات مسبقاً لتحسين الأداء
     const stmtCheckPayout = sql.prepare("SELECT lastPayoutDate FROM farm_last_payout WHERE id = ?");
     const stmtGetUserFarm = sql.prepare("SELECT * FROM user_farm WHERE userID = ? AND guildID = ?");
     const stmtUpdatePayout = sql.prepare("INSERT OR REPLACE INTO farm_last_payout (id, lastPayoutDate) VALUES (?, ?)");
@@ -31,16 +31,15 @@ async function checkFarmIncome(client, sql) {
             const { userID, guildID } = owner;
             const payoutID = `${userID}-${guildID}`;
 
-            // ---[ الخطوة 1: فحص الوقت بدقة ]---
+            // ---[ الخطوة 1: فحص الوقت بدقة لمنع السبام ]---
             const lastPayoutData = stmtCheckPayout.get(payoutID);
             
-            // إذا وجد سجل، والوقت الحالي أقل من وقت الحصاد القادم، تخطى فوراً
+            // إذا وجد سجل، والوقت الحالي أقل من 24 ساعة منذ آخر سحب، تخطى هذا المستخدم
             if (lastPayoutData && (now - lastPayoutData.lastPayoutDate) < ONE_DAY) {
                 continue; 
             }
 
             // ---[ الخطوة 2: حساب الدخل ]---
-            // يتم الحساب فقط إذا اجتاز شرط الوقت
             const userFarm = stmtGetUserFarm.all(userID, guildID);
             if (!userFarm.length) continue;
 
@@ -50,31 +49,30 @@ async function checkFarmIncome(client, sql) {
             for (const row of userFarm) {
                 const animal = farmAnimals.find(a => a.id === row.animalID);
                 if (animal) {
-                    totalIncome += (animal.income_per_day * row.quantity);
-                    totalAnimals += row.quantity;
+                    // ✅ تصحيح: النظام يخزن كل حيوان كصف مستقل، لذا نجمع الدخل مباشرة
+                    totalIncome += animal.income_per_day; 
+                    totalAnimals += 1;
                 }
             }
 
             if (totalIncome <= 0) continue;
 
             // ---[ الخطوة 3: تحديث الرصيد وقاعدة البيانات ]---
-            // استخدام try-catch داخلي لعمليات الـ Enmap/Level لتجنب توقف الحلقة
             let userData = client.getLevel.get(userID, guildID);
             
-            // معالجة حالة عدم وجود بيانات للمستخدم (Default Data)
             if (!userData) {
                 if (!client.defaultData) {
-                    console.warn(`[Farm Warning] No defaultData found for user ${userID}`);
+                    // تخطي إذا لم تكن البيانات الافتراضية محملة
                     continue;
                 }
                 userData = { ...client.defaultData, user: userID, guild: guildID };
             }
 
-            // إضافة الدخل وتحديث الداتا
-            userData.mora += totalIncome;
+            // إضافة الدخل
+            userData.mora = (userData.mora || 0) + totalIncome;
             client.setLevel.run(userData);
 
-            // تسجيل وقت الحصاد الجديد فوراً (أهم خطوة لمنع التكرار)
+            // ⚠️ مهم جداً: تسجيل وقت الدفع الحالي فوراً لمنع التكرار في الدورة القادمة
             stmtUpdatePayout.run(payoutID, now);
 
             // ---[ الخطوة 4: إرسال الإشعار ]---
@@ -87,10 +85,9 @@ async function checkFarmIncome(client, sql) {
             const channel = guild.channels.cache.get(settings.casinoChannelID);
             if (!channel) continue;
 
-            // جلب العضو للتأكد من وجوده + أخذ الصورة
-            // استخدام fetch قد يسبب Rate Limit إذا كان العدد كبير، لكنه ضروري للأفاتار
+            // جلب العضو (مع حماية ضد الأخطاء إذا خرج من السيرفر)
             const member = await guild.members.fetch(userID).catch(() => null);
-            if (!member) continue; // العضو غادر السيرفر مثلاً
+            if (!member) continue; 
 
             const EMOJI_MORA = '<:mora:1435647151349698621>'; 
 
@@ -107,7 +104,6 @@ async function checkFarmIncome(client, sql) {
                 .setTimestamp();
 
             await channel.send({ content: `<@${userID}>`, embeds: [embed] }).catch(err => {
-                // خطأ شائع: البوت ليس لديه صلاحية الكتابة في القناة
                 console.error(`[Farm Msg Error] Can't send to channel ${channel.id}:`, err.message);
             });
 
