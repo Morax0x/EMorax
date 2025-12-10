@@ -13,7 +13,7 @@ function getRandomInt(min, max) {
 
 module.exports = {
     name: 'arrange',
-    aliases: ['رتب', 'ترتيب'],
+    // تم حذف الـ aliases (رتب/ترتيب) كما طلبت
     description: 'لعبة ترتيب الأرقام (رهان)',
     async execute(message, args) {
         
@@ -26,7 +26,7 @@ module.exports = {
         const clearActive = () => activePlayers.delete(userId);
 
         // ============================================================
-        //  1. التحقق من السبام (هل اللاعب مشغول؟)
+        //  1. التحقق من السبام
         // ============================================================
         if (activePlayers.has(userId)) {
             return message.reply("🚫 **لديك عملية نشطة بالفعل!** أكمل اللعبة أو الرهان الحالي أولاً.");
@@ -51,7 +51,7 @@ module.exports = {
         activePlayers.add(userId);
 
 
-        // دالة تشغيل اللعبة
+        // --- دالة تشغيل اللعبة ---
         const startGame = async (finalBetAmount) => {
             // التحقق من الرصيد والخصم
             const userCheck = db.prepare('SELECT mora FROM levels WHERE user = ? AND guild = ?').get(userId, guildId);
@@ -63,7 +63,7 @@ module.exports = {
             // خصم المبلغ
             db.prepare('UPDATE levels SET mora = mora - ? WHERE user = ? AND guild = ?').run(finalBetAmount, userId, guildId);
 
-            // تفعيل الكولداون (فقط إذا لم يكن المالك)
+            // تفعيل الكولداون (لغير المالك)
             if (userId !== OWNER_ID) {
                 cooldowns.set(userId, Date.now());
             }
@@ -92,10 +92,11 @@ module.exports = {
 
             const gameEmbed = new EmbedBuilder()
                 .setColor('#FFD700')
-                .setAuthor({ name: message.author.username, iconURL: message.author.displayAvatarURL() })
+                // تم إزالة setAuthor لتخفيف الزحمة كما طلبت
+                .setThumbnail(message.author.displayAvatarURL()) // صورة اللاعب هنا
                 .setTitle('🔢 رتب الأرقام من الأصغر للأكبر')
                 .setDescription(`الرهان: **${finalBetAmount} ${MORA_EMOJI}**\nاضغط الأزرار بالترتيب الصحيح قبل انتهاء الوقت!`)
-                .setFooter({ text: 'لديك 20 ثانية' });
+                .setFooter({ text: 'لديك 25 ثانية' }); // تم زيادة الوقت ليكون "متوسط"
 
             const gameMsg = await message.channel.send({ 
                 embeds: [gameEmbed], 
@@ -105,7 +106,7 @@ module.exports = {
             const startTime = Date.now();
             const collector = gameMsg.createMessageComponentCollector({ 
                 componentType: ComponentType.Button, 
-                time: 20000 
+                time: 25000 // 25 ثانية (متوسط)
             });
 
             const updateButtonInRows = (customId, style, disabled = false) => {
@@ -152,8 +153,7 @@ module.exports = {
             });
 
             collector.on('end', async (collected, reason) => {
-                // فك الحجز في نهاية اللعبة
-                clearActive();
+                clearActive(); // فك الحجز
 
                 if (reason === 'win') {
                     const timeTaken = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -169,8 +169,8 @@ module.exports = {
 
                     const winEmbed = new EmbedBuilder()
                         .setColor('#00FF00')
-                        .setAuthor({ name: message.author.username, iconURL: message.author.displayAvatarURL() })
-                        .setTitle('🎉 كفوو عليك!')
+                        .setThumbnail(message.author.displayAvatarURL())
+                        .setTitle(' كــفــوو عليك! <:2BCrikka:1437806481071411391>')
                         .setDescription(`جبتها صح!\n⏱️ الوقت: **${timeTaken}ث**\n💰 الربح: **${baseProfit}** + مكافأة **${extraBonus}**\nالمجموع: **${totalPrize} ${MORA_EMOJI}**`);
 
                     disableAll(ButtonStyle.Success);
@@ -180,8 +180,8 @@ module.exports = {
                     let reasonText = reason === 'wrong' ? 'ضغطت رقم غلط <:catla:1437335118153781360>' : '<:catla:1437335118153781360> انتهى الوقت!';
                     const loseEmbed = new EmbedBuilder()
                         .setColor('#FF0000')
-                        .setAuthor({ name: message.author.username, iconURL: message.author.displayAvatarURL() })
-                        .setTitle('❌ خسرت!')
+                        .setThumbnail(message.author.displayAvatarURL())
+                        .setTitle('خــســرت ')
                         .setDescription(`${reasonText}\nراحت عليك **${finalBetAmount} ${MORA_EMOJI}**\nالترتيب كان: \`${sortedSolution.join(' < ')}\``);
 
                     disableAll(ButtonStyle.Secondary);
@@ -209,7 +209,6 @@ module.exports = {
         // 2. نظام الرهان التلقائي (Auto Bet)
         let userData = db.prepare('SELECT mora FROM levels WHERE user = ? AND guild = ?').get(userId, guildId);
         
-        // التحقق من الرصيد قبل عرض الأزرار
         if (!userData || userData.mora < 1) {
             clearActive();
             return message.reply(" **ليس لديك مورا كافية للعب!** <:catla:1437335118153781360>");
@@ -220,7 +219,8 @@ module.exports = {
 
         const autoBetEmbed = new EmbedBuilder()
             .setColor('#2F3136')
-            .setDescription(`**هل تريد المراهنة تلقائياً بـ ${proposedBet} ${MORA_EMOJI} ؟ <:2BCrikka:1437806481071411391>**`);
+            // تم إضافة سطر جديد هنا كما طلبت
+            .setDescription(`**هل تريد المراهنة تلقائياً بـ ${proposedBet} ${MORA_EMOJI} ؟**\n<:2BCrikka:1437806481071411391>`);
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('arrange_auto_confirm').setLabel('مراهنة').setStyle(ButtonStyle.Success),
@@ -235,19 +235,21 @@ module.exports = {
             const confirmation = await confirmMsg.awaitMessageComponent({ filter, time: 15000 });
 
             if (confirmation.customId === 'arrange_auto_cancel') {
-                clearActive(); // فك الحجز عند الإلغاء
-                await confirmation.update({ content: '❌ تم الإلغاء.', embeds: [], components: [] });
+                clearActive(); 
+                await confirmation.update({ content: '❌ تــم الإلغاء.', embeds: [], components: [] });
                 return;
             }
 
             if (confirmation.customId === 'arrange_auto_confirm') {
-                await confirmation.update({ content: `✅ تم قبول الرهان: **${proposedBet}** ${MORA_EMOJI}`, embeds: [], components: [] });
-                // اللعبة تبدأ والحجز يظل مستمراً حتى تنتهي اللعبة
+                // تم التعديل: حذف الرسالة وبدء اللعبة فوراً بدون "تم قبول الرهان"
+                await confirmation.deferUpdate(); // عشان ما يعلق الزر
+                await confirmMsg.delete().catch(() => {}); // حذف رسالة السؤال
+                
                 startGame(proposedBet);
             }
 
         } catch (e) {
-            clearActive(); // فك الحجز عند انتهاء وقت الانتظار
+            clearActive(); 
             await confirmMsg.edit({ content: '⏰ انتهى وقت الانتظار.', embeds: [], components: [] }).catch(() => {});
         }
     }
