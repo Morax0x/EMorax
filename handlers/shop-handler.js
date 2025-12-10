@@ -253,6 +253,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     else if (callbackType === 'weapon') {
         const newLevel = itemData.currentLevel + 1;
         if (itemData.isBuy) sql.prepare("INSERT INTO user_weapons (userID, guildID, raceName, weaponLevel) VALUES (?, ?, ?, ?)").run(interaction.user.id, interaction.guild.id, itemData.raceName, newLevel);
+        // FIX: استخدام userID و guildID و raceName لتحديث السلاح بدلاً من dbId
         else sql.prepare("UPDATE user_weapons SET weaponLevel = ? WHERE userID = ? AND guildID = ? AND raceName = ?").run(newLevel, interaction.user.id, interaction.guild.id, itemData.raceName);
     } 
     else if (callbackType === 'skill') {
@@ -268,22 +269,21 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         successMsg += `\n📉 **تم تطبيق خصم:** ${discountUsed}%`;
     }
 
+    // رسالة النجاح ستكون رسالة منفصلة/تعديل على الرسالة السابقة، وتنهي التفاعل.
     if (interaction.replied || interaction.deferred) await interaction.editReply({ content: successMsg, components: [] });
     else await interaction.reply({ content: successMsg, components: [], flags: MessageFlags.Ephemeral });
 
     // Log (للمتجر فقط، المزرعة والسوق لا)
     sendShopLog(client, interaction.guild.id, interaction.member, itemData.name || itemData.raceName || "Unknown", finalPrice, `شراء ${discountUsed > 0 ? '(مع كوبون)' : ''}`);
     
-    // تحديث الواجهات بعد الشراء (تمت إزالتها حسب طلب المستخدم لضمان إتمام العملية مرة واحدة وإظهار رسالة النجاح فقط)
-    /*
-    if (callbackType === 'weapon') await _handleWeaponUpgrade(interaction, client, sql); 
-    if (callbackType === 'skill') {
-        const allUserSkills = getAllUserAvailableSkills(interaction.member, sql);
-        const skillIndex = allUserSkills.findIndex(s => s.id === itemData.skillId);
-        const updatedEmbed = buildSkillEmbedWithPagination(allUserSkills, skillIndex, sql, interaction);
-        await interaction.followUp({ ...updatedEmbed, flags: MessageFlags.Ephemeral });
-    }
-    */
+    // إزالة تحديث الواجهات بعد الشراء لضمان إتمام عملية الشراء مرة واحدة وتجنب خصم متكرر (حسب طلبك)
+    // if (callbackType === 'weapon') await _handleWeaponUpgrade(interaction, client, sql); 
+    // if (callbackType === 'skill') {
+    //     const allUserSkills = getAllUserAvailableSkills(interaction.member, sql);
+    //     const skillIndex = allUserSkills.findIndex(s => s.id === itemData.skillId);
+    //     const updatedEmbed = buildSkillEmbedWithPagination(allUserSkills, skillIndex, sql, interaction);
+    //     await interaction.followUp({ ...updatedEmbed, flags: MessageFlags.Ephemeral });
+    // }
 }
 
 // ============================================================================
@@ -392,7 +392,8 @@ async function _handleBoatSelect(i, client, sql) {
 async function _handleBaitSelect(i, client, sql) {
     if(i.replied || i.deferred) await i.editReply("جاري التحميل..."); else await i.deferReply({ flags: MessageFlags.Ephemeral });
     const baitOptions = baitsConfig.map(b => ({ label: b.name, description: `${b.description} | ${b.price} مورا`, value: `buy_bait_${b.id}`, emoji: '🪱' }));
-    const row = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('shop_buy_bait_menu').setPlaceholder('اختر الطعم (5 حبات)...').addOptions(baitOptions));
+    // FIX 1: تغيير النص ليعكس شراء حبة واحدة
+    const row = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('shop_buy_bait_menu').setPlaceholder('اختر الطعم (حبة واحدة)...').addOptions(baitOptions));
     await i.editReply({ content: "**🛒 متجر الطعوم:**", components: [row], embeds: [] });
 }
 
@@ -432,11 +433,14 @@ async function _handleBaitBuy(i, client, sql) {
     await i.deferReply({ flags: MessageFlags.Ephemeral });
     const baitId = i.values[0].replace('buy_bait_', '');
     const bait = baitsConfig.find(b => b.id === baitId);
-    const qty = 5; const cost = bait.price * qty;
+    // FIX 2: تغيير الكمية من 5 إلى 1
+    const qty = 1; 
+    const cost = bait.price * qty;
     let userData = client.getLevel.get(i.user.id, i.guild.id);
     if (userData.mora < cost) return i.editReply(`❌ رصيدك غير كافي.`);
     userData.mora -= cost; client.setLevel.run(userData);
     
+    // FIX 3: التأكد من تخزين حبة واحدة (المنطق نفسه، لكن qty = 1 الآن)
     sql.prepare("INSERT INTO user_portfolio (guildID, userID, itemID, quantity) VALUES (?, ?, ?, ?) ON CONFLICT(guildID, userID, itemID) DO UPDATE SET quantity = quantity + ?").run(i.guild.id, i.user.id, baitId, qty, qty);
     
     await i.editReply(`✅ تم شراء **${qty}x ${bait.name}** بنجاح!`);
