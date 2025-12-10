@@ -269,21 +269,13 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         successMsg += `\n📉 **تم تطبيق خصم:** ${discountUsed}%`;
     }
 
-    // رسالة النجاح ستكون رسالة منفصلة/تعديل على الرسالة السابقة، وتنهي التفاعل.
     if (interaction.replied || interaction.deferred) await interaction.editReply({ content: successMsg, components: [] });
     else await interaction.reply({ content: successMsg, components: [], flags: MessageFlags.Ephemeral });
 
     // Log (للمتجر فقط، المزرعة والسوق لا)
     sendShopLog(client, interaction.guild.id, interaction.member, itemData.name || itemData.raceName || "Unknown", finalPrice, `شراء ${discountUsed > 0 ? '(مع كوبون)' : ''}`);
     
-    // إزالة تحديث الواجهات بعد الشراء لضمان إتمام عملية الشراء مرة واحدة وتجنب خصم متكرر (حسب طلبك)
-    // if (callbackType === 'weapon') await _handleWeaponUpgrade(interaction, client, sql); 
-    // if (callbackType === 'skill') {
-    //     const allUserSkills = getAllUserAvailableSkills(interaction.member, sql);
-    //     const skillIndex = allUserSkills.findIndex(s => s.id === itemData.skillId);
-    //     const updatedEmbed = buildSkillEmbedWithPagination(allUserSkills, skillIndex, sql, interaction);
-    //     await interaction.followUp({ ...updatedEmbed, flags: MessageFlags.Ephemeral });
-    // }
+    // تم إزالة استدعاء تحديث الواجهة لضمان إتمام عملية الشراء لمرة واحدة فقط
 }
 
 // ============================================================================
@@ -391,8 +383,14 @@ async function _handleBoatSelect(i, client, sql) {
 
 async function _handleBaitSelect(i, client, sql) {
     if(i.replied || i.deferred) await i.editReply("جاري التحميل..."); else await i.deferReply({ flags: MessageFlags.Ephemeral });
-    const baitOptions = baitsConfig.map(b => ({ label: b.name, description: `${b.description} | ${b.price} مورا`, value: `buy_bait_${b.id}`, emoji: '🪱' }));
-    // FIX 1: تغيير النص ليعكس شراء حبة واحدة
+    
+    // FIX 1: قسمة السعر المخزن على 5 وعرض سعر الحبة الواحدة
+    const baitOptions = baitsConfig.map(b => {
+        const unitPrice = Math.round(b.price / 5); 
+        return { label: b.name, description: `${b.description} | ${unitPrice.toLocaleString()} مورا`, value: `buy_bait_${b.id}`, emoji: '🪱' };
+    });
+    
+    // FIX 2: تغيير نص الـ placeholder
     const row = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('shop_buy_bait_menu').setPlaceholder('اختر الطعم (حبة واحدة)...').addOptions(baitOptions));
     await i.editReply({ content: "**🛒 متجر الطعوم:**", components: [row], embeds: [] });
 }
@@ -433,14 +431,18 @@ async function _handleBaitBuy(i, client, sql) {
     await i.deferReply({ flags: MessageFlags.Ephemeral });
     const baitId = i.values[0].replace('buy_bait_', '');
     const bait = baitsConfig.find(b => b.id === baitId);
-    // FIX 2: تغيير الكمية من 5 إلى 1
+    
     const qty = 1; 
-    const cost = bait.price * qty;
+    // FIX 3: قسمة السعر المخزن على 5 للحصول على سعر الحبة الواحدة
+    const unitPrice = Math.round(bait.price / 5);
+    const cost = unitPrice * qty;
+    
     let userData = client.getLevel.get(i.user.id, i.guild.id);
     if (userData.mora < cost) return i.editReply(`❌ رصيدك غير كافي.`);
-    userData.mora -= cost; client.setLevel.run(userData);
     
-    // FIX 3: التأكد من تخزين حبة واحدة (المنطق نفسه، لكن qty = 1 الآن)
+    userData.mora -= cost; 
+    client.setLevel.run(userData);
+    
     sql.prepare("INSERT INTO user_portfolio (guildID, userID, itemID, quantity) VALUES (?, ?, ?, ?) ON CONFLICT(guildID, userID, itemID) DO UPDATE SET quantity = quantity + ?").run(i.guild.id, i.user.id, baitId, qty, qty);
     
     await i.editReply(`✅ تم شراء **${qty}x ${bait.name}** بنجاح!`);
@@ -594,7 +596,7 @@ async function _handleShopButton(i, client, sql) {
                 const activeBuff = getActiveBuff.get(userId, guildId, Date.now());
                 if (activeBuff) {
                     const replaceButton = new ButtonBuilder().setCustomId(`replace_buff_${item.id}`).setLabel("إلغاء القديم وشراء الجديد").setStyle(ButtonStyle.Danger);
-                    const cancelButton = new ButtonBuilder().setCustomId('cancel_purchase').setLabel("إلغاء").setStyle(ButtonStyle.Secondary);
+                    const cancelButton = new ButtonBuilder().setCustomId('cancel_purchase').setLabel("إلغة").setStyle(ButtonStyle.Secondary);
                     const row = new ActionRowBuilder().addComponents(replaceButton, cancelButton);
                     return await i.reply({ content: `⚠️ لديك معزز خبرة فعال بالفعل!`, components: [row], embeds: [], flags: MessageFlags.Ephemeral });
                 }
