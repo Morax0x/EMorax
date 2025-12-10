@@ -85,7 +85,7 @@ module.exports = {
         }
 
         if (userBank < amountToWithdraw) {
-            return replyError(`ليس لديك هذا المبلغ في البنك لسحبه! (رصيدك البنكي: ${userBank.toLocaleString()} ${EMOJI_MORA})`);
+            return replyError(` <:stop:1436337453098340442> ليس لديك هذا المبلغ في البنك لسحبه! (رصيدك البنكي: ${userBank.toLocaleString()} ${EMOJI_MORA}) `);
         }
 
         // تنفيذ عملية السحب
@@ -99,7 +99,7 @@ module.exports = {
             .setTitle('✶ تـمت عمليـة السحـب !')
             .setThumbnail(user.displayAvatarURL()) // صورة البروفايل
             .setDescription(
-                `❖ تـم السحب: **${amountToWithdraw.toLocaleString()}** ${EMOJI_MORA}\n` +
+                `❖ تـم سـحـب: **${amountToWithdraw.toLocaleString()}** ${EMOJI_MORA}\n` +
                 `❖ رصـيد البـنك: **${data.bank.toLocaleString()}** ${EMOJI_MORA}\n` +
                 `❖ رصـيـدك الكـاش: **${data.mora.toLocaleString()}** ${EMOJI_MORA}`
             );
