@@ -1,4 +1,13 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
+const path = require('path');
+
+// محاولة استدعاء ملف الهاندلر لحساب البفات
+let streakHandler;
+try {
+    streakHandler = require('../../streak-handler.js');
+} catch (e) {
+    console.warn("⚠️ لم يتم العثور على streak-handler.js في المسار المتوقع.");
+}
 
 // 1. قائمة اللاعبين النشطين (لمنع السبام)
 const activePlayers = new Set();
@@ -13,26 +22,25 @@ function getRandomInt(min, max) {
 
 module.exports = {
     name: 'arrange',
-    aliases: ['رتب', 'ترتيب'], // تم إضافة الاختصارات هنا
+    aliases: ['رتب', 'ترتيب'],
     description: 'لعبة ترتيب الأرقام (رهان)',
     async execute(message, args) {
         
         const userId = message.author.id;
         const guildId = message.guild.id;
 
-        // التحقق من قاعدة البيانات لمنع الكراش
+        // التحقق من قاعدة البيانات
         if (!message.client.sql) return message.reply("❌ خطأ: قاعدة البيانات غير متصلة.");
         const db = message.client.sql; 
         const MORA_EMOJI = message.client.EMOJI_MORA || '<:mora:1435647151349698621>';
 
-        // دالة لفك الحجز
         const clearActive = () => activePlayers.delete(userId);
 
         // ============================================================
         //  1. التحقق من السبام
         // ============================================================
         if (activePlayers.has(userId)) {
-            return message.reply("🚫 **لديك عملية نشطة بالفعل!** أكمل اللعبة أو الرهان الحالي أولاً.");
+            return message.reply("🚫 **لديك لعبة نشطة بالفعل!** أكمل اللعبة الحالية أولاً.");
         }
 
         // ============================================================
@@ -43,7 +51,7 @@ module.exports = {
                 const expirationTime = cooldowns.get(userId) + 3600000;
                 if (Date.now() < expirationTime) {
                     const timeLeft = (expirationTime - Date.now()) / 1000 / 60;
-                    return message.reply(`❌ **ريلاكـس!** يمكنك اللعب مجدداً بعد **${timeLeft.toFixed(0)} دقيقة** <:stop:1436337453098340442>`);
+                    return message.reply(`<:stop:1436337453098340442> **ريــلاكــس!** يمكنك اللعب مجدداً بعد **${timeLeft.toFixed(0)} دقيقة**.`);
                 }
             }
         }
@@ -156,25 +164,36 @@ module.exports = {
                 });
 
                 collector.on('end', async (collected, reason) => {
-                    clearActive(); // فك الحجز
+                    clearActive(); 
 
                     try {
                         if (reason === 'win') {
                             const timeTaken = ((Date.now() - startTime) / 1000).toFixed(2);
                             
-                            let raceBonusPercent = 0.00; 
-                            
-                            const baseProfit = finalBetAmount; 
-                            const extraBonus = Math.floor(baseProfit * raceBonusPercent);
-                            const totalPrize = finalBetAmount + baseProfit + extraBonus; 
+                            // 🌟 حساب البفات 🌟
+                            let moraMultiplier = 1.0;
+                            if (streakHandler && streakHandler.calculateMoraBuff) {
+                                moraMultiplier = streakHandler.calculateMoraBuff(message.member, db);
+                            }
 
+                            const baseProfit = finalBetAmount; 
+                            const totalProfit = Math.floor(baseProfit * moraMultiplier); // هذا الربح الصافي
+                            const totalPrize = finalBetAmount + totalProfit; // هذا المبلغ اللي يرجع للمحفظة
+                            
+                            // نسبة الزيادة
+                            const buffPercent = Math.round((moraMultiplier - 1) * 100);
+                            let buffText = "";
+                            if (buffPercent > 0) buffText = ` (+${buffPercent}%)`;
+
+                            // إضافة الفلوس
                             db.prepare('UPDATE levels SET mora = mora + ? WHERE user = ? AND guild = ?').run(totalPrize, userId, guildId);
 
                             const winEmbed = new EmbedBuilder()
                                 .setColor('#00FF00')
                                 .setThumbnail(message.author.displayAvatarURL())
                                 .setTitle('❖ كفــوو عليك <:2BCrikka:1437806481071411391>')
-                                .setDescription(` ✶ جبتها صح!\n⏱️ الوقت: **${timeTaken}ث**\n💰 الـربــح: **${baseProfit}** + مكافأة **${extraBonus}**\nالمجموع: **${totalPrize} ${MORA_EMOJI}**`);
+                                // 🌟 هنا التعديل المطلوب 🌟
+                                .setDescription(`✶ جبتها صــح!\n⏱️ الوقت: **${timeTaken}ث**\n💰 ربـحـت: **${totalProfit}** ${MORA_EMOJI}${buffText}`);
 
                             disableAll(ButtonStyle.Success);
                             await gameMsg.edit({ embeds: [winEmbed], components: [row1, row2, row3] }).catch(() => {});
@@ -191,18 +210,18 @@ module.exports = {
                             await gameMsg.edit({ embeds: [loseEmbed], components: [row1, row2, row3] }).catch(() => {});
                         }
                     } catch (err) {
-                        console.error(err);
+                        console.error("خطأ أثناء إنهاء اللعبة:", err);
                     }
                 });
             } catch (err) {
                 clearActive();
-                console.error(err);
+                console.error("خطأ أثناء بدء اللعبة:", err);
                 message.reply("حدث خطأ أثناء بدء اللعبة.").catch(() => {});
             }
         };
 
         // ============================================================
-        //  بداية معالجة الأمر (Input Logic)
+        //  معالجة الأمر
         // ============================================================
         let betAmount = parseInt(args[0]);
 
@@ -217,7 +236,7 @@ module.exports = {
             return startGame(betAmount);
         }
 
-        // 2. نظام الرهان التلقائي (Auto Bet)
+        // 2. نظام الرهان التلقائي
         let userData = db.prepare('SELECT mora FROM levels WHERE user = ? AND guild = ?').get(userId, guildId);
         
         if (!userData || userData.mora < 1) {
@@ -251,10 +270,8 @@ module.exports = {
             }
 
             if (confirmation.customId === 'arrange_auto_confirm') {
-                // هنا التعديل المهم: حذف الرسالة وبدء اللعبة فوراً
                 await confirmation.deferUpdate();
                 await confirmMsg.delete().catch(() => {});
-                
                 startGame(proposedBet);
             }
 
