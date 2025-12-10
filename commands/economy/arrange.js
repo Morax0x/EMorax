@@ -1,4 +1,5 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
+const path = require('path');
 
 // محاولة استدعاء ملف الهاندلر لحساب البفات
 let streakHandler;
@@ -20,41 +21,91 @@ function getRandomInt(min, max) {
 }
 
 module.exports = {
+    // ⬇️ بيانات السلاش كوماند (مهم جداً عشان يشتغل بدون بريفكس)
+    data: new SlashCommandBuilder()
+        .setName('arrange')
+        .setDescription('لعبة ترتيب الأرقام (رهان)')
+        .addIntegerOption(option => 
+            option.setName('الرهان')
+                .setDescription('مبلغ الرهان')
+                .setRequired(false)
+                .setMinValue(20)
+        ),
+
     name: 'arrange',
     aliases: ['رتب', 'ترتيب'],
     description: 'لعبة ترتيب الأرقام (رهان)',
-    async execute(message, args) {
+    
+    async execute(interactionOrMessage, args) {
         
-        const userId = message.author.id;
-        const guildId = message.guild.id;
-        const db = message.client.sql;
-        const MORA_EMOJI = message.client.EMOJI_MORA || '<:mora:1435647151349698621>';
+        const isSlash = !!interactionOrMessage.isChatInputCommand;
+        let interaction, message, user, guild, channel, betArg;
 
-        // دالة تنظيف اللاعب من القائمة النشطة
+        // تجهيز المتغيرات حسب نوع الأمر (سلاش أو رسالة)
+        if (isSlash) {
+            interaction = interactionOrMessage;
+            user = interaction.user;
+            guild = interaction.guild;
+            channel = interaction.channel;
+            betArg = interaction.options.getInteger('الرهان');
+            await interaction.deferReply();
+        } else {
+            message = interactionOrMessage;
+            user = message.author;
+            guild = message.guild;
+            channel = message.channel;
+            betArg = args[0] ? parseInt(args[0]) : null;
+        }
+
+        const userId = user.id;
+        const guildId = guild.id;
+        
+        // دالة الرد الموحدة
+        const reply = async (payload) => {
+            if (isSlash) return interaction.editReply(payload);
+            return message.channel.send(payload);
+        };
+
+        const replyError = async (content) => {
+            if (isSlash) return interaction.editReply({ content: content });
+            return message.reply(content);
+        };
+
+        // التحقق من قاعدة البيانات
+        // ملاحظة: في السلاش interaction.client هو المصدر، في الرسالة message.client
+        const client = isSlash ? interaction.client : message.client;
+        if (!client.sql) return replyError("❌ خطأ: قاعدة البيانات غير متصلة.");
+        
+        const db = client.sql; 
+        const MORA_EMOJI = client.EMOJI_MORA || '<:mora:1435647151349698621>';
+
         const clearActive = () => activePlayers.delete(userId);
 
         // ============================================================
-        //  1. التحقق من السبام (أول خطوة)
+        //  1. التحقق من السبام
         // ============================================================
         if (activePlayers.has(userId)) {
-            return message.reply("🚫 **لديك لعبة نشطة بالفعل!** أكمل اللعبة الحالية أولاً.").catch(() => {});
+            return replyError("🚫 **لديك عملية نشطة بالفعل!** أكمل اللعبة أو الرهان الحالي أولاً.");
         }
 
         // ============================================================
-        //  2. التحقق من الكولداون
+        //  2. التحقق من الكولداون (باستثناء المالك)
         // ============================================================
         if (userId !== OWNER_ID) {
             if (cooldowns.has(userId)) {
-                const expirationTime = cooldowns.get(userId) + 3600000; // 1 ساعة
+                const expirationTime = cooldowns.get(userId) + 3600000;
                 if (Date.now() < expirationTime) {
                     const timeLeft = (expirationTime - Date.now()) / 1000 / 60;
-                    return message.reply(`<:stop:1436337453098340442> **ريــلاكــس!** يمكنك اللعب مجدداً بعد **${timeLeft.toFixed(0)} دقيقة**.`);
+                    return replyError(`<:stop:1436337453098340442> **ريــلاكــس!** يمكنك اللعب مجدداً بعد **${timeLeft.toFixed(0)} دقيقة**.`);
                 }
             }
         }
 
-        // حجز اللاعب فوراً
+        // ============================================================
+        //  3. حجز اللاعب
+        // ============================================================
         activePlayers.add(userId);
+
 
         // --- دالة تشغيل اللعبة ---
         const startGame = async (finalBetAmount) => {
@@ -63,7 +114,7 @@ module.exports = {
                 const userCheck = db.prepare('SELECT mora FROM levels WHERE user = ? AND guild = ?').get(userId, guildId);
                 if (!userCheck || userCheck.mora < finalBetAmount) {
                       clearActive(); 
-                      return message.reply(`💸 **رصيدك غير كافــي!** <:mirkk:1435648219488190525>`);
+                      return replyError(`💸 **رصيدك غير كافــي!** <:mirkk:1435648219488190525>`);
                 }
                 
                 // خصم المبلغ
@@ -74,7 +125,6 @@ module.exports = {
                     cooldowns.set(userId, Date.now());
                 }
 
-                // إعداد الأرقام
                 const numbersCount = 9;
                 const randomNumbers = [];
                 while (randomNumbers.length < numbersCount) {
@@ -85,7 +135,6 @@ module.exports = {
                 const sortedSolution = [...randomNumbers].sort((a, b) => a - b);
                 let currentStep = 0; 
 
-                // إنشاء الأزرار
                 const buttons = randomNumbers.map(num => 
                     new ButtonBuilder()
                         .setCustomId(`num_${num}`)
@@ -93,7 +142,6 @@ module.exports = {
                         .setStyle(ButtonStyle.Secondary)
                 );
 
-                // خلط الأزرار للعرض
                 const shuffledButtons = buttons.sort(() => Math.random() - 0.5);
                 const row1 = new ActionRowBuilder().addComponents(shuffledButtons.slice(0, 3));
                 const row2 = new ActionRowBuilder().addComponents(shuffledButtons.slice(3, 6));
@@ -101,15 +149,14 @@ module.exports = {
 
                 const gameEmbed = new EmbedBuilder()
                     .setColor('#FFD700')
-                    .setThumbnail(message.author.displayAvatarURL())
+                    .setThumbnail(user.displayAvatarURL())
                     .setTitle('❖ رتب الأرقام من الأصغر للأكبر')
                     .setDescription(`❖ الرهان: **${finalBetAmount} ${MORA_EMOJI}**\nاضغط الأزرار بالترتيب الصحيح قبل انتهاء الوقت!`)
                     .setFooter({ text: '❖ لــديــك 25 ثـانيــة' });
 
-                const gameMsg = await message.channel.send({ 
-                    embeds: [gameEmbed], 
-                    components: [row1, row2, row3] 
-                });
+                const gameMsg = isSlash 
+                    ? await interaction.editReply({ embeds: [gameEmbed], components: [row1, row2, row3] })
+                    : await message.channel.send({ embeds: [gameEmbed], components: [row1, row2, row3] });
 
                 const startTime = Date.now();
                 const collector = gameMsg.createMessageComponentCollector({ 
@@ -117,7 +164,6 @@ module.exports = {
                     time: 25000 
                 });
 
-                // دالة مساعدة لتحديث الأزرار في الصفوف
                 const updateButtonInRows = (customId, style, disabled = false) => {
                     const rows = [row1, row2, row3];
                     for (const row of rows) {
@@ -130,11 +176,11 @@ module.exports = {
                     }
                 };
 
-                // دالة لتعطيل كل الأزرار عند النهاية
-                const disableAll = () => {
+                const disableAll = (style) => {
                     [row1, row2, row3].forEach(row => {
                         row.components.forEach(btn => {
                             btn.setDisabled(true);
+                            if (btn.data.style === ButtonStyle.Secondary) btn.setStyle(style);
                         });
                     });
                 };
@@ -146,9 +192,8 @@ module.exports = {
                     const correctNum = sortedSolution[currentStep];
 
                     if (clickedNum === correctNum) {
-                        // إجابة صحيحة
                         currentStep++;
-                        updateButtonInRows(i.customId, ButtonStyle.Success, true); // تحويل للأخضر وتعطيل
+                        updateButtonInRows(i.customId, ButtonStyle.Success, true);
 
                         if (currentStep === sortedSolution.length) {
                             collector.stop('win');
@@ -156,8 +201,7 @@ module.exports = {
                             await i.update({ components: [row1, row2, row3] });
                         }
                     } else {
-                        // إجابة خاطئة
-                        updateButtonInRows(i.customId, ButtonStyle.Danger, true); // تحويل للأحمر
+                        updateButtonInRows(i.customId, ButtonStyle.Danger, false);
                         collector.stop('wrong');
                         await i.update({ components: [row1, row2, row3] });
                     }
@@ -170,43 +214,42 @@ module.exports = {
                         if (reason === 'win') {
                             const timeTaken = ((Date.now() - startTime) / 1000).toFixed(2);
                             
-                            // حساب البفات
+                            // حساب البفات (استخدام member من المتغير الصحيح)
                             let moraMultiplier = 1.0;
+                            const memberObj = isSlash ? interaction.member : message.member;
+
                             if (streakHandler && streakHandler.calculateMoraBuff) {
-                                moraMultiplier = streakHandler.calculateMoraBuff(message.member, db);
+                                moraMultiplier = streakHandler.calculateMoraBuff(memberObj, db);
                             }
 
                             const baseProfit = finalBetAmount; 
                             const totalProfit = Math.floor(baseProfit * moraMultiplier); 
-                            const totalPrize = finalBetAmount + totalProfit; // استرجاع الرهان + الربح
+                            const totalPrize = finalBetAmount + totalProfit; 
                             
-                            // نص البف
                             const buffPercent = Math.round((moraMultiplier - 1) * 100);
                             let buffText = "";
                             if (buffPercent > 0) buffText = ` (+${buffPercent}%)`;
 
-                            // إضافة الفلوس
                             db.prepare('UPDATE levels SET mora = mora + ? WHERE user = ? AND guild = ?').run(totalPrize, userId, guildId);
 
                             const winEmbed = new EmbedBuilder()
                                 .setColor('#00FF00')
-                                .setThumbnail(message.author.displayAvatarURL())
+                                .setThumbnail(user.displayAvatarURL())
                                 .setTitle('❖ كفــوو عليك <:2BCrikka:1437806481071411391>')
                                 .setDescription(`✶ جبتها صــح!\n⏱️ الوقت: **${timeTaken}ث**\n💰 ربـحـت: **${totalProfit}** ${MORA_EMOJI}${buffText}`);
 
-                            disableAll(); // تعطيل الأزرار فقط (تبقى خضراء)
+                            disableAll(ButtonStyle.Success);
                             await gameMsg.edit({ embeds: [winEmbed], components: [row1, row2, row3] }).catch(() => {});
 
                         } else {
                             let reasonText = reason === 'wrong' ? 'ضغطت رقم غلط!' : ' انتهى الوقت!';
                             const loseEmbed = new EmbedBuilder()
                                 .setColor('#FF0000')
-                                .setThumbnail(message.author.displayAvatarURL())
+                                .setThumbnail(user.displayAvatarURL())
                                 .setTitle(' خـسـرت <:catla:1437335118153781360>!')
-                                // تم إزالة "الترتيب كان..." من هنا
                                 .setDescription(`${reasonText}\nراحت عليك **${finalBetAmount} ${MORA_EMOJI}**`);
 
-                            disableAll(); // تعطيل الأزرار (الخطأ يبقى أحمر والباقي رمادي)
+                            disableAll(ButtonStyle.Secondary);
                             await gameMsg.edit({ embeds: [loseEmbed], components: [row1, row2, row3] }).catch(() => {});
                         }
                     } catch (err) {
@@ -216,32 +259,32 @@ module.exports = {
             } catch (err) {
                 clearActive();
                 console.error("خطأ أثناء بدء اللعبة:", err);
-                message.reply("حدث خطأ أثناء بدء اللعبة.").catch(() => {});
+                replyError("حدث خطأ أثناء بدء اللعبة.");
             }
         };
 
         // ============================================================
-        //  معالجة الأمر (تلقائي أو يدوي)
+        //  معالجة الأمر
         // ============================================================
-        let betAmount = parseInt(args[0]);
+        let finalBetAmount = betArg;
 
         // 1. إذا حدد رقم مباشرة
-        if (betAmount && !isNaN(betAmount)) {
-            if (betAmount <= 0) {
-                clearActive(); return message.reply("❌ **حدد مبلغ رهان صحيح.**");
+        if (finalBetAmount && !isNaN(finalBetAmount)) {
+            if (finalBetAmount <= 0) {
+                clearActive(); return replyError("❌ **حدد مبلغ رهان صحيح.**");
             }
-            if (betAmount > 100) {
-                clearActive(); return message.reply(`❌ **الحد الأقصى للرهان هو 100 ${MORA_EMOJI}**`);
+            if (finalBetAmount > 100) {
+                clearActive(); return replyError(`❌ **الحد الأقصى للرهان هو 100 ${MORA_EMOJI}**`);
             }
-            return startGame(betAmount);
+            return startGame(finalBetAmount);
         }
 
-        // 2. نظام الرهان التلقائي (إذا لم يحدد رقم)
+        // 2. نظام الرهان التلقائي
         let userData = db.prepare('SELECT mora FROM levels WHERE user = ? AND guild = ?').get(userId, guildId);
         
         if (!userData || userData.mora < 1) {
             clearActive();
-            return message.reply("💸 **ليس لديك مورا كافية للعب!** <:catla:1437335118153781360>");
+            return replyError("💸 **ليس لديك مورا كافية للعب!** <:catla:1437335118153781360>");
         }
 
         let proposedBet = 100;
@@ -256,7 +299,7 @@ module.exports = {
             new ButtonBuilder().setCustomId('arrange_auto_cancel').setLabel('إلغـاء').setStyle(ButtonStyle.Danger)
         );
 
-        const confirmMsg = await message.reply({ embeds: [autoBetEmbed], components: [row] });
+        const confirmMsg = await reply({ embeds: [autoBetEmbed], components: [row], fetchReply: true });
         
         const filter = i => i.user.id === userId && (i.customId === 'arrange_auto_confirm' || i.customId === 'arrange_auto_cancel');
         
@@ -271,13 +314,16 @@ module.exports = {
 
             if (confirmation.customId === 'arrange_auto_confirm') {
                 await confirmation.deferUpdate();
-                await confirmMsg.delete().catch(() => {});
+                if (!isSlash) await confirmMsg.delete().catch(() => {});
+                else await confirmation.editReply({ content: '✅', embeds: [], components: [] });
+                
                 startGame(proposedBet);
             }
 
         } catch (e) {
             clearActive(); 
-            await confirmMsg.edit({ content: '⏰ انتهى وقت الانتظار.', embeds: [], components: [] }).catch(() => {});
+            if (!isSlash) await confirmMsg.edit({ content: '⏰ انتهى وقت الانتظار.', embeds: [], components: [] }).catch(() => {});
+            else await interaction.editReply({ content: '⏰ انتهى وقت الانتظار.', embeds: [], components: [] });
         }
     }
 };
