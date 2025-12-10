@@ -4,12 +4,12 @@ const COOLDOWN_MS = 5 * 60 * 1000; // 5 دقائق
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('ايداع')
-        .setDescription('إيداع المورا من رصيدك إلى البنك لكسب الفائدة.')
+        .setName('deposit')
+        .setDescription('إيداع المورا من رصيدك إلى البنك.')
         .addStringOption(option =>
-            option.setName('المبلغ')
+            option.setName('amount')
                 .setDescription('المبلغ الذي تريد إيداعه (اكتب "الكل" لإيداع كل شيء)')
-                .setRequired(true)), // (جعلناه إجبارياً في السلاش)
+                .setRequired(true)),
 
     name: 'deposit',
     aliases: ['ايداع', 'dep'],
@@ -28,7 +28,7 @@ module.exports = {
                 client = interaction.client;
                 guild = interaction.guild;
                 user = interaction.user;
-                amountArg = interaction.options.getString('المبلغ');
+                amountArg = interaction.options.getString('amount');
                 await interaction.deferReply();
             } else {
                 message = interactionOrMessage;
@@ -75,7 +75,7 @@ module.exports = {
             if (!amountArg || amountArg.toLowerCase() === 'all' || amountArg.toLowerCase() === 'الكل') {
                 amountToDeposit = userMora;
             } else {
-                amountToDeposit = parseInt(amountArg.replace(/,/g, '')); // (إزالة الفواصل إن وجدت)
+                amountToDeposit = parseInt(amountArg.replace(/,/g, '')); 
             }
 
             if (isNaN(amountToDeposit)) {
@@ -93,21 +93,27 @@ module.exports = {
                 return isSlash ? interaction.editReply({ content: replyContent, ephemeral: true }) : message.reply(replyContent);
             }
 
+            // تنفيذ العملية
             data.mora -= amountToDeposit;
             data.bank = (data.bank || 0) + amountToDeposit;
             data.lastDeposit = now; 
 
             setScore.run(data);
 
+            // حساب الفائدة المتوقعة (0.05% = 0.0005)
+            const interestAmount = Math.floor(data.bank * 0.0005);
+
             const embed = new EmbedBuilder()
-                .setColor(Colors.Green)
-                .setTitle('🏦 تمت عملية الإيداع')
-                .setDescription(`تم إيداع **${amountToDeposit.toLocaleString()}** ${EMOJI_MORA} بنجاح!`)
-                .addFields(
-                    { name: 'الرصيد (الكاش)', value: `${data.mora.toLocaleString()} ${EMOJI_MORA}`, inline: true },
-                    { name: 'رصيد البنك', value: `${data.bank.toLocaleString()} ${EMOJI_MORA}`, inline: true }
-                )
-                .setAuthor({ name: user.username, iconURL: user.displayAvatarURL() });
+                .setColor("Random") // لون عشوائي كما طلبت
+                .setTitle('✶ تـم الايداع !')
+                .setThumbnail(user.displayAvatarURL()) // صورة البروفايل المصغرة
+                .setDescription(
+                    `❖ تـم ايـداع: **${amountToDeposit.toLocaleString()}** ${EMOJI_MORA}\n` +
+                    `❖ رصـيد البـنك: **${data.bank.toLocaleString()}** ${EMOJI_MORA}\n` +
+                    `❖ رصـيـدك الكـاش: **${data.mora.toLocaleString()}** ${EMOJI_MORA}\n\n` +
+                    `◇ ستـحـصـل عـلى فـائـدة يوميـة بمقدار 0.05% : **${interestAmount.toLocaleString()}** ${EMOJI_MORA}\n` +
+                    `◇ وسنحمـي اموالك بنسبة اكبر من السرقـة`
+                );
 
             await reply({ embeds: [embed] });
 
