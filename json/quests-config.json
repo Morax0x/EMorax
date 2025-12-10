@@ -6,7 +6,7 @@
       "description": "احصل على منشن واحد من أي عضو",
       "stat": "mentions_received",
       "goal": 1,
-      "reward": { "mora": 50, "xp": 10 },
+      "reward": { "mora": 10, "xp": 10 },
       "emoji": "📢"
     },
     {
@@ -15,7 +15,7 @@
       "description": "قم بالرد على رسالة واحدة لعضو آخر",
       "stat": "replies_sent",
       "goal": 1,
-      "reward": { "mora": 70, "xp": 10 },
+      "reward": { "mora": 10, "xp": 10 },
       "emoji": "↩️"
     },
     {
@@ -24,7 +24,7 @@
       "description": "أرسل صورة واحدة أو فيديو",
       "stat": "images",
       "goal": 1,
-      "reward": { "mora": 100, "xp": 15 },
+      "reward": { "mora": 20, "xp": 15 },
       "emoji": "🖼️"
     },
     {
@@ -33,7 +33,7 @@
       "description": "أضف 3 ريأكشنات على الرسائل",
       "stat": "reactions_added",
       "goal": 3,
-      "reward": { "mora": 100, "xp": 10 },
+      "reward": { "mora": 10, "xp": 10 },
       "emoji": "💙"
     },
     {
@@ -42,7 +42,7 @@
       "description": "شارك في قناة العد مرة واحدة",
       "stat": "counting_channel",
       "goal": 1,
-      "reward": { "mora": 150, "xp": 20 },
+      "reward": { "mora": 20, "xp": 20 },
       "emoji": "🔢"
     },
     {
@@ -51,7 +51,7 @@
       "description": "أرسل 5 رسائل في القنوات النصية",
       "stat": "messages",
       "goal": 5,
-      "reward": { "mora": 200, "xp": 10 },
+      "reward": { "mora": 30, "xp": 10 },
       "emoji": "✉️"
     },
     {
@@ -60,7 +60,7 @@
       "description": "قم بسقاية الشجرة مرة واحدة",
       "stat": "water_tree",
       "goal": 1,
-      "reward": { "mora": 300, "xp": 25 },
+      "reward": { "mora": 100, "xp": 25 },
       "emoji": "🌳"
     },
     {
@@ -69,7 +69,7 @@
       "description": "قل 'مياو' في الشات",
       "stat": "meow_count",
       "goal": 1,
-      "reward": { "mora": 50, "xp": 30 },
+      "reward": { "mora": 30, "xp": 30 },
       "emoji": "🐱"
     },
     {
@@ -105,7 +105,7 @@
       "description": "ارسل 20 إيموجي في الشات",
       "stat": "emojis_sent",
       "goal": 20,
-      "reward": { "mora": 300, "xp": 150 },
+      "reward": { "mora": 50, "xp": 50 },
       "emoji": "😀"
     },
     {
@@ -114,7 +114,7 @@
       "description": "ارسل 3 ملصق (Sticker)",
       "stat": "stickers",
       "goal": 3,
-      "reward": { "mora": 300, "xp": 150 },
+      "reward": { "mora": 30, "xp": 30 },
       "emoji": "🎟️"
     }
   ],
@@ -125,7 +125,7 @@
       "description": "شارك في قناة العد 30 مرة",
       "stat": "counting_channel",
       "goal": 30,
-      "reward": { "mora": 650, "xp": 250 },
+      "reward": { "mora": 70, "xp": 70 },
       "emoji": "🔢"
     },
     {
@@ -134,7 +134,7 @@
       "description": "احصل على 70 منشن أو رد من الأعضاء",
       "stat": "mentions_received",
       "goal": 70,
-      "reward": { "mora": 700, "xp": 250 },
+      "reward": { "mora": 100, "xp": 100 },
       "emoji": "📢"
     },
     {
@@ -143,7 +143,7 @@
       "description": "أرسل 250 رسالة خلال الأسبوع",
       "stat": "messages",
       "goal": 250,
-      "reward": { "mora": 700, "xp": 250 },
+      "reward": { "mora": 30, "xp": 250 },
       "emoji": "📨"
     },
     {
@@ -161,7 +161,7 @@
       "description": "أضف 30 ريأكشن على الرسائل",
       "stat": "reactions_added",
       "goal": 30,
-      "reward": { "mora": 900, "xp": 250 },
+      "reward": { "mora": 30, "xp": 30 },
       "emoji": "💫"
     },
     {
@@ -170,7 +170,7 @@
       "description": "اقضِ 30 دقيقة إجمالاً في القنوات الصوتية",
       "stat": "vc_minutes",
       "goal": 30,
-      "reward": { "mora": 1000, "xp": 700 },
+      "reward": { "mora": 999, "xp": 700 },
       "emoji": "🎤"
     },
     {
@@ -179,7 +179,7 @@
       "description": "أرسل 20 صورة أو فيديو خلال الأسبوع",
       "stat": "images",
       "goal": 20,
-      "reward": { "mora": 1000, "xp": 200 },
+      "reward": { "mora": 200, "xp": 200 },
       "emoji": "🖼️"
     },
     {
@@ -197,7 +197,7 @@
       "description": "قم بسقاية الشجرة 10 مرات خلال الأسبوع",
       "stat": "water_tree",
       "goal": 10,
-      "reward": { "mora": 700, "xp": 300 },
+      "reward": { "mora": 200, "xp": 300 },
       "emoji": "🌳"
     },
     {
@@ -206,7 +206,7 @@
       "description": "استخدم 100 ايموجي في رسائلك",
       "stat": "emojis_sent",
       "goal": 100,
-      "reward": { "mora": 1500, "xp": 500 },
+      "reward": { "mora": 500, "xp": 500 },
       "emoji": "😀"
     },
     {
@@ -215,7 +215,7 @@
       "description": "ارسل 50 ملصق",
       "stat": "stickers",
       "goal": 50,
-      "reward": { "mora": 1000, "xp": 400 },
+      "reward": { "mora": 500, "xp": 500 },
       "emoji": "🎟️"
     }
   ],
