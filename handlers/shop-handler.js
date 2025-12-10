@@ -176,7 +176,10 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
     }
 
     const filter = i => i.user.id === userID;
-    const collector = msg.createMessageComponentCollector({ filter, componentType: ComponentType.Button, time: 60000 });
+    // NOTE: ComponentType.Button is not defined here. Assuming it is imported globally or available in the environment.
+    // Since the context does not show the discord.js imports for ComponentType, I will assume it's available or should be.
+    // However, I will use 2 as a fallback for ComponentType.Button if the environment doesn't define ComponentType.
+    const collector = msg.createMessageComponentCollector({ filter, componentType: 2, time: 60000 }); // Using 2 for Button type
 
     collector.on('collect', async i => {
         if (i.customId === 'skip_coupon') {
@@ -252,8 +255,12 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     } 
     else if (callbackType === 'weapon') {
         const newLevel = itemData.currentLevel + 1;
-        if (itemData.isBuy) sql.prepare("INSERT INTO user_weapons (userID, guildID, raceName, weaponLevel) VALUES (?, ?, ?, ?)").run(interaction.user.id, interaction.guild.id, itemData.raceName, newLevel);
-        else sql.prepare("UPDATE user_weapons SET weaponLevel = ? WHERE id = ?").run(newLevel, itemData.dbId);
+        if (itemData.isBuy) {
+            sql.prepare("INSERT INTO user_weapons (userID, guildID, raceName, weaponLevel) VALUES (?, ?, ?, ?)").run(interaction.user.id, interaction.guild.id, itemData.raceName, newLevel);
+        } else {
+            // FIX: استخدام userID و guildID و raceName لتحديث السلاح بدلاً من dbId لضمان دقة التحديث
+            sql.prepare("UPDATE user_weapons SET weaponLevel = ? WHERE userID = ? AND guildID = ? AND raceName = ?").run(newLevel, interaction.user.id, interaction.guild.id, itemData.raceName);
+        }
     } 
     else if (callbackType === 'skill') {
         const newLevel = itemData.currentLevel + 1;
@@ -507,18 +514,35 @@ async function _handleWeaponUpgrade(i, client, sql) {
             return; 
         }
 
-        const newDamage = weaponConfig.base_damage + (weaponConfig.damage_increment * (currentLevel - (currentLevel > 0 ? 1 : 0)));
-        const embed = new EmbedBuilder().setTitle(`${weaponConfig.emoji} سلاح العرق: ${weaponConfig.name}`).setColor(Colors.Blue).setImage(BANNER_URL).setThumbnail(THUMBNAILS.get('upgrade_weapon')).addFields({ name: "العرق", value: exactRaceName, inline: true }, { name: "المستوى", value: `Lv. ${currentLevel}`, inline: true }, { name: "الضرر", value: `${newDamage} DMG`, inline: true });
+        // حساب الضرر بناءً على المستوى
+        // الضرر الابتدائي (Base Damage) يُطبق عند المستوى 1 (currentLevel > 0).
+        // إذا كان المستوى 0، فـ currentLevel-1 = -1، مما سيقلل من base_damage.
+        // يجب أن يكون حساب الضرر الحالي:
+        // إذا كان المستوى = 0، الضرر = 0
+        // إذا كان المستوى = 1، الضرر = base_damage
+        // إذا كان المستوى > 1، الضرر = base_damage + (damage_increment * (currentLevel - 1))
+        const calculatedDamage = (currentLevel === 0) 
+            ? 0 
+            : weaponConfig.base_damage + (weaponConfig.damage_increment * (currentLevel - 1));
+
+        const embed = new EmbedBuilder().setTitle(`${weaponConfig.emoji} سلاح العرق: ${weaponConfig.name}`).setColor(Colors.Blue).setImage(BANNER_URL).setThumbnail(THUMBNAILS.get('upgrade_weapon')).addFields({ name: "العرق", value: exactRaceName, inline: true }, { name: "المستوى", value: `Lv. ${currentLevel}`, inline: true }, { name: "الضرر", value: `${calculatedDamage} DMG`, inline: true });
         
         const row = new ActionRowBuilder();
         if (currentLevel >= weaponConfig.max_level) { 
             embed.addFields({ name: "التطوير", value: "وصلت للحد الأقصى!", inline: true }); 
             row.addComponents(new ButtonBuilder().setCustomId('max_level').setLabel('الحد الأقصى').setStyle(ButtonStyle.Success).setDisabled(true)); 
         } else { 
-            const nextLevelPrice = weaponConfig.base_price + (weaponConfig.price_increment * currentLevel); 
-            const nextDamage = newDamage + weaponConfig.damage_increment; 
+            const nextLevelPrice = (currentLevel === 0) 
+                ? weaponConfig.base_price
+                : weaponConfig.base_price + (weaponConfig.price_increment * currentLevel); 
+            
+            const nextDamage = (currentLevel === 0) 
+                ? weaponConfig.base_damage // الضرر عند شراء المستوى 1
+                : calculatedDamage + weaponConfig.damage_increment; 
+                
             const buttonId = currentLevel === 0 ? `buy_weapon_${exactRaceName}` : `upgrade_weapon_${exactRaceName}`; 
             const buttonLabel = currentLevel === 0 ? `شراء (Lv.1)` : `تطوير (Lv.${currentLevel + 1})`; 
+            
             embed.addFields({ name: "المستوى القادم", value: `Lv. ${currentLevel + 1}`, inline: true }, { name: "التأثير القادم", value: `${nextDamage} DMG`, inline: true }, { name: "تكلفة التطوير", value: `${nextLevelPrice.toLocaleString()} ${EMOJI_MORA}`, inline: true }); 
             row.addComponents(new ButtonBuilder().setCustomId(buttonId).setLabel(buttonLabel).setStyle(ButtonStyle.Success).setEmoji('⬆️')); 
         }
