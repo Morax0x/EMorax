@@ -63,7 +63,7 @@ module.exports = {
                 const userCheck = db.prepare('SELECT mora FROM levels WHERE user = ? AND guild = ?').get(userId, guildId);
                 if (!userCheck || userCheck.mora < finalBetAmount) {
                       clearActive(); 
-                      return message.reply(`❖ **رصيدك غير كافــي!** <:mirkk:1435648219488190525>`);
+                      return message.reply(`💸 **رصيدك غير كافــي!** <:mirkk:1435648219488190525>`);
                 }
                 
                 // خصم المبلغ
@@ -131,12 +131,10 @@ module.exports = {
                 };
 
                 // دالة لتعطيل كل الأزرار عند النهاية
-                const disableAll = (style) => {
+                const disableAll = () => {
                     [row1, row2, row3].forEach(row => {
                         row.components.forEach(btn => {
                             btn.setDisabled(true);
-                            // تغيير لون الأزرار المتبقية (التي لم تضغط)
-                            if (btn.data.style === ButtonStyle.Secondary) btn.setStyle(style);
                         });
                     });
                 };
@@ -196,7 +194,7 @@ module.exports = {
                                 .setTitle('❖ كفــوو عليك <:2BCrikka:1437806481071411391>')
                                 .setDescription(`✶ جبتها صــح!\n⏱️ الوقت: **${timeTaken}ث**\n💰 ربـحـت: **${totalProfit}** ${MORA_EMOJI}${buffText}`);
 
-                            disableAll(ButtonStyle.Success);
+                            disableAll(); // تعطيل الأزرار فقط (تبقى خضراء)
                             await gameMsg.edit({ embeds: [winEmbed], components: [row1, row2, row3] }).catch(() => {});
 
                         } else {
@@ -205,9 +203,10 @@ module.exports = {
                                 .setColor('#FF0000')
                                 .setThumbnail(message.author.displayAvatarURL())
                                 .setTitle(' خـسـرت <:catla:1437335118153781360>!')
-                                .setDescription(`${reasonText}\nراحت عليك **${finalBetAmount} ${MORA_EMOJI}**\nالترتيب كان: \`${sortedSolution.join(' < ')}\``);
+                                // تم إزالة "الترتيب كان..." من هنا
+                                .setDescription(`${reasonText}\nراحت عليك **${finalBetAmount} ${MORA_EMOJI}**`);
 
-                            disableAll(ButtonStyle.Secondary);
+                            disableAll(); // تعطيل الأزرار (الخطأ يبقى أحمر والباقي رمادي)
                             await gameMsg.edit({ embeds: [loseEmbed], components: [row1, row2, row3] }).catch(() => {});
                         }
                     } catch (err) {
@@ -266,7 +265,7 @@ module.exports = {
 
             if (confirmation.customId === 'arrange_auto_cancel') {
                 clearActive(); 
-                await confirmation.update({ content: '❌ تم الإلغــاء.', embeds: [], components: [] });
+                await confirmation.update({ content: '❌ تم الإلغاء.', embeds: [], components: [] });
                 return;
             }
 
