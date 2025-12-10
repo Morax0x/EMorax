@@ -1,6 +1,4 @@
 const { EmbedBuilder, Colors, SlashCommandBuilder } = require("discord.js");
-// const SQLite = require("better-sqlite3"); // ( 1 ) إزالة
-// const sql = new SQLite('./mainDB.sqlite'); // ( 2 ) إزالة
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 
@@ -11,13 +9,13 @@ module.exports = {
         .addStringOption(option =>
             option.setName('المبلغ')
             .setDescription('المبلغ الذي تريد سحبه أو "all" / "الكل"')
-            .setRequired(false)), // اختياري، إذا ترك فارغاً سيسحب الكل
+            .setRequired(true)), // جعلناه إجبارياً لتوحيد النسق
 
     name: 'withdraw',
     aliases: ['سحب', 'with'],
     category: "Economy",
     cooldown: 0, 
-    description: 'سحب المورا من البنك إلى رصيدك (الكاش).',
+    description: 'سحب المورا من البنك إلى رصيدك الكاش',
 
     async execute(interactionOrMessage, args) {
 
@@ -58,7 +56,6 @@ module.exports = {
         };
 
         const guildId = guild.id;
-
         const getScore = client.getLevel;
         const setScore = client.setLevel;
 
@@ -67,22 +64,21 @@ module.exports = {
              data = { ...client.defaultData, user: user.id, guild: guildId };
         }
 
+        // التأكد من وجود القيم لتجنب الأخطاء
         if (typeof data.mora === 'undefined') data.mora = 0;
         if (typeof data.bank === 'undefined') data.bank = 0;
 
         let amountToWithdraw;
         const userBank = data.bank || 0;
 
-
         if (!amountArg || amountArg.toLowerCase() === 'all' || amountArg.toLowerCase() === 'الكل') {
             amountToWithdraw = userBank;
         } else {
             amountToWithdraw = parseInt(amountArg.replace(/,/g, ''));
             if (isNaN(amountToWithdraw)) {
-                 return replyError(`الاستخدام: \`/سحب <المبلغ | all>\` (المبلغ الذي أدخلته ليس رقماً).`);
+                 return replyError(`الاستخدام: \`/سحب <المبلغ | الكل>\` (المبلغ الذي أدخلته ليس رقماً).`);
             }
         }
-
 
         if (amountToWithdraw <= 0) {
             return replyError(`ليس لديك أي مورا في البنك لسحبها!`);
@@ -92,20 +88,21 @@ module.exports = {
             return replyError(`ليس لديك هذا المبلغ في البنك لسحبه! (رصيدك البنكي: ${userBank.toLocaleString()} ${EMOJI_MORA})`);
         }
 
+        // تنفيذ عملية السحب
         data.bank -= amountToWithdraw;
         data.mora += amountToWithdraw;
 
         setScore.run(data);
 
         const embed = new EmbedBuilder()
-            .setColor(Colors.Orange)
-            .setTitle('💸 تمت عملية السحب')
-            .setDescription(`تم سحب **${amountToWithdraw.toLocaleString()}** ${EMOJI_MORA} بنجاح!`)
-            .addFields(
-                { name: 'الرصيد (الكاش)', value: `${data.mora.toLocaleString()} ${EMOJI_MORA}`, inline: true },
-                { name: 'رصيد البنك', value: `${data.bank.toLocaleString()} ${EMOJI_MORA}`, inline: true }
-            )
-            .setAuthor({ name: user.username, iconURL: user.displayAvatarURL() });
+            .setColor("Random") // لون عشوائي
+            .setTitle('✶ تـمت عمليـة السحـب !')
+            .setThumbnail(user.displayAvatarURL()) // صورة البروفايل
+            .setDescription(
+                `❖ تـم السحب: **${amountToWithdraw.toLocaleString()}** ${EMOJI_MORA}\n` +
+                `❖ رصـيد البـنك: **${data.bank.toLocaleString()}** ${EMOJI_MORA}\n` +
+                `❖ رصـيـدك الكـاش: **${data.mora.toLocaleString()}** ${EMOJI_MORA}`
+            );
 
         await reply({ embeds: [embed] });
     }
