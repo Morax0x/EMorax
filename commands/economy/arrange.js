@@ -13,7 +13,7 @@ function getRandomInt(min, max) {
 
 module.exports = {
     name: 'arrange',
-    // تم حذف aliases كما طلبت
+    aliases: ['رتب', 'ترتيب'], // تم إضافة الاختصارات هنا
     description: 'لعبة ترتيب الأرقام (رهان)',
     async execute(message, args) {
         
@@ -43,7 +43,7 @@ module.exports = {
                 const expirationTime = cooldowns.get(userId) + 3600000;
                 if (Date.now() < expirationTime) {
                     const timeLeft = (expirationTime - Date.now()) / 1000 / 60;
-                    return message.reply(`❌ **انتظر قليلاً!** يمكنك اللعب مجدداً بعد **${timeLeft.toFixed(0)} دقيقة**.`);
+                    return message.reply(`❌ **ريلاكـس!** يمكنك اللعب مجدداً بعد **${timeLeft.toFixed(0)} دقيقة** <:stop:1436337453098340442>`);
                 }
             }
         }
