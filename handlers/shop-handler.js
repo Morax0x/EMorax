@@ -8,7 +8,13 @@ const path = require('path');
 
 // استيراد ملف الصيد الشامل
 const rootDir = process.cwd();
-const { rods: rodsConfig, boats: boatsConfig, baits: baitsConfig } = require(path.join(rootDir, 'json', 'fishing-config.json'));
+let rodsConfig = [], boatsConfig = [], baitsConfig = [];
+try {
+    const fishingConfig = require(path.join(rootDir, 'json', 'fishing-config.json'));
+    rodsConfig = fishingConfig.rods || [];
+    boatsConfig = fishingConfig.boats || [];
+    baitsConfig = fishingConfig.baits || [];
+} catch (e) { console.error("Error loading fishing config:", e); }
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const OWNER_ID = "1145327691772481577"; 
@@ -202,9 +208,21 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
     let userData = client.getLevel.get(interaction.user.id, interaction.guild.id);
     if (!userData) userData = { ...client.defaultData, user: interaction.user.id, guild: interaction.guild.id };
 
+    // 🛠️ FIX: دالة مساعدة ذكية للرد (تحدد هل تستخدم reply أو followUp تلقائياً)
+    const safeReply = async (payload) => {
+        // تأكد أن الرسالة مخفية
+        payload.ephemeral = true; 
+        
+        if (interaction.deferred || interaction.replied) {
+            return await interaction.followUp(payload);
+        } else {
+            return await interaction.reply(payload);
+        }
+    };
+
     // التحقق من الرصيد والبنك
     if (userData.mora < finalPrice) {
-        const userBank = userData.bank || 0; // افتراض وجود عمود bank أو خاصية bank
+        const userBank = userData.bank || 0; 
         let errorMsg = `❌ **عذراً، لا تملك مورا كافية!**\nالمطلوب بالكاش: **${finalPrice.toLocaleString()}** ${EMOJI_MORA}`;
         
         if (userBank >= finalPrice) {
@@ -213,7 +231,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             errorMsg += `\n\n💡 **تلميح:** رصيدك في البنك **${userBank.toLocaleString()}**، وهو لا يكفي أيضاً.`;
         }
 
-        return await interaction.followUp({ content: errorMsg, ephemeral: true });
+        return await safeReply({ content: errorMsg });
     }
 
     // 1. خصم المال
@@ -287,8 +305,7 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         successMsg += `\n📉 **تم تطبيق خصم:** ${discountUsed}%`;
     }
 
-    // هنا نستخدم followUp لإرسال رسالة جديدة منفصلة بدلاً من تعديل القديمة
-    await interaction.followUp({ content: successMsg, ephemeral: true });
+    await safeReply({ content: successMsg });
 
     // Log (للمتجر فقط، المزرعة والسوق لا)
     sendShopLog(client, interaction.guild.id, interaction.member, itemData.name || itemData.raceName || "Unknown", finalPrice, `شراء ${discountUsed > 0 ? '(مع كوبون)' : ''}`);
@@ -630,11 +647,15 @@ async function _handleShopButton(i, client, sql) {
         const NON_DISCOUNTABLE = [...RESTRICTED_ITEMS, 'xp_buff_1d_3', 'xp_buff_1d_7', 'xp_buff_2d_10'];
         
         if (NON_DISCOUNTABLE.includes(item.id) || item.id.startsWith('xp_buff_')) {
+             
+             // 🛠️ FIX: تأخير التفاعل هنا لأنه سيتم استدعاء processFinalPurchase التي تستخدم followUp
+             await i.deferReply({ flags: MessageFlags.Ephemeral });
+
              if (userData.mora < item.price) {
                  const userBank = userData.bank || 0;
                  let msg = `❌ رصيدك غير كافي!`;
                  if (userBank >= item.price) msg += `\n💡 لديك في البنك **${userBank.toLocaleString()}** مورا، اسحب منها.`;
-                 return await i.reply({ content: msg, flags: MessageFlags.Ephemeral });
+                 return await i.editReply({ content: msg });
              }
 
              if (item.id.startsWith('xp_buff_')) {
@@ -644,18 +665,18 @@ async function _handleShopButton(i, client, sql) {
                     const replaceButton = new ButtonBuilder().setCustomId(`replace_buff_${item.id}`).setLabel("إلغاء القديم وشراء الجديد").setStyle(ButtonStyle.Danger);
                     const cancelButton = new ButtonBuilder().setCustomId('cancel_purchase').setLabel("إلغة").setStyle(ButtonStyle.Secondary);
                     const row = new ActionRowBuilder().addComponents(replaceButton, cancelButton);
-                    return await i.reply({ content: `⚠️ لديك معزز خبرة فعال بالفعل!`, components: [row], embeds: [], flags: MessageFlags.Ephemeral });
+                    return await i.editReply({ content: `⚠️ لديك معزز خبرة فعال بالفعل!`, components: [row], embeds: [] });
                 }
              }
              
              if (RESTRICTED_ITEMS.includes(item.id)) {
-                 if (userData.mora < item.price) return await i.reply({ content: `❌ رصيدك غير كافي!`, flags: MessageFlags.Ephemeral });
+                 if (userData.mora < item.price) return await i.editReply({ content: `❌ رصيدك غير كافي!` });
                  userData.mora -= item.price;
                  const owner = await client.users.fetch(OWNER_ID);
                  if (owner) { owner.send(`🔔 تنبيه شراء!\n\nالعضو: ${i.user.tag} (${i.user.id})\nاشترى: **${item.name}**\nالمبلغ: ${item.price.toLocaleString()} ${EMOJI_MORA}`).catch(console.error); }
                  userData.shop_purchases = (userData.shop_purchases || 0) + 1;
                  client.setLevel.run(userData);
-                 await i.reply({ content: `✅ تمت عملية الشراء! فضلاً، قم بفتح "مجلس خاص" (تكت) لاستلام طلبك.`, flags: MessageFlags.Ephemeral });
+                 await i.editReply({ content: `✅ تمت عملية الشراء! فضلاً، قم بفتح "مجلس خاص" (تكت) لاستلام طلبك.` });
                  sendShopLog(client, guildId, i.member, item.name, item.price, "شراء");
                  return;
              }
@@ -784,7 +805,7 @@ async function _handleBuySellModal(i, client, sql, types) {
                  const totalCost = Math.floor(animal.price * quantity);
                  if (userMora < totalCost) {
                      let msg = `❌ رصيدك غير كافي! تحتاج: **${totalCost.toLocaleString()}** ${EMOJI_MORA}`;
-                     if (userBank >= totalCost) msg += `\n💡 لديك في البنك **${userBank.toLocaleString()}**، اسحب منه.`;
+                     if (userBank >= totalCost) msg += `\n💡 لديك في البنك **${userBank.toLocaleString()}**، اسحب منها.`;
                      return await i.editReply({ content: msg });
                  }
                  userData.mora -= totalCost;
@@ -820,7 +841,7 @@ async function _handleBuySellModal(i, client, sql, types) {
              const totalCost = Math.floor(item.currentPrice * quantity);
              if (userMora < totalCost) {
                  let msg = `❌ رصيدك غير كافي!`;
-                 if (userBank >= totalCost) msg += `\n💡 لديك في البنك **${userBank.toLocaleString()}**، اسحب منه.`;
+                 if (userBank >= totalCost) msg += `\n💡 لديك في البنك **${userBank.toLocaleString()}**، اسحب منها.`;
                  return await i.editReply({ content: msg });
              }
              userData.mora -= totalCost;
