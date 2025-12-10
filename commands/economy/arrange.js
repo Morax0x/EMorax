@@ -24,7 +24,7 @@ module.exports = {
     // ⬇️ بيانات السلاش كوماند
     data: new SlashCommandBuilder()
         .setName('arrange')
-        .setDescription('لعبة ترتيب الأرقام (رهان)')
+        .setDescription('لعبة ترتيب الأرقام')
         .addIntegerOption(option => 
             option.setName('amount')
                 .setDescription('مبلغ الرهان')
@@ -34,15 +34,14 @@ module.exports = {
 
     name: 'arrange',
     aliases: ['رتب', 'ترتيب'],
-    category: "Economy", // ✅ تمت الإضافة: ضروري جداً ليعمل في الكازينو بدون بريفكس
-    description: 'لعبة ترتيب الأرقام (رهان)',
+    category: "Economy", // للتوافق مع الكازينو
+    description: 'لعبـة ترتيــب الأرقــام',
     
     async execute(interactionOrMessage, args) {
         
         const isSlash = !!interactionOrMessage.isChatInputCommand;
         let interaction, message, user, guild, channel, betArg;
 
-        // تجهيز المتغيرات
         if (isSlash) {
             interaction = interactionOrMessage;
             user = interaction.user;
@@ -61,7 +60,6 @@ module.exports = {
         const userId = user.id;
         const guildId = guild.id;
         
-        // دالة الرد الموحدة
         const reply = async (payload) => {
             if (isSlash) return interaction.editReply(payload);
             return message.channel.send(payload);
@@ -73,7 +71,6 @@ module.exports = {
             return message.reply(payload);
         };
 
-        // التحقق من قاعدة البيانات
         const client = isSlash ? interaction.client : message.client;
         if (!client.sql) return replyError("❌ خطأ: قاعدة البيانات غير متصلة.");
         
@@ -82,16 +79,10 @@ module.exports = {
 
         const clearActive = () => activePlayers.delete(userId);
 
-        // ============================================================
-        //  1. التحقق من السبام
-        // ============================================================
         if (activePlayers.has(userId)) {
             return replyError("🚫 **لديك عملية نشطة بالفعل!** أكمل اللعبة أو الرهان الحالي أولاً.");
         }
 
-        // ============================================================
-        //  2. التحقق من الكولداون (باستثناء المالك)
-        // ============================================================
         if (userId !== OWNER_ID) {
             if (cooldowns.has(userId)) {
                 const expirationTime = cooldowns.get(userId) + 3600000;
@@ -102,26 +93,19 @@ module.exports = {
             }
         }
 
-        // ============================================================
-        //  3. حجز اللاعب
-        // ============================================================
         activePlayers.add(userId);
-
 
         // --- دالة تشغيل اللعبة ---
         const startGame = async (finalBetAmount) => {
             try {
-                // التحقق من الرصيد
                 const userCheck = db.prepare('SELECT mora FROM levels WHERE user = ? AND guild = ?').get(userId, guildId);
                 if (!userCheck || userCheck.mora < finalBetAmount) {
                       clearActive(); 
                       return replyError(`💸 **رصيدك غير كافــي!** <:mirkk:1435648219488190525>`);
                 }
                 
-                // خصم المبلغ
                 db.prepare('UPDATE levels SET mora = mora - ? WHERE user = ? AND guild = ?').run(finalBetAmount, userId, guildId);
 
-                // تفعيل الكولداون
                 if (userId !== OWNER_ID) {
                     cooldowns.set(userId, Date.now());
                 }
@@ -151,8 +135,8 @@ module.exports = {
                 const gameEmbed = new EmbedBuilder()
                     .setColor('#FFD700')
                     .setThumbnail(user.displayAvatarURL())
-                    .setTitle('❖ رتب الأرقام من الأصغر للأكبر')
-                    .setDescription(`❖ الرهان: **${finalBetAmount} ${MORA_EMOJI}**\nاضغط الأزرار بالترتيب الصحيح قبل انتهاء الوقت!`)
+                    .setTitle('❖ رتـب الأرقـام مـن الأصغر للأكـبر')
+                    .setDescription(`❖ الرهــان: **${finalBetAmount} ${MORA_EMOJI}**\nاضغط الأزرار بالترتيب الصحيح قبل انتهاء الوقت!`)
                     .setFooter({ text: '❖ لــديــك 25 ثـانيــة' });
 
                 const gameMsg = isSlash 
@@ -165,6 +149,7 @@ module.exports = {
                     time: 25000 
                 });
 
+                // دوال مساعدة للأزرار
                 const updateButtonInRows = (customId, style, disabled = false) => {
                     const rows = [row1, row2, row3];
                     for (const row of rows) {
@@ -186,39 +171,16 @@ module.exports = {
                     });
                 };
 
-                collector.on('collect', async i => {
-                    if (i.user.id !== userId) return i.reply({ content: 'هذه اللعبة ليست لك!', ephemeral: true });
-
-                    const clickedNum = parseInt(i.customId.split('_')[1]);
-                    const correctNum = sortedSolution[currentStep];
-
-                    if (clickedNum === correctNum) {
-                        currentStep++;
-                        updateButtonInRows(i.customId, ButtonStyle.Success, true);
-
-                        if (currentStep === sortedSolution.length) {
-                            collector.stop('win');
-                        } else {
-                            await i.update({ components: [row1, row2, row3] });
-                        }
-                    } else {
-                        updateButtonInRows(i.customId, ButtonStyle.Danger, false);
-                        collector.stop('wrong');
-                        await i.update({ components: [row1, row2, row3] });
-                    }
-                });
-
-                collector.on('end', async (collected, reason) => {
+                // دالة لإنهاء اللعبة (تستدعى من الزر أو من الوقت)
+                const finishGame = async (i, reason) => {
                     clearActive(); 
-
+                    
                     try {
                         if (reason === 'win') {
                             const timeTaken = ((Date.now() - startTime) / 1000).toFixed(2);
                             
                             let moraMultiplier = 1.0;
-                            // التأكد من تمرير العضو الصحيح (member)
                             const memberObj = isSlash ? interaction.member : message.member;
-
                             if (streakHandler && streakHandler.calculateMoraBuff) {
                                 moraMultiplier = streakHandler.calculateMoraBuff(memberObj, db);
                             }
@@ -240,10 +202,24 @@ module.exports = {
                                 .setDescription(`✶ جبتها صــح!\n⏱️ الوقت: **${timeTaken}ث**\n💰 ربـحـت: **${totalProfit}** ${MORA_EMOJI}${buffText}`);
 
                             disableAll(ButtonStyle.Success);
-                            await gameMsg.edit({ embeds: [winEmbed], components: [row1, row2, row3] }).catch(() => {});
+                            // استخدام i.update لأنه استجابة مباشرة للزر
+                            await i.update({ embeds: [winEmbed], components: [row1, row2, row3] });
 
-                        } else {
-                            let reasonText = reason === 'wrong' ? 'ضغطت رقم غلط!' : ' انتهى الوقت!';
+                        } else if (reason === 'lose') {
+                            let reasonText = 'ضغطت رقم غلط!';
+                            const loseEmbed = new EmbedBuilder()
+                                .setColor('#FF0000')
+                                .setThumbnail(user.displayAvatarURL())
+                                .setTitle(' خـسـرت <:catla:1437335118153781360>!')
+                                .setDescription(`${reasonText}\nراحت عليك **${finalBetAmount} ${MORA_EMOJI}**`);
+
+                            disableAll(ButtonStyle.Secondary);
+                            // استخدام i.update لأنه استجابة مباشرة للزر
+                            await i.update({ embeds: [loseEmbed], components: [row1, row2, row3] });
+
+                        } else if (reason === 'time') {
+                            // هنا انتهى الوقت، لا يوجد زر مضغوط، لذا نستخدم gameMsg.edit
+                            let reasonText = ' انتهى الوقت!';
                             const loseEmbed = new EmbedBuilder()
                                 .setColor('#FF0000')
                                 .setThumbnail(user.displayAvatarURL())
@@ -254,9 +230,47 @@ module.exports = {
                             await gameMsg.edit({ embeds: [loseEmbed], components: [row1, row2, row3] }).catch(() => {});
                         }
                     } catch (err) {
-                        console.error("خطأ أثناء إنهاء اللعبة:", err);
+                        console.error("Game finish error:", err);
+                    }
+                };
+
+                collector.on('collect', async i => {
+                    if (i.user.id !== userId) return i.reply({ content: 'هذه اللعبة ليست لك!', ephemeral: true });
+
+                    const clickedNum = parseInt(i.customId.split('_')[1]);
+                    const correctNum = sortedSolution[currentStep];
+
+                    if (clickedNum === correctNum) {
+                        currentStep++;
+                        // تحديث الزر الحالي للأخضر
+                        updateButtonInRows(i.customId, ButtonStyle.Success, true);
+
+                        if (currentStep === sortedSolution.length) {
+                            // فوز: استدعاء دالة النهاية فوراً وإيقاف الكوليكتور
+                            collector.stop('finished');
+                            await finishGame(i, 'win');
+                        } else {
+                            // استمرار اللعب: تحديث الأزرار فقط
+                            await i.update({ components: [row1, row2, row3] });
+                        }
+                    } else {
+                        // خسارة: تحديث الزر للأحمر وإنهاء اللعبة فوراً
+                        updateButtonInRows(i.customId, ButtonStyle.Danger, false);
+                        collector.stop('finished');
+                        await finishGame(i, 'lose');
                     }
                 });
+
+                collector.on('end', async (collected, reason) => {
+                    // إذا انتهى الوقت فقط نستدعي دالة النهاية (لأن الفوز والخسارة تمت معالجتهم في collect)
+                    if (reason === 'time') {
+                        await finishGame(null, 'time');
+                    } else if (reason !== 'finished') {
+                        // حالة طوارئ (حذف الرسالة أو غيره)
+                        clearActive();
+                    }
+                });
+
             } catch (err) {
                 clearActive();
                 console.error("خطأ أثناء بدء اللعبة:", err);
@@ -265,7 +279,7 @@ module.exports = {
         };
 
         // ============================================================
-        //  بداية معالجة الأمر
+        //  معالجة الأمر (Input Logic)
         // ============================================================
         let finalBetAmount = betArg;
 
@@ -315,12 +329,8 @@ module.exports = {
 
             if (confirmation.customId === 'arrange_auto_confirm') {
                 await confirmation.deferUpdate();
-                
-                // في السلاش: لا تحذف، بل اترك startGame يعدلها
-                // في البريفكس: احذف ليكون الشكل أنظف
-                if (!isSlash) {
-                    await confirmMsg.delete().catch(() => {});
-                }
+                // مسح رسالة السؤال في حالة البريفكس لترتيب الشات
+                if (!isSlash) await confirmMsg.delete().catch(() => {});
                 
                 startGame(proposedBet);
             }
