@@ -100,19 +100,19 @@ module.exports = {
 
             setScore.run(data);
 
-            // حساب الفائدة المتوقعة (0.05% = 0.0005)
+            
             const interestAmount = Math.floor(data.bank * 0.0005);
 
             const embed = new EmbedBuilder()
-                .setColor("Random") // لون عشوائي كما طلبت
+                .setColor("Random") 
                 .setTitle('✶ تـم الايداع !')
-                .setThumbnail(user.displayAvatarURL()) // صورة البروفايل المصغرة
+                .setThumbnail(user.displayAvatarURL()) 
                 .setDescription(
                     `❖ تـم ايـداع: **${amountToDeposit.toLocaleString()}** ${EMOJI_MORA}\n` +
                     `❖ رصـيد البـنك: **${data.bank.toLocaleString()}** ${EMOJI_MORA}\n` +
                     `❖ رصـيـدك الكـاش: **${data.mora.toLocaleString()}** ${EMOJI_MORA}\n\n` +
-                    `◇ ستـحـصـل عـلى فـائـدة يوميـة بمقدار 0.05% : **${interestAmount.toLocaleString()}** ${EMOJI_MORA}\n` +
-                    `◇ وسنحمـي اموالك بنسبة اكبر من السرقـة`
+                    `◇ ستحصل على فائدة يومية 0.05% : **${interestAmount.toLocaleString()}** ${EMOJI_MORA}\n` +
+                    `◇ وسنحمي اموالك بنسبة اكبر من السرقـة`
                 );
 
             await reply({ embeds: [embed] });
