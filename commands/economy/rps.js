@@ -1,5 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, ButtonBuilder, ActionRowBuilder, ButtonStyle, ComponentType, Colors } = require('discord.js');
 const { calculateMoraBuff } = require('../../streak-handler.js'); 
+// 🔥 استيراد دالة الرصيد الحر 🔥
+const { getFreeBalance } = require('../../handlers/handler-utils.js');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const OWNER_ID = "1145327691772481577"; 
@@ -183,7 +185,18 @@ async function startGame(channel, user, member, opponent, bet, client, guild, sq
     
     // (ملاحظة: user محجوز مسبقاً في activePlayers)
 
+    // 🔥 فحص الرصيد الحر للاعب الأول 🔥
+    const userFreeBalance = getFreeBalance(member, sql);
+    if (userFreeBalance < bet) {
+        client.activePlayers.delete(user.id); // تحرير
+        const msg = `❌ **عذراً!** لديك قرض (أو رصيد حر غير كافٍ).\nالرصيد الحر المتاح للرهان: **${userFreeBalance.toLocaleString()}** مورا فقط.`;
+        if (interaction && !interaction.replied) await interaction.followUp({ content: msg, ephemeral: true });
+        else channel.send(msg);
+        return;
+    }
+
     let userData = client.getLevel.get(user.id, guild.id);
+    // (الفحص المزدوج للتأكد)
     if (!userData || userData.mora < bet) {
         client.activePlayers.delete(user.id); // تحرير
         const msg = `❌ ليس لديك مورا كافية! (رصيدك: ${userData ? userData.mora : 0})`;
@@ -199,6 +212,19 @@ async function startGame(channel, user, member, opponent, bet, client, guild, sq
             client.activePlayers.delete(user.id); // تحرير
             const msg = `🚫 اللاعب ${opponent} لديه لعبة نشطة بالفعل.`;
             if (interaction) await interaction.followUp(msg); else channel.send(msg);
+            return;
+        }
+
+        const opponentMember = await guild.members.fetch(opponent.id).catch(() => null);
+        if (!opponentMember) return;
+
+        // 🔥 فحص الرصيد الحر للخصم 🔥
+        const opponentFreeBalance = getFreeBalance(opponentMember, sql);
+        if (opponentFreeBalance < bet) {
+            client.activePlayers.delete(user.id); // تحرير
+            const msg = `❌ الخصم ${opponent} لديه قرض ولا يملك رصيداً حراً كافياً للمراهنة!`;
+            if (interaction && !interaction.replied) await interaction.followUp(msg);
+            else channel.send(msg);
             return;
         }
 
