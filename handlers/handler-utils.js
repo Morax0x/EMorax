@@ -1,5 +1,30 @@
 const { EmbedBuilder, PermissionsBitField } = require("discord.js");
 
+// =========================================================
+// 🌟 دالة حساب الرصيد الحر (للتحقق الخلفي فقط) 🌟
+// تستخدم في ملفات التحويل والرهان فقط، ولا تظهر للاعب
+// =========================================================
+function getFreeBalance(member, sql) {
+    if (!sql || typeof sql.prepare !== 'function') return 0;
+    
+    // جلب الكاش الحالي (الإجمالي)
+    const levelData = sql.prepare("SELECT mora FROM levels WHERE user = ? AND guild = ?").get(member.id, member.guild.id);
+    const currentMora = levelData ? levelData.mora : 0;
+
+    // جلب الدين المتبقي
+    const loanData = sql.prepare("SELECT remainingAmount FROM user_loans WHERE userID = ? AND guildID = ?").get(member.id, member.guild.id);
+    const debt = loanData ? loanData.remainingAmount : 0;
+
+    // الرصيد الحر = الإجمالي - الدين
+    const freeBalance = currentMora - debt;
+    
+    return Math.max(0, freeBalance);
+}
+
+// =========================================================
+// 🌟 دالة رسالة الترقية (للعرض) 🌟
+// تعرض الرصيد الكلي دائماً
+// =========================================================
 async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpData, sql) {
      try {
          let customSettings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(interaction.guild.id);
@@ -9,7 +34,14 @@ async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpDat
 
          if (customSettings && customSettings.lvlUpTitle) {
              function antonymsLevelUp(string) {
-                 return string.replace(/{member}/gi, `${member}`).replace(/{level}/gi, `${newLevel}`).replace(/{level_old}/gi, `${oldLevel}`).replace(/{xp}/gi, `${xpData.xp}`).replace(/{totalXP}/gi, `${xpData.totalXP}`);
+                 return string
+                    .replace(/{member}/gi, `${member}`)
+                    .replace(/{level}/gi, `${newLevel}`)
+                    .replace(/{level_old}/gi, `${oldLevel}`)
+                    .replace(/{xp}/gi, `${xpData.xp}`)
+                    .replace(/{totalXP}/gi, `${xpData.totalXP}`)
+                    // 🔥 إضافة: عرض المورا الكلية (القرض + الحر) بدون تفصيل
+                    .replace(/{mora}/gi, `${(xpData.mora || 0).toLocaleString()}`); 
              }
              embed = new EmbedBuilder().setTitle(antonymsLevelUp(customSettings.lvlUpTitle)).setDescription(antonymsLevelUp(customSettings.lvlUpDesc.replace(/\\n/g, '\n'))).setColor(customSettings.lvlUpColor || "Random").setTimestamp();
              if (customSettings.lvlUpImage) { embed.setImage(antonymsLevelUp(customSettings.lvlUpImage)); }
@@ -34,5 +66,6 @@ async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpDat
 }
 
 module.exports = {
-    sendLevelUpMessage
+    sendLevelUpMessage,
+    getFreeBalance // تصدير الدالة لتستخدمها الملفات الأخرى (transfer/pvp)
 };
