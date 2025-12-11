@@ -28,8 +28,7 @@ async function processMonsterTurn(battleState, sql) {
 
     // التحقق من درع اللاعب
     if (player.effects.shield > 0) {
-        // إذا كان درع قوي (مثل الدوارف) أو درع عادي
-        const reduction = player.effects.shield_value || 50; // القيمة الافتراضية 50%
+        const reduction = player.effects.shield_value || 50; 
         damageTaken = Math.floor(damageTaken * ((100 - reduction) / 100)); 
         battleState.log.push(`🛡️ درع اللاعب قلل الضرر بنسبة ${reduction}%!`);
     }
@@ -171,7 +170,6 @@ async function handlePvpTurn(i, client, sql) {
 
         // 2. الكولداون
         Object.keys(attacker.effects).forEach(effect => { if (attacker.effects[effect] > 0) attacker.effects[effect]--; });
-        // تنظيف قيمة الدرع اذا انتهى
         if (attacker.effects.shield === 0) attacker.effects.shield_value = 0;
 
         Object.keys(battleState.skillCooldowns[attackerId]).forEach(skill => { if (battleState.skillCooldowns[attackerId][skill] > 0) battleState.skillCooldowns[attackerId][skill]--; });
@@ -191,7 +189,7 @@ async function handlePvpTurn(i, client, sql) {
             const skillId = i.customId.replace('pvp_skill_use_', '');
             const skill = Object.values(attacker.skills).find(s => s.id === skillId);
             
-            // skill.effectValue يأتي من core.js محسوباً بناءً على اللفل (Base + Increment * Level)
+            // skill.effectValue يأتي من الداتابيس محسوباً بناءً على اللفل
             const val = skill.effectValue; 
             const weaponDmg = attacker.weapon ? attacker.weapon.currentDamage : 10;
 
@@ -199,13 +197,13 @@ async function handlePvpTurn(i, client, sql) {
 
             switch (skillId) {
                 // --- مهارات الشفاء والنسب المئوية ---
-                case 'skill_healing': // % من الماكس HP
+                case 'skill_healing': 
                     const healAmount = Math.floor(attacker.maxHp * (val / 100));
                     attacker.hp = Math.min(attacker.maxHp, attacker.hp + healAmount);
                     actionLog = `❤️‍🩹 ${attackerName} شفا نفسه بـ **${healAmount}** HP!`;
                     break;
                 
-                case 'skill_cleanse': // % شفاء + إزالة سموم
+                case 'skill_cleanse': 
                     attacker.effects.poison = 0; attacker.effects.weaken = 0;
                     const cleanseAmt = Math.floor(attacker.maxHp * (val / 100));
                     attacker.hp = Math.min(attacker.maxHp, attacker.hp + cleanseAmt);
@@ -213,80 +211,90 @@ async function handlePvpTurn(i, client, sql) {
                     break;
 
                 // --- مهارات الدروع والتعزيز ---
-                case 'skill_shielding': // % تقليل ضرر
+                case 'skill_shielding': 
                     attacker.effects.shield = 2;
-                    attacker.effects.shield_value = val; // تخزين نسبة الحماية (مثلاً 15% -> 45%)
+                    attacker.effects.shield_value = val; 
                     actionLog = `🛡️ ${attackerName} رفع درعاً! (حماية ${val}%).`;
                     break;
 
-                case 'race_dwarf_skill': // تحصين (درع قوي جداً)
-                    attacker.effects.shield = 2;
-                    attacker.effects.shield_value = val; // يصل لـ 50-80%
-                    actionLog = `⛰️ ${attackerName} تحصن كالجبل! (حماية ${val}%).`;
-                    break;
-
-                case 'skill_buffing': // % زيادة ضرر
+                case 'skill_buffing': 
                     attacker.effects.buff = 2;
-                    attacker.effects.buff_value = val; // تخزين نسبة الزيادة
+                    attacker.effects.buff_value = val;
                     actionLog = `💪 ${attackerName} زاد قوته بـ ${val}% للدور القادم!`;
                     break;
 
-                case 'skill_weaken': // % اضعاف الخصم
-                case 'race_ghoul_skill': 
+                case 'skill_weaken': 
                     defender.effects.weaken = 2;
-                    defender.effects.weaken_value = val; // تخزين نسبة الاضعاف
+                    defender.effects.weaken_value = val; 
                     actionLog = `📉 ${attackerName} أضعف هجوم الخصم القادم بـ ${val}%!`;
                     break;
 
-                case 'skill_rebound': // % عكس الضرر
+                case 'skill_rebound': 
                      attacker.effects.rebound_active = 2;
                      attacker.effects.rebound_value = val;
                      actionLog = `🔄 ${attackerName} جهز الارتداد العكسي (${val}%)!`;
                      break;
 
-                case 'skill_dispel': // إزالة كل شيء
+                case 'skill_dispel': 
                     defender.effects.shield = 0; defender.effects.buff = 0; defender.effects.rebound_active = 0;
                     actionLog = `💨 ${attackerName} بدّد سحر الخصم!`;
                     break;
 
-                case 'skill_poison': // ضرر فوري + سم
-                case 'race_dark_elf_skill':
-                    defender.effects.poison = 4; // عدد الأدوار
-                    // الضرر الفوري = ضرر السلاح + القيمة الأساسية للمهارة
+                case 'skill_poison': 
+                case 'race_dark_elf_skill': // سم الظلال
+                    defender.effects.poison = 4;
                     const poisonInitDmg = Math.floor(weaponDmg + val);
                     defender.hp -= poisonInitDmg;
                     actionLog = `☠️ ${attackerName} سمم الخصم! (**${poisonInitDmg}** ضرر + سم مستمر).`;
                     break;
 
-                // --- مهارات الضرر الصافي (True Damage) ---
-                case 'race_dragon_skill': 
-                    // يتجاهل الدرع كلياً، ضرر ثابت يعتمد على تطوير المهارة فقط
+                case 'skill_gamble': 
+                    let gambleDmg = 0;
+                    if (Math.random() < 0.5) {
+                        gambleDmg = Math.floor(weaponDmg * 1.5); // 150%
+                        actionLog = `🎲 ${attackerName} قامر وربح! ضربة ساحقة **${gambleDmg}**!`;
+                    } else {
+                        gambleDmg = Math.floor(weaponDmg * 0.25); // 25%
+                        actionLog = `🎲 ${attackerName} خسر الرهان... خدش بسيط **${gambleDmg}**.`;
+                    }
+                    defender.hp -= gambleDmg;
+                    break;
+
+                // --- مهارات الأعراق الخاصة ---
+
+                case 'race_dragon_skill': // نفس التنين
                     defender.hp -= val;
                     actionLog = `🔥 ${attackerName} أطلق نفس التنين! (**${val}** ضرر حقيقي).`;
                     break;
 
-                // --- مهارات تعتمد على السلاح + بونص (Weapon + Flat Bonus) ---
-                case 'race_demon_skill': // عهد الدم (ضرر عالي + خصم HP)
-                    const demonDmg = Math.floor(weaponDmg + val); // السلاح + 50 (مثلاً)
+                case 'race_human_skill': // الإرادة البشرية
+                    attacker.effects.shield = 2;
+                    attacker.effects.shield_value = val; // نفس القوة
+                    attacker.effects.buff = 2;
+                    attacker.effects.buff_value = val; // نفس القوة
+                    actionLog = `🛡️⚔️ ${attackerName} استخدم الإرادة البشرية! (درع وهجوم +${val}%).`;
+                    break;
+
+                case 'race_seraphim_skill': 
+                case 'race_vampire_skill': 
+                    const drainDmg = Math.floor(weaponDmg + val);
+                    defender.hp -= drainDmg;
+                    const healRatio = skillId === 'race_vampire_skill' ? 0.5 : 0.3;
+                    const drainHeal = Math.floor(drainDmg * healRatio); 
+                    attacker.hp = Math.min(attacker.maxHp, attacker.hp + drainHeal);
+                    actionLog = `${skill.emoji} ${attackerName} امتص حياة الخصم! (**${drainDmg}** ضرر، +${drainHeal} HP).`;
+                    break;
+
+                case 'race_demon_skill': 
+                    const demonDmg = Math.floor(weaponDmg + val);
                     defender.hp -= demonDmg;
-                    const recoil = Math.floor(attacker.hp * 0.10); // خصم 10% من الدم الحالي
+                    const recoil = Math.floor(attacker.hp * 0.10); 
                     attacker.hp -= recoil;
                     actionLog = `🩸 ${attackerName} ضحى بدمه (${recoil}) ليضرب بقوة **${demonDmg}**!`;
                     break;
 
-                case 'race_seraphim_skill': // حكم سماوي (ضرر + شفاء)
-                case 'race_vampire_skill': // التهام
-                    const drainDmg = Math.floor(weaponDmg + val);
-                    defender.hp -= drainDmg;
-                    // الشفاء نسبة من الضرر (مثلاً 30-50%)
-                    const drainHeal = Math.floor(drainDmg * 0.4); 
-                    attacker.hp = Math.min(attacker.maxHp, attacker.hp + drainHeal);
-                    actionLog = `🦇 ${attackerName} امتص حياة الخصم! (**${drainDmg}** ضرر، +${drainHeal} HP).`;
-                    break;
-
-                case 'race_elf_skill': // رمية مزدوجة
-                    // المعادلة: (السلاح + قيمة المهارة)
-                    // بما أن الوصف يقول "رمية مزدوجة"، سنجعلها تبدو كضربتين في السجل
+                case 'race_elf_skill': // رمية مزدوجة (المهارة)
+                    // هنا يتم تطبيق الضربة المزدوجة كمهارة خاصة
                     const elfTotalDmg = Math.floor(weaponDmg + val);
                     const hit1 = Math.floor(elfTotalDmg / 2);
                     const hit2 = elfTotalDmg - hit1;
@@ -294,26 +302,42 @@ async function handlePvpTurn(i, client, sql) {
                     actionLog = `🏹 ${attackerName} أطلق سهمين! (${hit1} + ${hit2} = **${elfTotalDmg}** ضرر).`;
                     break;
 
-                case 'skill_gamble': // مقامرة (RNG)
-                    // Win: 150% من السلاح (val هو 150)
-                    // Lose: 25% من السلاح
-                    let gambleDmg = 0;
-                    if (Math.random() < 0.5) {
-                        gambleDmg = Math.floor(weaponDmg * (val / 100)); // Weapon * 1.5
-                        actionLog = `🎲 ${attackerName} قامر وربح! ضربة ساحقة **${gambleDmg}**!`;
+                case 'race_hybrid_skill': // تكيف (RNG)
+                    const roll = Math.random();
+                    if (roll < 0.33) {
+                        const hHeal = Math.floor(attacker.maxHp * (val / 100)); // استخدام val للنسبة
+                        attacker.hp = Math.min(attacker.maxHp, attacker.hp + hHeal);
+                        actionLog = `🌀 ${attackerName} تكيف (شفاء): استعاد **${hHeal}** HP.`;
+                    } else if (roll < 0.66) {
+                        attacker.effects.shield = 2;
+                        attacker.effects.shield_value = val;
+                        actionLog = `🌀 ${attackerName} تكيف (درع): حصل على درع ${val}%.`;
                     } else {
-                        gambleDmg = Math.floor(weaponDmg * 0.25);
-                        actionLog = `🎲 ${attackerName} خسر الرهان... خدش بسيط **${gambleDmg}**.`;
+                        attacker.effects.buff = 2;
+                        attacker.effects.buff_value = val;
+                        actionLog = `🌀 ${attackerName} تكيف (قوة): زاد هجومه ${val}%.`;
                     }
-                    defender.hp -= gambleDmg;
                     break;
                 
-                case 'race_spirit_skill': // اختراق
-                     attacker.effects.penetrate = 2; // التأثير للدور القادم (الهجوم العادي)
+                case 'race_spirit_skill': 
+                     attacker.effects.penetrate = 2; 
                      actionLog = `👻 ${attackerName} أصبح شبحياً! (الهجوم القادم يتجاهل الدروع).`;
                      break;
 
-                // الافتراضي (أي مهارة هجومية أخرى): سلاح + قيمة المهارة
+                case 'race_dwarf_skill': 
+                    attacker.effects.shield = 2;
+                    attacker.effects.shield_value = val; 
+                    actionLog = `⛰️ ${attackerName} تحصن كالجبل! (حماية ${val}%).`;
+                    break;
+
+                case 'race_ghoul_skill': 
+                    const ghoulDmg = Math.floor(weaponDmg + (val / 2)); 
+                    defender.hp -= ghoulDmg;
+                    defender.effects.weaken = 2;
+                    defender.effects.weaken_value = 10; 
+                    actionLog = `🤢 ${attackerName} هاجم بضراوة! (**${ghoulDmg}** ضرر + إضعاف الخصم).`;
+                    break;
+
                 default:
                     const genericDmg = Math.floor(weaponDmg + val);
                     defender.hp -= genericDmg;
@@ -330,12 +354,12 @@ async function handlePvpTurn(i, client, sql) {
             } else {
                 let damage = attacker.weapon.currentDamage;
                 
-                // تطبيق البف (زيادة الضرر)
+                // تطبيق البف
                 if (attacker.effects.buff > 0) {
                     const buffPercent = attacker.effects.buff_value || 10;
                     damage = Math.floor(damage * (1 + (buffPercent / 100)));
                 }
-                // تطبيق الضعف (تقليل الضرر)
+                // تطبيق الضعف
                 if (attacker.effects.weaken > 0) {
                     const weakenPercent = attacker.effects.weaken_value || 10;
                     damage = Math.floor(damage * (1 - (weakenPercent / 100)));
@@ -346,7 +370,7 @@ async function handlePvpTurn(i, client, sql) {
                 // تطبيق اختراق الدروع
                 if (attacker.effects.penetrate > 0) {
                     battleState.log.push(`👻 ${attackerName} اخترق الدفاعات!`);
-                    attacker.effects.penetrate = 0; // استهلاك
+                    attacker.effects.penetrate = 0; 
                 } 
                 // حساب الدرع
                 else if (defender.effects.shield > 0) {
@@ -354,6 +378,7 @@ async function handlePvpTurn(i, client, sql) {
                     damageTaken = Math.floor(damageTaken * (1 - (shieldPercent / 100)));
                 }
 
+                // هجوم عادي (ضربة واحدة لجميع الأسلحة)
                 defender.hp -= damageTaken;
                 battleState.log.push(`⚔️ ${attackerName} هاجم وألحق **${damageTaken}** ضرر!`);
 
