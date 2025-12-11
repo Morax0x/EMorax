@@ -108,12 +108,8 @@ module.exports = {
         if (challengerFree < bet) {
             return replyError(`❌ **عذراً!** لديك قرض (أو رصيد حر غير كافٍ).\nالرصيد الحر المتاح للرهان: **${challengerFree.toLocaleString()}** مورا فقط.`);
         }
-
-        // 🔥 فحص الرصيد الحر للخصم 🔥
-        const opponentFree = getFreeBalance(opponent, sql);
-        if (opponentFree < bet) {
-            return replyError(`❌ الخصم ${opponent.displayName} لديه قرض ولا يملك رصيداً حراً كافياً للمراهنة!`);
-        }
+        
+        // (يمكننا أيضاً فحص الخصم هنا، لكن الأفضل فحصه عند قبوله للتحدي لكي لا نكشف معلوماته المالية علناً قبل أن يوافق)
 
         const getScore = client.getLevel;
         const setScore = client.setLevel;
