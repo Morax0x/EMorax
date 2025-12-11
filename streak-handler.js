@@ -28,15 +28,6 @@ function getDayDifference(dateStr1, dateStr2) {
     return Math.round(diffTime / DAY_MS);
 }
 
-function formatTime(ms) {
-    if (ms < 0) ms = 0;
-    const hours = Math.floor(ms / 3600000);
-    const minutes = Math.floor((ms % 3600000) / 60000);
-    if (hours > 0) return `${hours} ساعة و ${minutes} دقيقة`;
-    if (minutes > 0) return `${minutes} دقيقة`;
-    return "أقل من دقيقة";
-}
-
 // 🌟 دالة حساب معزز الخبرة (XP) فقط - للفل 🌟
 function calculateBuffMultiplier(member, sql) {
     if (!sql || typeof sql.prepare !== 'function') return 1.0;
@@ -292,14 +283,12 @@ async function handleStreakMessage(message) {
         await updateNickname(message.member, sql);
 
     } else {
-        // التحقق من الفاصلة وإعادتها للافتراضي إذا كانت غير مسموحة
         const cleanCheckList = SEPARATORS_CLEAN_LIST.map(s => s.replace('\\', ''));
         if (!cleanCheckList.includes(streakData.separator)) {
             streakData.separator = DEFAULT_SEPARATOR;
             sql.prepare("UPDATE streaks SET separator = ? WHERE id = ?").run(DEFAULT_SEPARATOR, id);
         }
 
-        // فحص الاسم وتصحيحه (Anti-Cheat)
         if (streakData.nicknameActive === 1) {
             await updateNickname(message.member, sql);
         }
@@ -603,23 +592,40 @@ async function sendDailyMediaUpdate(client, sql) {
         const guildID = channelData.guildID;
         
         if (!guildsStats[guildID]) {
-            const topStreaks = sql.prepare("SELECT * FROM media_streaks WHERE guildID = ? AND streakCount > 0 ORDER BY streakCount DESC LIMIT 10").all(guildID);
+            // 🔥 التعديل: جلب أعلى 3 فقط 🔥
+            const topStreaks = sql.prepare("SELECT * FROM media_streaks WHERE guildID = ? AND streakCount > 0 ORDER BY streakCount DESC LIMIT 3").all(guildID);
             let description = `**${EMOJI_MEDIA_STREAK} بـدأ يـوم جـديـد لستريـك الميـديـا! ${EMOJI_MEDIA_STREAK}**\n\n- لا تنسـوا إرسـال المـيـديـا الخـاصـة بكـم لهـذا اليـوم.\n\n`;
             
+            const embed = new EmbedBuilder().setTitle("☀️ تـحـديـث ستـريـك المـيـديـا").setColor(Colors.Aqua);
+
             if (topStreaks.length > 0) {
                 description += "**🏆 قـائـمـة الأعـلـى فـي الستـريـك:**\n";
                 const leaderboard = topStreaks.map((streak, index) => {
                     const medals = ['🥇', '🥈', '🥉'];
                     const rank = medals[index] || `**${index + 1}.**`;
-                    return `${rank} <@${streak.userID}> - \`${streak.streakCount}\` يوم`;
+                    // 🔥 التعديل: استبدال "يوم" بـ "الإيموجي المتحرك" 🔥
+                    return `${rank} <@${streak.userID}> - \`${streak.streakCount}\` ${EMOJI_MEDIA_STREAK}`;
                 });
                 description += leaderboard.join('\n');
+
+                // 🔥 التعديل: وضع صورة التوب 1 كصورة مصغرة 🔥
+                try {
+                    const topMember = await client.guilds.cache.get(guildID)?.members.fetch(topStreaks[0].userID).catch(() => null);
+                    if (topMember) {
+                        embed.setThumbnail(topMember.user.displayAvatarURL({ dynamic: true }));
+                    } else {
+                        embed.setThumbnail('https://i.postimg.cc/mD7Q31TR/New-Day.png'); // صورة احتياطية
+                    }
+                } catch (e) {
+                    embed.setThumbnail('https://i.postimg.cc/mD7Q31TR/New-Day.png');
+                }
+
             } else {
                 description += "لا يوجـد أحـد لـديـه ستريـك مـيـديـا حـالـيـاً. كـن أول الـمـشاركـيـن!";
+                embed.setThumbnail('https://i.postimg.cc/mD7Q31TR/New-Day.png');
             }
             
-            const embed = new EmbedBuilder().setTitle("☀️ تـحـديـث ستـريـك المـيـديـا").setColor(Colors.Aqua)
-                .setDescription(description).setImage('https://i.postimg.cc/mD7Q31TR/New-Day.png');
+            embed.setDescription(description).setImage('https://i.postimg.cc/mD7Q31TR/New-Day.png');
             
             guildsStats[guildID] = embed;
         }
@@ -671,7 +677,8 @@ async function sendStreakWarnings(client, sql) {
         } catch (err) { continue; }
 
         const streakEmoji = settings.get(streakData.guildID)?.streakEmoji || '🔥';
-        const timeLeft = (streakData.lastMessageTimestamp + (36 * 60 * 60 * 1000)) - now; 
+        // 🔥 التعديل: حذف دالة الوقت واستبدالها بنص عام 🔥
+        // const timeLeft = (streakData.lastMessageTimestamp + (36 * 60 * 60 * 1000)) - now; 
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
@@ -682,7 +689,7 @@ async function sendStreakWarnings(client, sql) {
 
         const embed = new EmbedBuilder().setTitle('✶ تـحـذيـر الـستريـك').setColor(Colors.Yellow)
             .setImage('https://i.postimg.cc/8z0Xw04N/attention.png') 
-            .setDescription(`- لـقـد مـضـى أكـثـر مـن 12 سـاعـة عـلـى آخـر رسـالـة لـك\n- سـتريـكك الـحـالي: ${streakData.streakCount} ${streakEmoji}\n- أمـامـك أقـل مـن 12 سـاعـة تقريباً ${formatTime(timeLeft)} لإرسـال رسـالـة جـديـدة قـبـل أن يـضـيـع!`);
+            .setDescription(`- لـقـد مـضـى أكـثـر مـن 12 سـاعـة عـلـى آخـر رسـالـة لـك\n- سـتريـكك الـحـالي: ${streakData.streakCount} ${streakEmoji}\n- سارع بإرسال رسالة قبل أن يضيع الستريك!`);
 
         await member.send({ embeds: [embed], components: [row] }).then(() => {
             updateWarning.run(streakData.id);
