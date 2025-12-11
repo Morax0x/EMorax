@@ -1,7 +1,8 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, SlashCommandBuilder } = require("discord.js");
 const { activePvpChallenges, getUserRace, getWeaponData, cleanDisplayName } = require('../../handlers/pvp-core.js');
 const weaponsConfig = require('../../json/weapons-config.json');
-// ( 🌟 تم حذف calculateMoraBuff 🌟 )
+// 🔥 استيراد دالة الرصيد الحر 🔥
+const { getFreeBalance } = require('../../handlers/handler-utils.js');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const PVP_COOLDOWN_MS = 5 * 60 * 1000;
@@ -84,6 +85,7 @@ module.exports = {
         };
 
         const channel = interactionOrMessage.channel;
+        const sql = client.sql;
 
         if (activePvpChallenges.has(channel.id)) {
             return replyError("هناك تحدٍ نشط بالفعل في هذه القناة. يرجى الانتظار حتى ينتهي.");
@@ -101,9 +103,20 @@ module.exports = {
             return replyError("ما تقدر تتحدى بـوت يا متـخـلف <a:MugiStronk:1438795606872166462>");
         }
 
+        // 🔥 فحص الرصيد الحر للمتحدي 🔥
+        const challengerFree = getFreeBalance(challenger, sql);
+        if (challengerFree < bet) {
+            return replyError(`❌ **عذراً!** لديك قرض (أو رصيد حر غير كافٍ).\nالرصيد الحر المتاح للرهان: **${challengerFree.toLocaleString()}** مورا فقط.`);
+        }
+
+        // 🔥 فحص الرصيد الحر للخصم 🔥
+        const opponentFree = getFreeBalance(opponent, sql);
+        if (opponentFree < bet) {
+            return replyError(`❌ الخصم ${opponent.displayName} لديه قرض ولا يملك رصيداً حراً كافياً للمراهنة!`);
+        }
+
         const getScore = client.getLevel;
         const setScore = client.setLevel;
-        const sql = client.sql;
 
         let challengerData = getScore.get(challenger.id, guild.id);
         if (!challengerData) {
