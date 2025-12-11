@@ -1,4 +1,7 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, Colors, SlashCommandBuilder } = require("discord.js");
+// 🔥 استيراد دالة الرصيد الحر 🔥
+const { getFreeBalance } = require('../../handlers/handler-utils.js');
+
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 
 const MIN_CASH_PERCENT = 0.05;
@@ -116,6 +119,12 @@ module.exports = {
             victimData = { ...client.defaultData, user: victim.id, guild: guild.id };
         }
 
+        // 🔥 فحص قروض السارق (يجب أن يكون لديه رصيد حر لدفع الغرامة) 🔥
+        const robberFreeBalance = getFreeBalance(robber, sql);
+        if (robberFreeBalance < MIN_REQUIRED_CASH) {
+             return reply(`❌ **لا يمكنك السرقة!**\nعليك قرض أو رصيدك الحر أقل من **${MIN_REQUIRED_CASH.toLocaleString()}** ${EMOJI_MORA} (مطلوب لتغطية الغرامة).`);
+        }
+
         const now = Date.now();
         const timeLeft = (robberData.lastRob || 0) + COOLDOWN_MS - now;
 
@@ -124,46 +133,49 @@ module.exports = {
             return reply(`🕐حـرامـي مـجتـهد انـت <:stop:1436337453098340442> انتـظـر **\`${timeString}\`** عشان تسـوي عمـليـة سـطو ثـانيـة.`);
         }
 
-        const victimMora = victimData.mora || 0;
-        const victimBank = victimData.bank || 0;
+        // 🔥 فحص "الرصيد الحر" للضحية 🔥
+        // السارق لا يستطيع سرقة أموال القرض، فقط الأموال الحرة.
+        const victimFreeBalance = getFreeBalance(victim, sql);
+        
+        // سنعتبر الرصيد الحر هو "الكاش" المتاح للسرقة (تبسيطاً، لأننا لا نعرف توزيعه بين البنك والكاش بدقة هنا)
+        // لكن لضمان العدالة، سنقارن الرصيد الحر بالحد الأدنى
+        if (victimFreeBalance < MIN_REQUIRED_CASH) {
+            return reply(`هذا العضو مفلس (أو أمواله محجوزة للقرض) ولا يملك الحد الأدنى للسرقة (${MIN_REQUIRED_CASH.toLocaleString()} ${EMOJI_MORA}).`);
+        }
+
+        // --- توزيع الرصيد الحر (وهمياً) ---
+        // بما أننا لا نعرف هل الرصيد الحر في البنك أم الكاش، سنفترض أن السرقة تتم من "وعاء" الرصيد الحر
+        // لكن الكود الأصلي يعتمد على targetPool.
+        // الحل: سنحدد الحد الأقصى للسرقة بناءً على الرصيد الحر
+        
         const robberMora = robberData.mora || 0;
         const robberBank = robberData.bank || 0;
         const robberTotal = robberMora + robberBank; 
 
-        if (robberTotal < MIN_REQUIRED_CASH) {
-             return reply(`يجب أن تمتلك مجموع **${MIN_REQUIRED_CASH.toLocaleString()}** ${EMOJI_MORA} لتغطية الغرامة إذا فشلت.`);
-        }
-
-        if (victimMora < MIN_REQUIRED_CASH && victimBank < MIN_REQUIRED_CASH) {
-            return reply(`هذا العضو فقير جداً ولا يملك الحد الأدنى للسرقة (${MIN_REQUIRED_CASH.toLocaleString()} ${EMOJI_MORA}).`);
-        }
+        // تحديد الهدف (كاش/بنك) بناءً على الرصيد الفعلي (وليس الحر) لتحديد الصعوبة
+        const victimMora = victimData.mora || 0;
+        const victimBank = victimData.bank || 0;
 
         let targetPool;
         let poolName;
-        let victimPoolAmount;
-
-        const canStealBank = victimBank >= MIN_REQUIRED_CASH;
-        const canStealMora = victimMora >= MIN_REQUIRED_CASH;
-
-        if (canStealBank && canStealMora) {
+        
+        // نختار الهدف بناءً على أين يوجد المال
+        if (victimBank >= MIN_REQUIRED_CASH && victimMora >= MIN_REQUIRED_CASH) {
             targetPool = Math.random() < 0.5 ? 'mora' : 'bank';
-        } else if (canStealBank) {
+        } else if (victimBank >= MIN_REQUIRED_CASH) {
             targetPool = 'bank';
         } else {
             targetPool = 'mora';
         }
 
-        if (targetPool === 'bank') {
-            poolName = "البنك";
-            victimPoolAmount = victimBank;
-        } else {
-            poolName = "الكاش";
-            victimPoolAmount = victimMora;
-        }
+        // تحديد المبلغ المتوفر في هذا الوعاء
+        let victimPoolAmount = targetPool === 'bank' ? victimBank : victimMora;
+        poolName = targetPool === 'bank' ? "البنك" : "الكاش";
 
+        // حساب المبلغ الأقصى للسرقة
         const robberCap = Math.floor(robberTotal * ROBBER_FINE_PERCENT);
-
         let victimCap;
+
         if (targetPool === 'bank') {
             const randomPercent = Math.random() * (MAX_BANK_PERCENT - MIN_BANK_PERCENT) + MIN_BANK_PERCENT;
             victimCap = Math.floor(victimPoolAmount * randomPercent);
@@ -173,12 +185,19 @@ module.exports = {
         }
 
         let amountToSteal = Math.min(robberCap, victimCap);
-        amountToSteal = Math.max(amountToSteal, MIN_ROB_AMOUNT);
+        
+        // 🔥 الشرط الأهم: لا يمكن سرقة أكثر من الرصيد الحر 🔥
+        if (amountToSteal > victimFreeBalance) {
+            amountToSteal = victimFreeBalance;
+        }
+
+        // التحقق النهائي بعد تطبيق سقف الرصيد الحر
+        if (amountToSteal < MIN_ROB_AMOUNT) {
+             return reply(`بعد خصم الديون، لم يتبق لدى الضحية ما يكفي لسرقته!`);
+        }
 
         robberData.lastRob = now;
         
-        // ( 🌟 تم إزالة التحقق من الحارس هنا - سينتقل لداخل زر الاختيار 🌟 )
-
         activeGames.add(channel.id);
 
         let descArray = [
@@ -187,7 +206,6 @@ module.exports = {
             `لديـك 15 ثانيـة لاختيـار البـاب الصحيـح :bomb:`
         ];
 
-        // ( 🌟 إضافة الملاحظة إذا كان الهدف هو البنك 🌟 )
         if (targetPool === 'bank') {
             descArray.push(`||حماية البنك عالية لذا مبلغ السرقة سيكون اقل من الكاش||`);
         }
@@ -207,8 +225,6 @@ module.exports = {
         ];
 
         const correctButtonIndex = Math.floor(Math.random() * 3);
-        // نحدد الزر الصحيح، لكن لن نعطيه ID مميز الآن لكي لا يظهر في الكود
-        // سنفحص الـ ID عند الضغط
 
         const row = new ActionRowBuilder().addComponents(buttons);
         const msg = await reply({ embeds: [embed], components: [row] });
@@ -217,9 +233,6 @@ module.exports = {
         const collector = msg.createMessageComponentCollector({ filter, componentType: ComponentType.Button, time: 15000, max: 1 });
 
         collector.on('collect', async i => {
-            // معرفة هل الضغط كان على الزر الصحيح؟
-            // الأزرار هي rob_1, rob_2, rob_3 (Indices: 0, 1, 2)
-            // الزر الصحيح هو correctButtonIndex + 1
             const clickedIndex = parseInt(i.customId.split('_')[1]) - 1;
             
             if (clickedIndex === correctButtonIndex) {
@@ -245,7 +258,25 @@ module.exports = {
                     // نجاح السرقة (بدون حارس)
                     const finalAmount = amountToSteal;
                     robberData.mora += finalAmount;
-                    victimData[targetPool] -= finalAmount;
+                    
+                    // الخصم من الضحية (من المكان المحدد)
+                    if (targetPool === 'bank') {
+                        // التأكد من عدم نزول الرصيد عن 0
+                        if (victimData.bank >= finalAmount) victimData.bank -= finalAmount;
+                        else {
+                            // حالة نادرة: نخصم المتوفر في البنك والباقي من الكاش
+                            const remainder = finalAmount - victimData.bank;
+                            victimData.bank = 0;
+                            victimData.mora = Math.max(0, victimData.mora - remainder);
+                        }
+                    } else {
+                        if (victimData.mora >= finalAmount) victimData.mora -= finalAmount;
+                        else {
+                            const remainder = finalAmount - victimData.mora;
+                            victimData.mora = 0;
+                            victimData.bank = Math.max(0, victimData.bank - remainder);
+                        }
+                    }
 
                     const winEmbed = new EmbedBuilder()
                         .setTitle('✅ حـرامـي مـحـتـرف <:thief:1436331309961187488>')
