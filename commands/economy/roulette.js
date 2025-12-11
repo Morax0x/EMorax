@@ -198,15 +198,6 @@ async function startRoulette(channel, user, member, opponents, bet, client, guil
     }
     if (client.activePlayers.has(user.id)) return;
 
-    // 🔥 فحص الرصيد الحر لصاحب اللعبة 🔥
-    const authorFree = getFreeBalance(member, sql);
-    if (authorFree < bet) {
-        const msg = `❌ **عذراً!** لديك قرض (أو رصيد حر غير كافٍ).\nالرصيد الحر المتاح للرهان: **${authorFree.toLocaleString()}** مورا فقط.`;
-        if (interaction) await interaction.followUp({ content: msg, ephemeral: true });
-        else channel.send(msg);
-        return;
-    }
-
     let userData = client.getLevel.get(user.id, guild.id);
     if (!userData || userData.mora < bet) {
         const msg = `❌ ليس لديك مورا كافية! (رصيدك: ${userData ? userData.mora : 0})`;
@@ -215,8 +206,18 @@ async function startRoulette(channel, user, member, opponents, bet, client, guil
         return;
     }
 
-    // --- PvP ---
+    // --- PvP (الجماعي) ---
     if (opponents.size > 0) {
+        
+        // 🔥 1. فحص الرصيد الحر للمتحدي (صاحب الأمر) 🔥
+        const authorFree = getFreeBalance(member, sql);
+        if (authorFree < bet) {
+            const msg = `❌ **عذراً!** لديك قرض (أو رصيد حر غير كافٍ).\nلا يمكنك اللعب الجماعي بمال القرض.`;
+            if (interaction) await interaction.followUp({ content: msg, ephemeral: true });
+            else channel.send(msg);
+            return;
+        }
+
         for (const opp of opponents.values()) {
             if (client.activePlayers.has(opp.id)) {
                 const msg = `🚫 اللاعب ${opp} لديه لعبة نشطة بالفعل.`;
@@ -224,7 +225,7 @@ async function startRoulette(channel, user, member, opponents, bet, client, guil
                 return;
             }
             
-            // 🔥 فحص الرصيد الحر للخصوم 🔥
+            // 🔥 2. فحص الرصيد الحر لكل خصم 🔥
             const oppFree = getFreeBalance(opp, sql);
             if (oppFree < bet) {
                 const msg = `❌ اللاعب ${opp} لديه قرض ولا يملك رصيداً حراً كافياً!`;
@@ -302,7 +303,7 @@ async function startRoulette(channel, user, member, opponents, bet, client, guil
         });
 
     } else {
-        // --- Solo ---
+        // --- Solo (مسموح بفلوس القرض) ---
         if (bet > MAX_BET_SOLO) {
             const msg = `🚫 الحد الأقصى للرهان الفردي هو **${MAX_BET_SOLO}** ${EMOJI_MORA}.`;
             if (interaction) await interaction.followUp({ content: msg, ephemeral: true });
