@@ -4,6 +4,7 @@ const farmAnimals = require('../../json/farm-animals.json');
 const marketItems = require('../../json/market-items.json');
 const questsConfig = require('../../json/quests-config.json');
 
+// --- دوال مساعدة للوقت والنصوص ---
 function getWeekStartDateString() {
     const now = new Date();
     const dayOfWeek = now.getUTCDay(); 
@@ -12,25 +13,48 @@ function getWeekStartDateString() {
     friday.setUTCHours(0, 0, 0, 0); 
     return friday.toISOString().split('T')[0];
 }
+
 function getTodayDateString() {
     return new Date().toISOString().split('T')[0];
 }
 
+// 🔥 دالة توحيد النصوص العربية (تجاهل الهمزات والتاء المربوطة) 🔥
+function normalize(str) {
+    if (!str) return "";
+    return str.toString().toLowerCase()
+        .replace(/[أإآ]/g, 'ا') // توحيد الألف
+        .replace(/ة/g, 'ه')     // توحيد التاء المربوطة
+        .replace(/\s+/g, ' ')   // إزالة المسافات الزائدة
+        .trim();
+}
+
 module.exports = {
     name: 'admin-tools',
-    description: 'أدوات إدارية متقدمة (عناصر وستريك)',
-    aliases: ['ادمن', 'admin', 'تعديل-ادمن', 'ادوات-ادمن'],
+    description: 'لوحة التحكم الشاملة',
+    aliases: ['ادمن', 'admin', 'تعديل-ادمن', 'ادوات-ادمن', 'control'],
     category: 'Admin',
 
     async execute(message, args) {
         const client = message.client;
         const sql = client.sql;
 
+        // 1. التحقق من الصلاحيات
         if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return message.reply("❌ ليس لديك صلاحيات إدارية لاستخدام هذا الأمر.");
+            return; 
         }
 
+        // 2. التأكد من وجود عمود حالة السوق
+        try { 
+            sql.prepare("ALTER TABLE settings ADD COLUMN marketStatus TEXT DEFAULT 'normal'").run(); 
+        } catch (e) {}
+
         const subcommand = args[0] ? args[0].toLowerCase() : null;
+        // استثناء أوامر السوق من شرط المنشن
+        if (['market-status', 'حالة-السوق', 'market-crash', 'انهيار-السوق', 'market-boom', 'انعاش-السوق', 'set-price', 'تحديد-سعر'].includes(subcommand)) {
+            await this.handleMarketCommands(message, sql, subcommand, args);
+            return;
+        }
+
         const targetUser = message.mentions.users.first() || client.users.cache.get(args[1]);
         const embed = new EmbedBuilder().setColor(Colors.Green).setTimestamp();
 
@@ -42,11 +66,11 @@ module.exports = {
         try {
             targetMember = await message.guild.members.fetch(targetUser.id);
         } catch (e) {
-             return message.reply("❌ لا يمكن العثور على هذا العضو في السيرفر.");
+             return message.reply("❌ لا يمكن العثور على هذا العضو.");
         }
 
-
         switch (subcommand) {
+            // --- أوامر الستريك ---
             case 'set-media-streak':
             case 'ضبط-ميديا-ستريك':
                 await this.setMediaStreak(message, sql, targetUser, args[2], embed);
@@ -61,6 +85,8 @@ module.exports = {
             case 'ازالة-درع-ميديا':
                 await this.removeMediaShield(message, sql, targetUser, embed);
                 break;
+
+            // --- أوامر العناصر (المعدلة للعمل بالاسم) ---
             case 'give-item':
             case 'إعطاء-عنصر':
             case 'اعطاء-عنصر':
@@ -71,6 +97,8 @@ module.exports = {
             case 'ازالة-عنصر':
                 await this.removeItem(message, client, sql, targetUser, args, embed);
                 break;
+
+            // --- أوامر المهام والإنجازات ---
             case 'give-achievement':
             case 'اعطاء-انجاز':
                 await this.giveAchievement(message, client, sql, targetUser, targetMember, args, embed);
@@ -78,10 +106,6 @@ module.exports = {
             case 'remove-achievement':
             case 'ازالة-انجاز':
                 await this.removeAchievement(message, sql, targetUser, args, embed);
-                break;
-            case 'set-stat':
-            case 'ضبط-احصائية':
-                await this.setStat(message, client, sql, targetUser, targetMember, args[2], args[3], embed);
                 break;
             case 'give-daily-quest':
             case 'اعطاء-مهمة-يومية':
@@ -91,6 +115,36 @@ module.exports = {
             case 'اعطاء-مهمة-اسبوعية':
                 await this.giveQuest(message, client, sql, targetUser, targetMember, args, 'weekly', embed);
                 break;
+
+            // --- أوامر الإحصائيات والاقتصاد ---
+            case 'set-stat':
+            case 'ضبط-احصائية':
+                await this.setStat(message, client, sql, targetUser, targetMember, args[2], args[3], embed);
+                break;
+            case 'add-mora':
+            case 'اضافة-مورا':
+                await this.modifyEconomy(message, client, sql, targetUser, args[2], 'add', 'mora', embed);
+                break;
+            case 'remove-mora':
+            case 'خصم-مورا':
+                await this.modifyEconomy(message, client, sql, targetUser, args[2], 'remove', 'mora', embed);
+                break;
+            case 'add-xp':
+            case 'اضافة-خبرة':
+                await this.modifyEconomy(message, client, sql, targetUser, args[2], 'add', 'xp', embed);
+                break;
+            case 'reset-user':
+            case 'تصفير-المستخدم':
+                await this.resetUser(message, client, sql, targetUser, embed);
+                break;
+            
+            // --- أمر الفحص الجديد ---
+            case 'check':
+            case 'فحص':
+            case 'معلومات':
+                await this.checkUser(message, client, sql, targetUser, embed);
+                break;
+
             default:
                 message.reply({ embeds: [this.getHelpEmbed()] });
         }
@@ -98,418 +152,479 @@ module.exports = {
 
     getHelpEmbed() {
         return new EmbedBuilder()
-            .setTitle('❌ خطأ في الاستخدام - أدوات الإدارة')
-            .setColor(Colors.Red)
+            .setTitle('🛠️ لوحة التحكم')
+            .setColor(Colors.DarkGrey)
             .setDescription(
-                "الرجاء تحديد مستخدم وخيار صحيح:\n\n" +
-                "**-ادمن [الخيار] [المستخدم] [الكمية/العنصر]**\n\n" +
-                "**خيارات ستريك الميديا (استخدم `ضبط-ميديا-ستريك` او الاختصارات):**\n" +
-                "`... ضبط-ميديا-ستريك` @user [العدد]\n" +
-                "`... اعطاء-درع-ميديا` @user\n" +
-                "`... ازالة-درع-ميديا` @user\n\n" +
-                "**خيارات العناصر (استخدم `اعطاء-عنصر` او الاختصارات):**\n" +
-                "`... اعطاء-عنصر` @user [الاسم او ID] [الكمية]\n" +
-                "`... ازالة-عنصر` @user [الاسم او ID] [الكمية]\n\n" +
-                "**خيارات المهام والإنجازات:**\n" +
-                "`... اعطاء-انجاز` @user [الاسم او ID]\n" +
-                "`... ازالة-انجاز` @user [الاسم او ID]\n" +
-                "`... اعطاء-مهمة-يومية` @user [الاسم او ID]\n" + 
-                "`... اعطاء-مهمة-اسبوعية` @user [الاسم او ID]\n" + 
-                "`... ضبط-احصائية` @user [اسم الإحصائية] [الرقم]"
+                "**التحكم بالسوق:**\n" +
+                "`-ادمن حالة-السوق [ركود/ازدهار/طبيعي]`\n" +
+                "`-ادمن انهيار-السوق` (خسف الأسعار)\n" +
+                "`-ادمن انعاش-السوق` (رفع الأسعار)\n" +
+                "`-ادمن تحديد-سعر [ID] [السعر]`\n\n" +
+
+                "**التحكم بالأعضاء:**\n" +
+                "`-ادمن فحص @user` (عرض شامل لبيانات العضو)\n" +
+                "`-ادمن ضبط-ميديا-ستريك @user [العدد]`\n" +
+                "`-ادمن اعطاء-درع-ميديا @user`\n" +
+                "`-ادمن اعطاء-عنصر @user [اسم العنصر] [الكمية]`\n" +
+                "`-ادمن اضافة-مورا @user [المبلغ]`\n" +
+                "`-ادمن اضافة-خبرة @user [القدر]`\n" +
+                "`-ادمن اعطاء-انجاز @user [اسم الانجاز]`"
             );
     },
 
+    // =========================================================
+    // 🔍 أمر الفحص الشامل (New)
+    // =========================================================
+    async checkUser(message, client, sql, targetUser, embed) {
+        const guildID = message.guild.id;
+        const userID = targetUser.id;
+
+        // جلب البيانات
+        const userData = client.getLevel.get(userID, guildID) || {};
+        const streakData = sql.prepare("SELECT * FROM streaks WHERE guildID = ? AND userID = ?").get(guildID, userID) || {};
+        const mediaStreakData = sql.prepare("SELECT * FROM media_streaks WHERE guildID = ? AND userID = ?").get(guildID, userID) || {};
+        const portfolio = sql.prepare("SELECT * FROM user_portfolio WHERE guildID = ? AND userID = ?").all(guildID, userID);
+        const farm = sql.prepare("SELECT animalID, COUNT(*) as count FROM user_farm WHERE guildID = ? AND userID = ? GROUP BY animalID").all(guildID, userID);
+        const achievements = sql.prepare("SELECT achievementID FROM user_achievements WHERE guildID = ? AND userID = ?").all(guildID, userID);
+
+        embed.setTitle(`📋 تقرير فحص: ${targetUser.username}`)
+            .setThumbnail(targetUser.displayAvatarURL())
+            .addFields(
+                { name: '💰 الاقتصاد', value: `مورا: **${(userData.mora || 0).toLocaleString()}**\nبنك: **${(userData.bank || 0).toLocaleString()}**\nXP: **${(userData.xp || 0).toLocaleString()}** (Lv. ${userData.level || 1})`, inline: true },
+                { name: '🔥 الستريك', value: `شات: **${streakData.streakCount || 0}** (Shield: ${streakData.hasItemShield ? '✅' : '❌'})\nميديا: **${mediaStreakData.streakCount || 0}** (Shield: ${mediaStreakData.hasItemShield ? '✅' : '❌'})`, inline: true },
+                { name: '🛡️ الحماية', value: `حارس شخصي: **${userData.hasGuard || 0}** شحنة`, inline: true },
+                { name: '📈 المحفظة', value: portfolio.length > 0 ? portfolio.map(p => `${p.itemID}: ${p.quantity}`).join(', ') : 'لا يوجد', inline: false },
+                { name: '🐄 المزرعة', value: farm.length > 0 ? farm.map(a => `${a.animalID}: ${a.count}`).join(', ') : 'لا يوجد', inline: false },
+                { name: '🏆 الإنجازات', value: `عدد المكتمل: **${achievements.length}**`, inline: true }
+            );
+
+        await message.reply({ embeds: [embed] });
+    },
+
+    // =========================================================
+    // 📊 دوال السوق
+    // =========================================================
+    async handleMarketCommands(message, sql, subcommand, args) {
+        const embed = new EmbedBuilder().setColor(Colors.Gold).setTimestamp();
+        const guildID = message.guild.id;
+
+        if (subcommand === 'market-status' || subcommand === 'حالة-السوق') {
+            const status = args[1]; 
+            if (!['recession', 'boom', 'normal', 'ركود', 'ازدهار', 'طبيعي'].includes(status)) {
+                return message.reply("❌ الحالات المتاحة: `ركود`، `ازدهار`، `طبيعي`.");
+            }
+            
+            let statusKey = 'normal';
+            if (['recession', 'ركود'].includes(status)) statusKey = 'recession';
+            if (['boom', 'ازدهار'].includes(status)) statusKey = 'boom';
+
+            sql.prepare("INSERT OR IGNORE INTO settings (guild) VALUES (?)").run(guildID);
+            sql.prepare("UPDATE settings SET marketStatus = ? WHERE guild = ?").run(statusKey, guildID);
+
+            let statusText = statusKey === 'recession' ? '📉 ركود اقتصادي' : (statusKey === 'boom' ? '📈 ازدهار اقتصادي' : '⚖️ وضع طبيعي');
+            embed.setDescription(`✅ تم تحديث حالة السوق إلى: **${statusText}**`);
+            await message.reply({ embeds: [embed] });
+        } 
+        
+        else if (subcommand === 'market-crash' || subcommand === 'انهيار-السوق') {
+            const allItems = sql.prepare("SELECT * FROM market_items").all();
+            const updateStmt = sql.prepare("UPDATE market_items SET currentPrice = ?, lastChangePercent = ? WHERE id = ?");
+            
+            let report = [];
+            for (const item of allItems) {
+                const dropPercent = (Math.random() * 0.20) + 0.20; 
+                const newPrice = Math.max(10, Math.floor(item.currentPrice * (1 - dropPercent)));
+                const changePercent = ((newPrice - item.currentPrice) / item.currentPrice);
+                
+                updateStmt.run(newPrice, changePercent.toFixed(2), item.id);
+                report.push(`${item.name}: ${item.currentPrice.toLocaleString()} ➔ ${newPrice.toLocaleString()}`);
+            }
+            
+            embed.setColor(Colors.Red).setTitle('📉 انهيار السوق!').setDescription(`\`\`\`\n${report.join('\n')}\n\`\`\``);
+            await message.reply({ embeds: [embed] });
+        }
+
+        else if (subcommand === 'market-boom' || subcommand === 'انعاش-السوق') {
+            const allItems = sql.prepare("SELECT * FROM market_items").all();
+            const updateStmt = sql.prepare("UPDATE market_items SET currentPrice = ?, lastChangePercent = ? WHERE id = ?");
+            
+            let report = [];
+            for (const item of allItems) {
+                const risePercent = (Math.random() * 0.20) + 0.15; 
+                const newPrice = Math.floor(item.currentPrice * (1 + risePercent));
+                const changePercent = ((newPrice - item.currentPrice) / item.currentPrice);
+                
+                updateStmt.run(newPrice, changePercent.toFixed(2), item.id);
+                report.push(`${item.name}: ${item.currentPrice.toLocaleString()} ➔ ${newPrice.toLocaleString()}`);
+            }
+            
+            embed.setColor(Colors.Gold).setTitle('📈 انتعاش السوق!').setDescription(`\`\`\`\n${report.join('\n')}\n\`\`\``);
+            await message.reply({ embeds: [embed] });
+        }
+
+        else if (subcommand === 'set-price' || subcommand === 'تحديد-سعر') {
+            const itemID = args[1]; 
+            const price = parseInt(args[2]);
+
+            if (!itemID || isNaN(price)) return message.reply("❌ الاستخدام: `-ادمن تحديد-سعر [ID/الاسم] [السعر]`");
+
+            // البحث عن العنصر بالاسم أو الـ ID
+            const item = marketItems.find(i => normalize(i.name) === normalize(itemID) || i.id.toLowerCase() === itemID.toLowerCase());
+            
+            if (!item) return message.reply("❌ السهم غير موجود.");
+
+            // جلب السعر الحالي الحقيقي من الداتابيس لحساب النسبة
+            const dbItem = sql.prepare("SELECT * FROM market_items WHERE id = ?").get(item.id);
+            const currentPrice = dbItem ? dbItem.currentPrice : item.price;
+
+            const changePercent = ((price - currentPrice) / currentPrice).toFixed(2);
+            sql.prepare("UPDATE market_items SET currentPrice = ?, lastChangePercent = ? WHERE id = ?").run(price, changePercent, item.id);
+
+            embed.setDescription(`✅ تم تحديد سعر **${item.name}** يدوياً بـ **${price.toLocaleString()}**.`);
+            await message.reply({ embeds: [embed] });
+        }
+    },
+
+    // =========================================================
+    // 💰 دوال الاقتصاد
+    // =========================================================
+    async modifyEconomy(message, client, sql, targetUser, amountArg, type, currency, embed) {
+        const amount = parseInt(amountArg);
+        if (isNaN(amount) || amount <= 0) return message.reply("❌ رقم غير صالح.");
+
+        let userData = client.getLevel.get(targetUser.id, message.guild.id);
+        if (!userData) userData = { ...client.defaultData, user: targetUser.id, guild: message.guild.id };
+
+        if (currency === 'mora') {
+            if (type === 'add') userData.mora += amount;
+            else userData.mora = Math.max(0, userData.mora - amount);
+            embed.setDescription(`✅ **${type === 'add' ? 'تم إضافة' : 'تم خصم'}** \`${amount.toLocaleString()}\` مورا لـ ${targetUser}.`);
+        } else if (currency === 'xp') {
+            if (type === 'add') {
+                userData.xp += amount;
+                userData.totalXP += amount;
+                const nextXP = 5 * (userData.level ** 2) + (50 * userData.level) + 100;
+                if (userData.xp >= nextXP) {
+                    userData.level++;
+                    userData.xp -= nextXP;
+                }
+            }
+            embed.setDescription(`✅ **تم إضافة** \`${amount.toLocaleString()}\` XP لـ ${targetUser}.`);
+        }
+
+        client.setLevel.run(userData);
+        await message.reply({ embeds: [embed] });
+    },
+
+    async resetUser(message, client, sql, targetUser, embed) {
+        const guildID = message.guild.id;
+        const userID = targetUser.id;
+
+        sql.prepare("DELETE FROM levels WHERE user = ? AND guild = ?").run(userID, guildID);
+        sql.prepare("DELETE FROM user_portfolio WHERE userID = ? AND guildID = ?").run(userID, guildID);
+        sql.prepare("DELETE FROM user_farm WHERE userID = ? AND guildID = ?").run(userID, guildID);
+        sql.prepare("DELETE FROM user_achievements WHERE userID = ? AND guildID = ?").run(userID, guildID);
+        client.setLevel.run({ ...client.defaultData, user: userID, guild: guildID });
+
+        embed.setColor(Colors.DarkRed).setDescription(`☣️ **تم تصفير حساب ${targetUser} بالكامل!**`);
+        await message.reply({ embeds: [embed] });
+    },
+
+    // =========================================================
+    // 🔥 دوال الستريك
+    // =========================================================
     async setMediaStreak(message, sql, targetUser, countArg, embed) {
         const count = parseInt(countArg);
-        if (isNaN(count) || count < 0) {
-            return message.reply("❌ الرجاء تحديد عدد ستريك صحيح (0 أو أكثر).");
-        }
+        if (isNaN(count) || count < 0) return message.reply("❌ رقم غير صالح.");
+        
         const guildID = message.guild.id;
         const userID = targetUser.id;
         const id = `${guildID}-${userID}`;
         let streakData = sql.prepare("SELECT * FROM media_streaks WHERE id = ?").get(id);
+        
         if (!streakData) {
-            streakData = {
-                id: id, guildID, userID, streakCount: 0, lastMediaTimestamp: 0,
-                hasGracePeriod: 1, hasItemShield: 0, hasReceivedFreeShield: 1,
-                dmNotify: 1, highestStreak: 0
-            };
+            streakData = { id, guildID, userID, streakCount: count, lastMediaTimestamp: Date.now(), hasGracePeriod: 1, hasItemShield: 0, hasReceivedFreeShield: 1, dmNotify: 1, highestStreak: count };
+        } else {
+            streakData.streakCount = count;
+            if (count > streakData.highestStreak) streakData.highestStreak = count;
         }
-        streakData.streakCount = count;
-        if (count > 0) {
-            streakData.lastMediaTimestamp = Date.now(); 
-        }
-        if (count > streakData.highestStreak) {
-            streakData.highestStreak = count;
-        }
-        sql.prepare(`
-            INSERT OR REPLACE INTO media_streaks 
-            (id, guildID, userID, streakCount, lastMediaTimestamp, hasGracePeriod, hasItemShield, hasReceivedFreeShield, dmNotify, highestStreak) 
-            VALUES (@id, @guildID, @userID, @streakCount, @lastMediaTimestamp, @hasGracePeriod, @hasItemShield, @hasReceivedFreeShield, @dmNotify, @highestStreak)
-        `).run(streakData);
+        
+        sql.prepare(`INSERT OR REPLACE INTO media_streaks (id, guildID, userID, streakCount, lastMediaTimestamp, hasGracePeriod, hasItemShield, hasReceivedFreeShield, dmNotify, highestStreak) VALUES (@id, @guildID, @userID, @streakCount, @lastMediaTimestamp, @hasGracePeriod, @hasItemShield, @hasReceivedFreeShield, @dmNotify, @highestStreak)`).run(streakData);
+        
         embed.setDescription(`✅ تم ضبط ستريك الميديا لـ ${targetUser} إلى **${count}**.`);
         await message.reply({ embeds: [embed] });
     },
+
     async giveMediaShield(message, sql, targetUser, embed) {
         const id = `${message.guild.id}-${targetUser.id}`;
-        let streakData = sql.prepare("SELECT * FROM media_streaks WHERE id = ?").get(id);
+        const streakData = sql.prepare("SELECT * FROM media_streaks WHERE id = ?").get(id);
+        
+        if (streakData && streakData.hasItemShield) return message.reply("ℹ️ يمتلك درعاً بالفعل.");
+        
         if (!streakData) {
-             const guildID = message.guild.id;
-             const userID = targetUser.id;
-             streakData = {
-                id: id, guildID, userID, streakCount: 0, lastMediaTimestamp: 0,
-                hasGracePeriod: 0, hasItemShield: 1, hasReceivedFreeShield: 0,
-                dmNotify: 1, highestStreak: 0
-            };
-            sql.prepare(`
-                INSERT OR REPLACE INTO media_streaks 
-                (id, guildID, userID, streakCount, lastMediaTimestamp, hasGracePeriod, hasItemShield, hasReceivedFreeShield, dmNotify, highestStreak) 
-                VALUES (@id, @guildID, @userID, @streakCount, @lastMediaTimestamp, @hasGracePeriod, @hasItemShield, @hasReceivedFreeShield, @dmNotify, @highestStreak)
-            `).run(streakData);
+            sql.prepare(`INSERT INTO media_streaks (id, guildID, userID, hasItemShield) VALUES (?, ?, ?, 1)`).run(id, message.guild.id, targetUser.id);
         } else {
-             if (streakData.hasItemShield === 1) {
-                return message.reply("ℹ️ هذا المستخدم يمتلك درع ميديا بالفعل.");
-            }
             sql.prepare("UPDATE media_streaks SET hasItemShield = 1 WHERE id = ?").run(id);
         }
+        
         embed.setDescription(`✅ تم إعطاء درع ستريك ميديا لـ ${targetUser}.`);
         await message.reply({ embeds: [embed] });
     },
+
     async removeMediaShield(message, sql, targetUser, embed) {
         const id = `${message.guild.id}-${targetUser.id}`;
-        let streakData = sql.prepare("SELECT * FROM media_streaks WHERE id = ?").get(id);
-        if (!streakData || streakData.hasItemShield === 0) {
-            return message.reply("ℹ️ هذا المستخدم لا يمتلك درع ميديا ليتم إزالته.");
-        }
         sql.prepare("UPDATE media_streaks SET hasItemShield = 0 WHERE id = ?").run(id);
         embed.setDescription(`✅ تم إزالة درع ستريك الميديا من ${targetUser}.`);
         await message.reply({ embeds: [embed] });
     },
+
+    // =========================================================
+    // 🎒 دوال العناصر (بحث ذكي بالاسم)
+    // =========================================================
     findItem(nameOrID) {
-        const lowerCaseInput = nameOrID.toLowerCase();
-        let item = shopItems.find(i => 
-            (i.id.toLowerCase() === lowerCaseInput || i.name.toLowerCase() === lowerCaseInput) &&
-            !marketItems.some(m => m.id === i.id) && 
-            !farmAnimals.some(f => f.id === i.id)
-        );
-        if (item) return { ...item, type: 'shop_special' };
-        item = marketItems.find(i => i.id.toLowerCase() === lowerCaseInput || i.name.toLowerCase() === lowerCaseInput);
+        const input = normalize(nameOrID);
+        
+        // البحث في المتجر (أولوية للعناصر الخاصة)
+        let item = shopItems.find(i => normalize(i.name) === input || i.id.toLowerCase() === nameOrID.toLowerCase());
+        if (item && !marketItems.some(m => m.id === item.id) && !farmAnimals.some(f => f.id === item.id)) {
+             return { ...item, type: 'shop_special' };
+        }
+
+        // البحث في السوق
+        item = marketItems.find(i => normalize(i.name) === input || i.id.toLowerCase() === nameOrID.toLowerCase());
         if (item) return { ...item, type: 'market' };
-        item = farmAnimals.find(i => i.id.toLowerCase() === lowerCaseInput || i.name.toLowerCase() === lowerCaseInput);
+
+        // البحث في المزرعة
+        item = farmAnimals.find(i => normalize(i.name) === input || i.id.toLowerCase() === nameOrID.toLowerCase());
         if (item) return { ...item, type: 'farm' };
+
         return null;
     },
+
     async giveItem(message, client, sql, targetUser, args, embed) {
-        const quantityArg = args[args.length - 1];
-        const quantity = parseInt(quantityArg);
-        const itemNameOrID = args.slice(2, -1).join(' ');
-        if (!itemNameOrID || isNaN(quantity) || quantity <= 0) {
-            return message.reply("❌ الاستخدام: `-ادمن اعطاء-عنصر @user [الاسم او ID] [الكمية]`");
+        // محاولة استخراج الكمية (آخر مدخل إذا كان رقم)
+        let quantity = 1;
+        let itemNameRaw = "";
+        
+        const lastArg = args[args.length - 1];
+        if (!isNaN(parseInt(lastArg))) {
+            quantity = parseInt(lastArg);
+            itemNameRaw = args.slice(2, -1).join(' ');
+        } else {
+            itemNameRaw = args.slice(2).join(' ');
         }
-        const item = this.findItem(itemNameOrID);
-        if (!item) {
-            return message.reply("❌ لم يتم العثور على عنصر بهذا الاسم او الـ ID.");
-        }
+
+        if (!itemNameRaw || quantity <= 0) return message.reply("❌ الاستخدام: `-ادمن اعطاء-عنصر @user [الاسم] [الكمية]`");
+
+        const item = this.findItem(itemNameRaw);
+        if (!item) return message.reply(`❌ لم يتم العثور على عنصر باسم "${itemNameRaw}".`);
+
         const guildID = message.guild.id;
         const userID = targetUser.id;
-        switch (item.type) {
-            case 'market': {
-                let portfolioItem = sql.prepare("SELECT * FROM user_portfolio WHERE userID = ? AND guildID = ? AND itemID = ?").get(userID, guildID, item.id);
-                if (portfolioItem) {
-                    sql.prepare("UPDATE user_portfolio SET quantity = quantity + ? WHERE id = ?").run(quantity, portfolioItem.id);
-                } else {
-                    sql.prepare("INSERT INTO user_portfolio (guildID, userID, itemID, quantity) VALUES (?, ?, ?, ?)")
-                       .run(guildID, userID, item.id, quantity);
-                }
-                embed.setDescription(`✅ تم إعطاء ${targetUser} عدد **${quantity}** من العنصر \`${item.name}\`.`);
-                break;
-            }
-            case 'farm': {
-                const insertFarm = sql.prepare("INSERT INTO user_farm (guildID, userID, animalID, purchaseTimestamp, lastCollected) VALUES (?, ?, ?, ?, ?)");
-                const now = Date.now();
-                for (let i = 0; i < quantity; i++) {
-                    insertFarm.run(guildID, userID, item.id, now, now);
-                }
-                embed.setDescription(`✅ تم إعطاء ${targetUser} عدد **${quantity}** من الحيوان \`${item.name}\`.`);
-                break;
-            }
-            case 'shop_special': {
-                switch (item.id) {
-                    case 'personal_guard_1d': {
-                        let userData = client.getLevel.get(userID, guildID);
-                        if (!userData) userData = { ...client.defaultData, user: userID, guild: guildID };
-                        userData.hasGuard = (userData.hasGuard || 0) + quantity;
-                        userData.guardExpires = 0; 
-                        client.setLevel.run(userData);
-                        embed.setDescription(`✅ تم إعطاء ${targetUser} عدد **${quantity}** شحنة حارس شخصي.`);
-                        break;
-                    }
-                    case 'streak_shield': {
-                        let streakData = sql.prepare("SELECT * FROM streaks WHERE id = ?").get(`${guildID}-${userID}`);
-                        if (!streakData) {
-                            streakData = { id: `${guildID}-${userID}`, guildID, userID, streakCount: 0, lastMessageTimestamp: 0, hasGracePeriod: 0, hasItemShield: 1, hasReceivedFreeShield: 0, dmNotify: 1, highestStreak: 0, separator: '|' };
-                            sql.prepare(`INSERT OR REPLACE INTO streaks (id, guildID, userID, streakCount, lastMessageTimestamp, hasGracePeriod, hasItemShield, nicknameActive, hasReceivedFreeShield, separator, dmNotify, highestStreak) VALUES (@id, @guildID, @userID, @streakCount, @lastMessageTimestamp, @hasGracePeriod, @hasItemShield, @nicknameActive, @hasReceivedFreeShield, @separator, @dmNotify, @highestStreak)`).run(streakData);
-                        } else {
-                            sql.prepare("UPDATE streaks SET hasItemShield = 1 WHERE id = ?").run(streakData.id);
-                        }
-                        embed.setDescription(`✅ تم إعطاء ${targetUser} **درع ستريك**.`);
-                        break;
-                    }
-                    case 'streak_shield_media': {
-                        await this.giveMediaShield(message, sql, targetUser, embed);
-                        return; 
-                    }
-                    default:
-                        return message.reply(`❌ لا يمكن إعطاء هذا العنصر الخاص (\`${item.name}\`) يدوياً. العناصر المدعومة هي: درع الستريك، درع الميديا، الحارس الشخصي.`);
-                }
-                break;
-            }
+
+        // منطق الإضافة حسب النوع
+        if (item.type === 'market') {
+            const pfItem = sql.prepare("SELECT * FROM user_portfolio WHERE userID = ? AND guildID = ? AND itemID = ?").get(userID, guildID, item.id);
+            if (pfItem) sql.prepare("UPDATE user_portfolio SET quantity = quantity + ? WHERE id = ?").run(quantity, pfItem.id);
+            else sql.prepare("INSERT INTO user_portfolio (guildID, userID, itemID, quantity) VALUES (?, ?, ?, ?)").run(guildID, userID, item.id, quantity);
+            embed.setDescription(`✅ تم إضافة **${quantity}** × **${item.name}** لمحفظة ${targetUser}.`);
+        } 
+        else if (item.type === 'farm') {
+            const now = Date.now();
+            const stmt = sql.prepare("INSERT INTO user_farm (guildID, userID, animalID, purchaseTimestamp, lastCollected) VALUES (?, ?, ?, ?, ?)");
+            for (let i = 0; i < quantity; i++) stmt.run(guildID, userID, item.id, now, now);
+            embed.setDescription(`✅ تم إضافة **${quantity}** × **${item.name}** لمزرعة ${targetUser}.`);
         }
-        await message.reply({ embeds: [embed] });
-    },
-    async removeItem(message, client, sql, targetUser, args, embed) {
-        const quantityArg = args[args.length - 1];
-        const quantity = parseInt(quantityArg);
-        const itemNameOrID = args.slice(2, -1).join(' ');
-        if (!itemNameOrID || isNaN(quantity) || quantity <= 0) {
-            return message.reply("❌ الاستخدام: `-ادمن ازالة-عنصر @user [الاسم او ID] [الكمية]`");
-        }
-        const item = this.findItem(itemNameOrID);
-        if (!item) {
-            return message.reply("❌ لم يتم العثور على عنصر بهذا الاسم او الـ ID.");
-        }
-        const guildID = message.guild.id;
-        const userID = targetUser.id;
-        switch (item.type) {
-            case 'market': {
-                let portfolioItem = sql.prepare("SELECT * FROM user_portfolio WHERE userID = ? AND guildID = ? AND itemID = ?").get(userID, guildID, item.id);
-                if (!portfolioItem || portfolioItem.quantity < quantity) {
-                    return message.reply(`❌ لا يمتلك ${targetUser} هذه الكمية (يمتلك: ${portfolioItem?.quantity || 0}).`);
-                }
-                const newQuantity = portfolioItem.quantity - quantity;
-                if (newQuantity === 0) {
-                    sql.prepare("DELETE FROM user_portfolio WHERE id = ?").run(portfolioItem.id);
-                } else {
-                    sql.prepare("UPDATE user_portfolio SET quantity = ? WHERE id = ?").run(newQuantity, portfolioItem.id);
-                }
-                embed.setDescription(`✅ تم إزالة **${quantity}** من العنصر \`${item.name}\` من ${targetUser}.`);
-                break;
+        else if (item.type === 'shop_special') {
+            if (item.id === 'personal_guard_1d') {
+                let ud = client.getLevel.get(userID, guildID) || { ...client.defaultData, user: userID, guild: guildID };
+                ud.hasGuard = (ud.hasGuard || 0) + quantity;
+                client.setLevel.run(ud);
+                embed.setDescription(`✅ تم إضافة **${quantity}** شحنات حماية لـ ${targetUser}.`);
             }
-            case 'farm': {
-                const userAnimals = sql.prepare("SELECT id FROM user_farm WHERE userID = ? AND guildID = ? AND animalID = ? LIMIT ?").all(userID, guildID, item.id, quantity);
-                if (userAnimals.length < quantity) {
-                    return message.reply(`❌ لا يمتلك ${targetUser} هذه الكمية (يمتلك: ${userAnimals.length}).`);
-                }
-                const idsToDelete = userAnimals.map(a => a.id);
-                sql.prepare(`DELETE FROM user_farm WHERE id IN (${idsToDelete.map(() => '?').join(',')})`).run(...idsToDelete);
-                embed.setDescription(`✅ تم إزالة **${quantity}** من الحيوان \`${item.name}\` من ${targetUser}.`);
-                break;
+            else if (item.id === 'streak_shield') {
+                sql.prepare(`INSERT INTO streaks (id, guildID, userID, hasItemShield) VALUES (?, ?, ?, 1) ON CONFLICT(id) DO UPDATE SET hasItemShield=1`).run(`${guildID}-${userID}`, guildID, userID);
+                embed.setDescription(`✅ تم تفعيل **درع الستريك** لـ ${targetUser}.`);
             }
-            case 'shop_special': {
-                switch (item.id) {
-                    case 'personal_guard_1d': {
-                        let userData = client.getLevel.get(userID, guildID);
-                        if (!userData || (userData.hasGuard || 0) < quantity) {
-                            return message.reply(`❌ لا يمتلك ${targetUser} هذه الكمية (يمتلك: ${userData?.hasGuard || 0} شحنة).`);
-                        }
-                        userData.hasGuard -= quantity;
-                        if (userData.hasGuard < 0) userData.hasGuard = 0;
-                        client.setLevel.run(userData);
-                        embed.setDescription(`✅ تم إزالة **${quantity}** شحنة حارس شخصي من ${targetUser}.`);
-                        break;
-                    }
-                    case 'streak_shield': {
-                        sql.prepare("UPDATE streaks SET hasItemShield = 0 WHERE guildID = ? AND userID = ?").run(guildID, userID);
-                        embed.setDescription(`✅ تم إزالة **درع الستريك** من ${targetUser}.`);
-                        break;
-                    }
-                    case 'streak_shield_media': {
-                        await this.removeMediaShield(message, sql, targetUser, embed);
-                        return; 
-                    }
-                    default:
-                         return message.reply(`❌ لا يمكن إزالة هذا العنصر الخاص (\`${item.name}\`) يدوياً.`);
-                }
-                break;
+            else if (item.id === 'streak_shield_media') {
+                await this.giveMediaShield(message, sql, targetUser, embed);
+                return;
+            }
+            else {
+                return message.reply("❌ هذا العنصر لا يمكن إعطاؤه يدوياً.");
             }
         }
         await message.reply({ embeds: [embed] });
     },
 
+    async removeItem(message, client, sql, targetUser, args, embed) {
+        let quantity = 1;
+        let itemNameRaw = "";
+        
+        const lastArg = args[args.length - 1];
+        if (!isNaN(parseInt(lastArg))) {
+            quantity = parseInt(lastArg);
+            itemNameRaw = args.slice(2, -1).join(' ');
+        } else {
+            itemNameRaw = args.slice(2).join(' ');
+        }
+
+        if (!itemNameRaw || quantity <= 0) return message.reply("❌ الاستخدام: `-ادمن ازالة-عنصر @user [الاسم] [الكمية]`");
+
+        const item = this.findItem(itemNameRaw);
+        if (!item) return message.reply(`❌ لم يتم العثور على عنصر باسم "${itemNameRaw}".`);
+
+        const guildID = message.guild.id;
+        const userID = targetUser.id;
+
+        if (item.type === 'market') {
+            const pfItem = sql.prepare("SELECT * FROM user_portfolio WHERE userID = ? AND guildID = ? AND itemID = ?").get(userID, guildID, item.id);
+            if (!pfItem || pfItem.quantity < quantity) return message.reply(`❌ لا يمتلك الكمية الكافية (يمتلك: ${pfItem?.quantity || 0}).`);
+            
+            if (pfItem.quantity - quantity <= 0) sql.prepare("DELETE FROM user_portfolio WHERE id = ?").run(pfItem.id);
+            else sql.prepare("UPDATE user_portfolio SET quantity = quantity - ? WHERE id = ?").run(quantity, pfItem.id);
+            
+            embed.setDescription(`✅ تم إزالة **${quantity}** × **${item.name}** من محفظة ${targetUser}.`);
+        }
+        else if (item.type === 'farm') {
+            const animals = sql.prepare("SELECT id FROM user_farm WHERE userID = ? AND guildID = ? AND animalID = ? LIMIT ?").all(userID, guildID, item.id, quantity);
+            if (animals.length < quantity) return message.reply(`❌ لا يمتلك الكمية الكافية (يمتلك: ${animals.length}).`);
+            
+            animals.forEach(a => sql.prepare("DELETE FROM user_farm WHERE id = ?").run(a.id));
+            embed.setDescription(`✅ تم إزالة **${quantity}** × **${item.name}** من مزرعة ${targetUser}.`);
+        }
+        else if (item.type === 'shop_special') {
+            if (item.id === 'personal_guard_1d') {
+                let ud = client.getLevel.get(userID, guildID);
+                if (!ud || ud.hasGuard < quantity) return message.reply("❌ لا يمتلك شحنات كافية.");
+                ud.hasGuard -= quantity;
+                client.setLevel.run(ud);
+                embed.setDescription(`✅ تم إزالة **${quantity}** شحنات حماية من ${targetUser}.`);
+            }
+            else if (item.id === 'streak_shield') {
+                sql.prepare("UPDATE streaks SET hasItemShield = 0 WHERE guildID = ? AND userID = ?").run(guildID, userID);
+                embed.setDescription(`✅ تم إزالة **درع الستريك** من ${targetUser}.`);
+            }
+            else if (item.id === 'streak_shield_media') {
+                await this.removeMediaShield(message, sql, targetUser, embed);
+                return;
+            }
+        }
+        await message.reply({ embeds: [embed] });
+    },
+
+    // =========================================================
+    // 🏆 دوال الإنجازات والمهام
+    // =========================================================
     findAchievement(nameOrID) {
-        if (!nameOrID) return null;
-        const input = nameOrID.toLowerCase().trim();
-        return questsConfig.achievements.find(a => a.id.toLowerCase() === input || a.name.toLowerCase() === input);
+        const input = normalize(nameOrID);
+        return questsConfig.achievements.find(a => normalize(a.name) === input || a.id.toLowerCase() === nameOrID.toLowerCase());
     },
 
     async giveAchievement(message, client, sql, targetUser, targetMember, args, embed) {
-        const achNameOrID = args.slice(2).join(' ');
-        if (!achNameOrID) {
-            return message.reply("❌ يرجى تحديد ID أو اسم الإنجاز.\n(مثال: `-ادمن اعطاء-انجاز @user امير الشات`)");
-        }
+        const achName = args.slice(2).join(' ');
+        if (!achName) return message.reply("❌ يرجى كتابة اسم الإنجاز.");
 
-        const achConfig = this.findAchievement(achNameOrID);
-        if (!achConfig) {
-            return message.reply("❌ لم يتم العثور على إنجاز بهذا الـ ID أو الاسم.");
-        }
+        const ach = this.findAchievement(achName);
+        if (!ach) return message.reply("❌ الإنجاز غير موجود.");
 
-        const guildID = message.guild.id;
-        const userID = targetUser.id;
+        const exists = sql.prepare("SELECT 1 FROM user_achievements WHERE userID = ? AND guildID = ? AND achievementID = ?").get(targetUser.id, message.guild.id, ach.id);
+        if (exists) return message.reply("ℹ️ لديه الإنجاز بالفعل.");
 
-        const existingAch = sql.prepare("SELECT * FROM user_achievements WHERE userID = ? AND guildID = ? AND achievementID = ?").get(userID, guildID, achConfig.id);
-        if (existingAch) {
-            return message.reply("ℹ️ هذا المستخدم يمتلك هذا الإنجاز بالفعل.");
-        }
+        sql.prepare("INSERT INTO user_achievements (userID, guildID, achievementID, timestamp) VALUES (?, ?, ?, ?)").run(targetUser.id, message.guild.id, ach.id, Date.now());
+        
+        // إضافة الجوائز
+        let ld = client.getLevel.get(targetUser.id, message.guild.id) || { ...client.defaultData, user: targetUser.id, guild: message.guild.id };
+        ld.mora += ach.reward.mora;
+        ld.xp += ach.reward.xp;
+        client.setLevel.run(ld);
 
-        sql.prepare("INSERT INTO user_achievements (userID, guildID, achievementID, timestamp) VALUES (?, ?, ?, ?)")
-           .run(userID, guildID, achConfig.id, Date.now());
-
-        let levelData = client.getLevel.get(userID, guildID);
-        if (!levelData) levelData = { ...client.defaultData, user: userID, guild: guildID };
-
-        levelData.mora = (levelData.mora || 0) + achConfig.reward.mora;
-        levelData.xp += achConfig.reward.xp;
-        levelData.totalXP += achConfig.reward.xp;
-        client.setLevel.run(levelData);
-
-        try {
-            await client.sendQuestAnnouncement(
-                message.guild, 
-                targetMember, 
-                achConfig, 
-                'achievement'
-            );
-        } catch (e) {
-            console.error("Failed to send admin achievement announcement:", e);
-        }
-
-        embed.setDescription(`✅ تم منح إنجاز **${achConfig.name}** لـ ${targetUser} بنجاح (وتم إرسال إشعار).`);
+        try { await client.sendQuestAnnouncement(message.guild, targetMember, ach, 'achievement'); } catch (e) {}
+        
+        embed.setDescription(`✅ تم منح الإنجاز **${ach.name}** لـ ${targetUser}.`);
         await message.reply({ embeds: [embed] });
     },
 
     async removeAchievement(message, sql, targetUser, args, embed) {
-        const achNameOrID = args.slice(2).join(' ');
-        if (!achNameOrID) {
-            return message.reply("❌ يرجى تحديد ID أو اسم الإنجاز.\n(مثال: `-ادمن ازالة-انجاز @user امير الشات`)");
-        }
+        const achName = args.slice(2).join(' ');
+        const ach = this.findAchievement(achName);
+        if (!ach) return message.reply("❌ الإنجاز غير موجود.");
 
-        const achConfig = this.findAchievement(achNameOrID);
-        if (!achConfig) {
-            return message.reply("❌ لم يتم العثور على إنجاز بهذا الـ ID أو الاسم.");
-        }
-
-        const result = sql.prepare("DELETE FROM user_achievements WHERE userID = ? AND guildID = ? AND achievementID = ?")
-                             .run(targetUser.id, message.guild.id, achConfig.id);
-
-        if (result.changes > 0) {
-            embed.setDescription(`✅ تم إزالة الإنجاز \`${achConfig.name}\` من ${targetUser}.`);
-        } else {
-            embed.setColor(Colors.Red).setDescription(`ℹ️ ${targetUser} لا يمتلك هذا الإنجاز أصلاً.`);
-        }
+        const res = sql.prepare("DELETE FROM user_achievements WHERE userID = ? AND guildID = ? AND achievementID = ?").run(targetUser.id, message.guild.id, ach.id);
+        
+        if (res.changes) embed.setDescription(`✅ تم إزالة الإنجاز **${ach.name}** من ${targetUser}.`);
+        else embed.setColor(Colors.Red).setDescription("ℹ️ لا يمتلك هذا الإنجاز.");
+        
         await message.reply({ embeds: [embed] });
     },
 
     async setStat(message, client, sql, targetUser, targetMember, statName, value, embed) {
-        if (!statName || isNaN(parseInt(value))) {
-            return message.reply("❌ الاستخدام: `-ادمن ضبط-احصائية @user [اسم الإحصائية] [الرقم]`\nمثال: `-ادمن ضبط-احصائية @user level 49`");
-        }
-
+        if (!statName || isNaN(parseInt(value))) return message.reply("❌ الاستخدام: `-ادمن ضبط-احصائية @user [اسم الإحصائية] [الرقم]`");
+        const val = parseInt(value);
         const guildID = message.guild.id;
         const userID = targetUser.id;
-        const numValue = parseInt(value);
 
-        let levelData = client.getLevel.get(userID, guildID);
-        if (!levelData) levelData = { ...client.defaultData, user: userID, guild: guildID };
-
-        let totalStatsData = client.getTotalStats.get(`${userID}-${guildID}`);
-        if (!totalStatsData) totalStatsData = { id: `${userID}-${guildID}`, userID, guildID };
-
-        let streakData = sql.prepare("SELECT * FROM streaks WHERE guildID = ? AND userID = ?").get(guildID, userID);
-        let mediaStreakData = sql.prepare("SELECT * FROM media_streaks WHERE guildID = ? AND userID = ?").get(guildID, userID);
-
-        let statFound = false;
-
-        if (levelData.hasOwnProperty(statName)) {
-            levelData[statName] = numValue;
-            client.setLevel.run(levelData);
-            statFound = true;
-        } 
-        else if (totalStatsData.hasOwnProperty(statName)) {
-            totalStatsData[statName] = numValue;
-            client.setTotalStats.run(totalStatsData);
-            statFound = true;
-        }
-        else if (streakData && streakData.hasOwnProperty(statName)) {
-            sql.prepare(`UPDATE streaks SET ${statName} = ? WHERE id = ?`).run(numValue, streakData.id);
-            statFound = true;
-            streakData = sql.prepare("SELECT * FROM streaks WHERE guildID = ? AND userID = ?").get(guildID, userID);
-        }
-        else if (mediaStreakData && mediaStreakData.hasOwnProperty(statName)) {
-            sql.prepare(`UPDATE media_streaks SET ${statName} = ? WHERE id = ?`).run(numValue, mediaStreakData.id);
-            statFound = true;
+        // محاولة التحديث في عدة جداول
+        let updated = false;
+        
+        // 1. Levels table
+        let ld = client.getLevel.get(userID, guildID);
+        if (ld && ld.hasOwnProperty(statName)) {
+            ld[statName] = val;
+            client.setLevel.run(ld);
+            updated = true;
         }
 
-        if (!statFound) {
-            return message.reply(`❌ لم يتم العثور على إحصائية بالاسم \`${statName}\`. تأكد من كتابتها بالضبط (مثل: \`level\`, \`total_messages\`, \`highestStreak\`).`);
+        // 2. Total Stats
+        let ts = client.getTotalStats.get(`${userID}-${guildID}`);
+        if (ts && ts.hasOwnProperty(statName)) {
+            ts[statName] = val;
+            client.setTotalStats.run(ts);
+            updated = true;
         }
 
-        await client.checkAchievements(client, targetMember, levelData, totalStatsData);
+        // 3. Streaks
+        if (!updated) {
+            try {
+                sql.prepare(`UPDATE streaks SET ${statName} = ? WHERE guildID = ? AND userID = ?`).run(val, guildID, userID);
+                updated = true;
+            } catch (e) {}
+        }
 
-        embed.setDescription(`✅ تم ضبط الإحصائية \`${statName}\` لـ ${targetUser} إلى **${numValue}**.\nتم فحص الإنجازات...`);
+        if (!updated) return message.reply(`❌ لم يتم العثور على إحصائية باسم \`${statName}\`.`);
+
+        await client.checkAchievements(client, targetMember, ld, ts);
+        embed.setDescription(`✅ تم ضبط **${statName}** لـ ${targetUser} إلى **${val}**.`);
         await message.reply({ embeds: [embed] });
     },
 
     findQuest(nameOrID, questType) {
-        if (!nameOrID) return null;
-        const input = nameOrID.toLowerCase().trim();
+        const input = normalize(nameOrID);
         const list = questType === 'daily' ? questsConfig.daily : questsConfig.weekly;
-        return list.find(q => q.id.toLowerCase() === input || q.name.toLowerCase() === input);
+        return list.find(q => normalize(q.name) === input || q.id.toLowerCase() === nameOrID.toLowerCase());
     },
 
     async giveQuest(message, client, sql, targetUser, targetMember, args, questType, embed) {
-        const questNameOrID = args.slice(2).join(' ');
-        if (!questNameOrID) {
-            return message.reply(`❌ يرجى تحديد ID أو اسم المهمة.\n(مثال: \`-ادمن ${questType === 'daily' ? 'اعطاء-مهمة-يومية' : 'اعطاء-مهمة-اسبوعية'} @user ارسل 5 رسائل\`)`);
-        }
+        const qName = args.slice(2).join(' ');
+        const quest = this.findQuest(qName, questType);
+        if (!quest) return message.reply("❌ المهمة غير موجودة.");
 
-        const questConfig = this.findQuest(questNameOrID, questType);
-        if (!questConfig) {
-            return message.reply("❌ لم يتم العثور على مهمة بهذا الـ ID أو الاسم.");
-        }
-
-        const guildID = message.guild.id;
-        const userID = targetUser.id;
         const dateKey = questType === 'daily' ? getTodayDateString() : getWeekStartDateString();
-        const claimID = `${userID}-${guildID}-${questConfig.id}-${dateKey}`;
+        const claimID = `${targetUser.id}-${message.guild.id}-${quest.id}-${dateKey}`;
+        
+        const exists = sql.prepare("SELECT 1 FROM user_quest_claims WHERE claimID = ?").get(claimID);
+        if (exists) return message.reply("ℹ️ أكمل المهمة بالفعل.");
 
-        const existingClaim = sql.prepare("SELECT * FROM user_quest_claims WHERE claimID = ?").get(claimID);
-        if (existingClaim) {
-            return message.reply("ℹ️ هذا المستخدم أكمل هذه المهمة بالفعل لهذا اليوم/الأسبوع.");
-        }
+        sql.prepare("INSERT INTO user_quest_claims (claimID, userID, guildID, questID, dateStr) VALUES (?, ?, ?, ?, ?)").run(claimID, targetUser.id, message.guild.id, quest.id, dateKey);
+        
+        let ld = client.getLevel.get(targetUser.id, message.guild.id) || { ...client.defaultData, user: targetUser.id, guild: message.guild.id };
+        ld.mora += quest.reward.mora;
+        ld.xp += quest.reward.xp;
+        client.setLevel.run(ld);
 
-        sql.prepare("INSERT INTO user_quest_claims (claimID, userID, guildID, questID, dateStr) VALUES (?, ?, ?, ?, ?)")
-           .run(claimID, userID, guildID, questConfig.id, dateKey);
+        try { await client.sendQuestAnnouncement(message.guild, targetMember, quest, questType); } catch (e) {}
 
-        let levelData = client.getLevel.get(userID, guildID);
-        if (!levelData) levelData = { ...client.defaultData, user: userID, guild: guildID };
-
-        levelData.mora = (levelData.mora || 0) + questConfig.reward.mora;
-        levelData.xp += questConfig.reward.xp;
-        levelData.totalXP += questConfig.reward.xp;
-        client.setLevel.run(levelData);
-
-        try {
-            await client.sendQuestAnnouncement(
-                message.guild, 
-                targetMember, 
-                questConfig, 
-                questType
-            );
-        } catch (e) {
-            console.error("Failed to send admin quest announcement:", e);
-        }
-
-        embed.setDescription(`✅ تم منح المهمة (${questType}) **${questConfig.name}** لـ ${targetUser} بنجاح (وتم إرسال إشعار).`);
+        embed.setDescription(`✅ تم إعطاء المهمة **${quest.name}** لـ ${targetUser}.`);
         await message.reply({ embeds: [embed] });
     }
 };
