@@ -1,5 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, Colors, Collection } = require("discord.js");
 const { calculateMoraBuff } = require('../../streak-handler.js');
+// 🔥 استيراد دالة الرصيد الحر 🔥
+const { getFreeBalance } = require('../../handlers/handler-utils.js');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const MIN_BET = 25;
@@ -51,7 +53,7 @@ module.exports = {
             client = interaction.client;
             guild = interaction.guild;
             channel = interaction.channel;
-            sql = client.sql; // ✅ تعريف واحد
+            sql = client.sql; 
             betInput = interaction.options.getInteger('الرهان');
             for (let i = 1; i <= 5; i++) {
                 const user = interaction.options.getUser(`الخصم${i}`);
@@ -67,7 +69,7 @@ module.exports = {
             client = message.client;
             guild = message.guild;
             channel = message.channel;
-            sql = client.sql; // ✅ تعريف واحد
+            sql = client.sql; 
             if (args[0] && !isNaN(parseInt(args[0]))) {
                 betInput = parseInt(args[0]);
                 if (message.mentions.members.size > 0) opponents = message.mentions.members;
@@ -194,6 +196,13 @@ async function startGuessGame(channel, author, opponents, bet, client, guild, sq
     if (bet < MIN_BET) {
         client.activePlayers.delete(author.id);
         return replyError(`الحد الأدنى للرهان هو **${MIN_BET}** ${EMOJI_MORA} !`);
+    }
+
+    // 🔥 فحص الرصيد الحر لصاحب اللعبة 🔥
+    const authorFreeBalance = getFreeBalance(author, sql);
+    if (authorFreeBalance < bet) {
+        client.activePlayers.delete(author.id);
+        return replyError(`❌ **عذراً!** لديك قرض (أو رصيد حر غير كافٍ).\nالرصيد الحر المتاح للرهان: **${authorFreeBalance.toLocaleString()}** مورا فقط.`);
     }
 
     if (opponents.size === 0 && bet > MAX_BET_SOLO) {
@@ -332,6 +341,15 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
             client.activePlayers.delete(author.id);
             return replyFunction({ content: "لا يمكنك تحدي البوت في اللعب الجماعي!", ephemeral: true });
         }
+
+        // 🔥 فحص الرصيد الحر لكل خصم 🔥
+        const opponentFree = getFreeBalance(opponent, sql);
+        if (opponentFree < bet) {
+            client.activeGames.delete(channelId);
+            client.activePlayers.delete(author.id);
+            return replyFunction({ content: `❌ اللاعب ${opponent.displayName} لديه قرض ولا يملك رصيداً حراً كافياً!`, ephemeral: true });
+        }
+
         let opponentData = getScore.get(opponent.id, channel.guild.id);
         if (!opponentData || opponentData.mora < bet) {
             client.activeGames.delete(channelId);
@@ -440,6 +458,7 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
         gameCollector.on('end', (collected, reason) => {
             // تحرير الجميع
             client.activeGames.delete(channelId);
+            client.activePlayers.delete(author.id);
             finalPlayers.forEach(p => client.activePlayers.delete(p.id));
 
             if (reason !== 'win') {
