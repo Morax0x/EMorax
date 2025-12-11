@@ -103,6 +103,27 @@ function getAllUserAvailableSkills(member, sql) {
 
 function getBuyableItems() { return shopItems.filter(it => !['upgrade_weapon', 'upgrade_skill', 'exchange_xp', 'upgrade_rod', 'fishing_gear_menu'].includes(it.id)); }
 
+// 🔥 دالة حساب الانزلاق السعري (Slippage Calculation) 🔥
+function calculateSlippage(basePrice, quantity, isBuy) {
+    // عامل الانزلاق: 0.0001 تعني أن كل حبة ترفع/تخفض السعر بنسبة 0.01%
+    const slippageFactor = 0.0001; 
+    
+    // حساب التأثير الكلي للكمية
+    const impact = quantity * slippageFactor;
+    
+    let avgPrice;
+    if (isBuy) {
+        // عند الشراء: السعر يزيد كلما زادت الكمية
+        avgPrice = basePrice * (1 + (impact / 2)); 
+    } else {
+        // عند البيع: السعر يقل كلما زادت الكمية المباعة
+        avgPrice = basePrice * (1 - (impact / 2));
+    }
+    
+    // ضمان أن السعر لا يقل عن 1 مورا
+    return Math.max(Math.floor(avgPrice), 1);
+}
+
 // ============================================================================
 // 🔥🔥 نظام الكوبونات والخصومات (المعدل) 🔥🔥
 // ============================================================================
@@ -742,10 +763,17 @@ async function _handleBuySellModal(i, client, sql, types) {
         const getPortfolio = sql.prepare("SELECT * FROM user_portfolio WHERE userID = ? AND guildID = ? AND itemID = ?");
         
         if (isBuyMarket) {
-             const totalCost = Math.floor(item.currentPrice * quantity);
+             // 🔥 حساب السعر مع الانزلاق السعري 🔥
+             const avgPrice = calculateSlippage(item.currentPrice, quantity, true);
+             const totalCost = Math.floor(avgPrice * quantity);
+
              if (userMora < totalCost) {
                  let msg = `❌ رصيدك غير كافي!`;
                  if (userBank >= totalCost) msg += `\n💡 لديك في البنك **${userBank.toLocaleString()}**، اسحب منها.`;
+                 // تنبيه إضافي إذا كان السعر قد ارتفع بسبب الكمية
+                 if (totalCost > (item.currentPrice * quantity)) {
+                    msg += `\n⚠️ السعر ارتفع بسبب الانزلاق السعري (الكمية الكبيرة). التكلفة الحالية: **${totalCost.toLocaleString()}**`;
+                 }
                  return await i.editReply({ content: msg });
              }
              userData.mora -= totalCost; userData.shop_purchases = (userData.shop_purchases || 0) + 1;
@@ -760,7 +788,11 @@ async function _handleBuySellModal(i, client, sql, types) {
              let pfItem = getPortfolio.get(i.user.id, i.guild.id, item.id);
              const userQty = pfItem ? pfItem.quantity : 0;
              if (userQty < quantity) return await i.editReply({ content: `❌ لا تملك الكمية.` });
-             const totalGain = Math.floor(item.currentPrice * quantity);
+             
+             // 🔥 حساب الربح مع الانزلاق السعري 🔥
+             const avgPrice = calculateSlippage(item.currentPrice, quantity, false);
+             const totalGain = Math.floor(avgPrice * quantity);
+
              userData.mora += totalGain;
              client.setLevel.run(userData);
              if (userQty - quantity > 0) sql.prepare("UPDATE user_portfolio SET quantity = ? WHERE id = ?").run(userQty - quantity, pfItem.id);
