@@ -1,4 +1,6 @@
 const { EmbedBuilder, SlashCommandBuilder } = require("discord.js");
+const { getFreeBalance } = require('../../handlers/handler-utils.js');
+
 const TAX_RATE = 0.05; // 5%
 const COOLDOWN_MS = 5 * 60 * 1000; // 5 دقائق
 
@@ -73,24 +75,26 @@ module.exports = {
             return replyError("لا يمكنك التحويل لنفسك!");
         }
 
-        // ( 🌟 التصحيح: فحص القرض بدقة 🌟 )
-        try {
-            const userLoan = sql.prepare("SELECT remainingAmount FROM user_loans WHERE userID = ? AND guildID = ?").get(sender.id, guild.id);
-            
-            // إذا وجدنا قرضاً والمبلغ المتبقي أكبر من 0
-            if (userLoan && userLoan.remainingAmount > 0) {
-                return replyError(`❌ **عملية مرفوضة!**\nعليك قرض بقيمة **${userLoan.remainingAmount.toLocaleString()}** مورا.\nيجب سداد القرض أولاً باستخدام \`/سداد\` قبل أن تتمكن من تحويل الأموال.`);
-            }
-        } catch (err) {
-            console.error("Loan Check Error:", err);
-        }
-
         const getScore = client.getLevel;
         const setScore = client.setLevel;
 
         let senderData = getScore.get(sender.id, guild.id);
         if (!senderData) {
             senderData = { ...client.defaultData, user: sender.id, guild: guild.id };
+        }
+
+        // 🔥 فحص الرصيد الحر (القرض) 🔥
+        const freeBalance = getFreeBalance(senderMember, sql);
+        
+        if (freeBalance < amount) {
+            const loanData = sql.prepare("SELECT remainingAmount FROM user_loans WHERE userID = ? AND guildID = ?").get(sender.id, guild.id);
+            const debt = loanData ? loanData.remainingAmount : 0;
+            
+            // رسالة ذكية لا تكشف التفاصيل المملة إلا عند الحاجة
+            return replyError(`❌ **رصيد غير كافي (محجوز للقرض)!**\n` +
+                `💰 رصيدك الكلي: **${senderData.mora.toLocaleString()}**\n` +
+                `🏦 قيمة القرض: **${debt.toLocaleString()}**\n` +
+                `🔓 **الرصيد الحر المسموح تحويله:** **${freeBalance.toLocaleString()}** مورا فقط.`);
         }
 
         const now = Date.now();
