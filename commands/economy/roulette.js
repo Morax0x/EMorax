@@ -1,5 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, Colors, Collection } = require("discord.js");
-const { calculateMoraBuff } = require('../../streak-handler.js'); // للفردي فقط
+const { calculateMoraBuff } = require('../../streak-handler.js'); 
+// 🔥 استيراد دالة الرصيد الحر 🔥
+const { getFreeBalance } = require('../../handlers/handler-utils.js');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const MIN_BET = 20;
@@ -196,6 +198,15 @@ async function startRoulette(channel, user, member, opponents, bet, client, guil
     }
     if (client.activePlayers.has(user.id)) return;
 
+    // 🔥 فحص الرصيد الحر لصاحب اللعبة 🔥
+    const authorFree = getFreeBalance(member, sql);
+    if (authorFree < bet) {
+        const msg = `❌ **عذراً!** لديك قرض (أو رصيد حر غير كافٍ).\nالرصيد الحر المتاح للرهان: **${authorFree.toLocaleString()}** مورا فقط.`;
+        if (interaction) await interaction.followUp({ content: msg, ephemeral: true });
+        else channel.send(msg);
+        return;
+    }
+
     let userData = client.getLevel.get(user.id, guild.id);
     if (!userData || userData.mora < bet) {
         const msg = `❌ ليس لديك مورا كافية! (رصيدك: ${userData ? userData.mora : 0})`;
@@ -207,13 +218,20 @@ async function startRoulette(channel, user, member, opponents, bet, client, guil
     // --- PvP ---
     if (opponents.size > 0) {
         for (const opp of opponents.values()) {
-            // منع الخصوم المشغولين
             if (client.activePlayers.has(opp.id)) {
                 const msg = `🚫 اللاعب ${opp} لديه لعبة نشطة بالفعل.`;
                 if (interaction) await interaction.followUp(msg); else channel.send(msg);
                 return;
             }
             
+            // 🔥 فحص الرصيد الحر للخصوم 🔥
+            const oppFree = getFreeBalance(opp, sql);
+            if (oppFree < bet) {
+                const msg = `❌ اللاعب ${opp} لديه قرض ولا يملك رصيداً حراً كافياً!`;
+                if (interaction) await interaction.followUp(msg); else channel.send(msg);
+                return;
+            }
+
             const oppData = client.getLevel.get(opp.id, guild.id);
             if (!oppData || oppData.mora < bet) {
                 const msg = `🚫 اللاعب ${opp} لا يملك مبلغ الرهان!`;
