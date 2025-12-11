@@ -387,22 +387,56 @@ function updateMarketPrices() {
     try {
         const allItems = sql.prepare("SELECT * FROM market_items").all();
         if (allItems.length === 0) return;
+
         const updateStmt = sql.prepare(`UPDATE market_items SET currentPrice = ?, lastChangePercent = ?, lastChange = ? WHERE id = ?`);
+        
+        // 📊 إعدادات السوق والتشبع
+        const SATURATION_POINT = 2000; // الكمية التي يبدأ عندها السعر بالتأثر سلباً بشكل ملحوظ
+        const MIN_PRICE = 10;          // الحد الأدنى للسعر
+        const MAX_PRICE = 50000;       // الحد الأقصى للسعر
+
         const transaction = sql.transaction(() => {
             for (const item of allItems) {
+                // 1. جلب مجموع ما يمتلكه اللاعبون من هذا السهم (العرض)
+                const result = sql.prepare("SELECT SUM(quantity) as total FROM user_portfolio WHERE itemID = ?").get(item.id);
+                const totalOwned = result.total || 0;
+
+                // 2. نسبة التغير العشوائية الطبيعية (بين -10% و +10%)
+                let randomPercent = (Math.random() * 0.20) - 0.10;
+
+                // 3. حساب ضريبة التشبع (كلما زاد المملوك، زاد الضغط لإنزال السعر)
+                // المعادلة: كل 2000 حبة مملوكة تخصم 2% إضافية من السعر
+                const saturationPenalty = (totalOwned / SATURATION_POINT) * 0.02;
+                
+                // النسبة النهائية = الحركة العشوائية - ضريبة التشبع
+                let finalChangePercent = randomPercent - saturationPenalty;
+
+                // 4. جاذبية الأسعار الغالية (يصعب الصعود أكثر إذا السعر مرتفع جداً)
+                if (item.currentPrice > 5000 && finalChangePercent > 0) {
+                    finalChangePercent /= 2; 
+                }
+
+                // حماية من الانهيار التام (أقصى نزول في ساعة واحدة هو 30%)
+                if (finalChangePercent < -0.30) finalChangePercent = -0.30;
+
+                // 5. حساب السعر الجديد
                 const oldPrice = item.currentPrice;
-                let changePercent = (Math.random() * 0.30) - 0.15; 
-                if (oldPrice > 1000 && changePercent > 0) changePercent /= 5; 
-                let newPrice = Math.floor(oldPrice * (1 + changePercent));
-                if (newPrice > 10000) newPrice = 10000; 
-                if (newPrice < 50) newPrice = 50;        
+                let newPrice = Math.floor(oldPrice * (1 + finalChangePercent));
+
+                // ضبط الحدود القصوى والدنيا
+                if (newPrice < MIN_PRICE) newPrice = MIN_PRICE;
+                if (newPrice > MAX_PRICE) newPrice = MAX_PRICE;
+
+                // 6. الحفظ في قاعدة البيانات
                 const changeAmount = newPrice - oldPrice;
-                const finalPercent = ((changeAmount / oldPrice) * 100).toFixed(2);
-                updateStmt.run(newPrice, finalPercent, changeAmount, item.id);
+                // حساب النسبة المئوية للعرض (للشكل الجمالي)
+                const displayPercent = oldPrice > 0 ? ((changeAmount / oldPrice) * 100).toFixed(2) : 0;
+                
+                updateStmt.run(newPrice, displayPercent, changeAmount, item.id);
             }
         });
         transaction();
-        console.log(`[Market] Prices updated.`);
+        console.log(`[Market] Prices updated (Saturation Logic Applied).`);
     } catch (err) { console.error("[Market] Error updating prices:", err.message); }
 }
 
