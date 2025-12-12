@@ -4,6 +4,8 @@ const farmAnimals = require('../../json/farm-animals.json');
 const marketItems = require('../../json/market-items.json');
 const questsConfig = require('../../json/quests-config.json');
 
+const EMOJI_MORA = '<:mora:1435647151349698621>';
+
 // --- دوال مساعدة للوقت والنصوص ---
 function getWeekStartDateString() {
     const now = new Date();
@@ -18,13 +20,13 @@ function getTodayDateString() {
     return new Date().toISOString().split('T')[0];
 }
 
-// 🔥 دالة توحيد النصوص العربية (تجاهل الهمزات والتاء المربوطة) 🔥
+// 🔥 دالة توحيد النصوص العربية 🔥
 function normalize(str) {
     if (!str) return "";
     return str.toString().toLowerCase()
-        .replace(/[أإآ]/g, 'ا') // توحيد الألف
-        .replace(/ة/g, 'ه')     // توحيد التاء المربوطة
-        .replace(/\s+/g, ' ')   // إزالة المسافات الزائدة
+        .replace(/[أإآ]/g, 'ا')
+        .replace(/ة/g, 'ه')
+        .replace(/\s+/g, ' ')
         .trim();
 }
 
@@ -49,8 +51,9 @@ module.exports = {
         } catch (e) {}
 
         const subcommand = args[0] ? args[0].toLowerCase() : null;
+        
         // استثناء أوامر السوق من شرط المنشن
-        if (['market-status', 'حالة-السوق', 'market-crash', 'انهيار-السوق', 'market-boom', 'انعاش-السوق', 'set-price', 'تحديد-سعر'].includes(subcommand)) {
+        if (['market-status', 'حالة-السوق', 'market-crash', 'انهيار-السوق', 'market-boom', 'انعاش-السوق', 'set-price', 'تحديد-سعر', 'reset-market', 'تصفير-السوق'].includes(subcommand)) {
             await this.handleMarketCommands(message, sql, subcommand, args);
             return;
         }
@@ -70,7 +73,6 @@ module.exports = {
         }
 
         switch (subcommand) {
-            // --- أوامر الستريك ---
             case 'set-media-streak':
             case 'ضبط-ميديا-ستريك':
                 await this.setMediaStreak(message, sql, targetUser, args[2], embed);
@@ -86,7 +88,6 @@ module.exports = {
                 await this.removeMediaShield(message, sql, targetUser, embed);
                 break;
 
-            // --- أوامر العناصر (المعدلة للعمل بالاسم) ---
             case 'give-item':
             case 'إعطاء-عنصر':
             case 'اعطاء-عنصر':
@@ -98,7 +99,6 @@ module.exports = {
                 await this.removeItem(message, client, sql, targetUser, args, embed);
                 break;
 
-            // --- أوامر المهام والإنجازات ---
             case 'give-achievement':
             case 'اعطاء-انجاز':
                 await this.giveAchievement(message, client, sql, targetUser, targetMember, args, embed);
@@ -116,7 +116,6 @@ module.exports = {
                 await this.giveQuest(message, client, sql, targetUser, targetMember, args, 'weekly', embed);
                 break;
 
-            // --- أوامر الإحصائيات والاقتصاد ---
             case 'set-stat':
             case 'ضبط-احصائية':
                 await this.setStat(message, client, sql, targetUser, targetMember, args[2], args[3], embed);
@@ -138,7 +137,6 @@ module.exports = {
                 await this.resetUser(message, client, sql, targetUser, embed);
                 break;
             
-            // --- أمر الفحص الجديد ---
             case 'check':
             case 'فحص':
             case 'معلومات':
@@ -159,6 +157,7 @@ module.exports = {
                 "`-ادمن حالة-السوق [ركود/ازدهار/طبيعي]`\n" +
                 "`-ادمن انهيار-السوق` (خسف الأسعار)\n" +
                 "`-ادمن انعاش-السوق` (رفع الأسعار)\n" +
+                "`-ادمن تصفير-السوق` (بيع إجباري لجميع الأصول وتعويض الأعضاء)\n" +
                 "`-ادمن تحديد-سعر [ID] [السعر]`\n\n" +
 
                 "**التحكم بالأعضاء:**\n" +
@@ -172,14 +171,10 @@ module.exports = {
             );
     },
 
-    // =========================================================
-    // 🔍 أمر الفحص الشامل (New)
-    // =========================================================
     async checkUser(message, client, sql, targetUser, embed) {
         const guildID = message.guild.id;
         const userID = targetUser.id;
 
-        // جلب البيانات
         const userData = client.getLevel.get(userID, guildID) || {};
         const streakData = sql.prepare("SELECT * FROM streaks WHERE guildID = ? AND userID = ?").get(guildID, userID) || {};
         const mediaStreakData = sql.prepare("SELECT * FROM media_streaks WHERE guildID = ? AND userID = ?").get(guildID, userID) || {};
@@ -268,12 +263,10 @@ module.exports = {
 
             if (!itemID || isNaN(price)) return message.reply("❌ الاستخدام: `-ادمن تحديد-سعر [ID/الاسم] [السعر]`");
 
-            // البحث عن العنصر بالاسم أو الـ ID
             const item = marketItems.find(i => normalize(i.name) === normalize(itemID) || i.id.toLowerCase() === itemID.toLowerCase());
             
             if (!item) return message.reply("❌ السهم غير موجود.");
 
-            // جلب السعر الحالي الحقيقي من الداتابيس لحساب النسبة
             const dbItem = sql.prepare("SELECT * FROM market_items WHERE id = ?").get(item.id);
             const currentPrice = dbItem ? dbItem.currentPrice : item.price;
 
@@ -282,6 +275,103 @@ module.exports = {
 
             embed.setDescription(`✅ تم تحديد سعر **${item.name}** يدوياً بـ **${price.toLocaleString()}**.`);
             await message.reply({ embeds: [embed] });
+        }
+
+        // 🔥 الأمر الجديد: تصفير السوق وإنعاشه مع إشعارات الكازينو 🔥
+        else if (subcommand === 'reset-market' || subcommand === 'تصفير-السوق') {
+            
+            // 1. التحقق من وجود روم الكازينو
+            const settings = sql.prepare("SELECT casinoChannelID FROM settings WHERE guild = ?").get(guildID);
+            const casinoChannel = settings && settings.casinoChannelID ? message.guild.channels.cache.get(settings.casinoChannelID) : null;
+
+            if (!casinoChannel) {
+                return message.reply("❌ لم يتم تحديد روم الكازينو! استخدم أمر تحديد روم الكازينو أولاً (`-setcasino`).");
+            }
+
+            const msg = await message.reply("⚠️ **جاري حساب قيمة الأصول وبيعها لجميع الأعضاء وإرسال الإشعارات... يرجى الانتظار.**");
+
+            // 2. جلب جميع المحافظ
+            const allPortfolios = sql.prepare("SELECT * FROM user_portfolio WHERE guildID = ?").all(guildID);
+            
+            if (allPortfolios.length === 0) {
+                return msg.edit("❌ لا توجد أصول في السوق للبيع.");
+            }
+
+            // 3. جلب الأسعار الحالية
+            const dbItems = sql.prepare("SELECT * FROM market_items").all();
+            const priceMap = new Map();
+            const nameMap = new Map();
+            
+            marketItems.forEach(i => {
+                priceMap.set(i.id, i.price);
+                nameMap.set(i.id, i.name);
+            });
+            dbItems.forEach(i => priceMap.set(i.id, i.currentPrice));
+
+            // 4. تجميع البيانات لكل مستخدم
+            const userAssets = {}; // { userID: { total: 0, items: ["name x5: 500", ...] } }
+
+            for (const entry of allPortfolios) {
+                const price = priceMap.get(entry.itemID);
+                const name = nameMap.get(entry.itemID) || entry.itemID;
+                
+                if (!price) continue; 
+
+                const value = Math.floor(price * entry.quantity);
+                
+                if (!userAssets[entry.userID]) {
+                    userAssets[entry.userID] = { total: 0, items: [] };
+                }
+
+                userAssets[entry.userID].total += value;
+                userAssets[entry.userID].items.push(`✶ ${name} (x${entry.quantity}): **${value.toLocaleString()}**`);
+            }
+
+            // 5. التنفيذ (تحديث الرصيد + إرسال الرسائل + الحذف)
+            const transaction = sql.transaction(() => {
+                const updateMora = sql.prepare("UPDATE levels SET mora = mora + ? WHERE user = ? AND guild = ?");
+                
+                for (const [userID, data] of Object.entries(userAssets)) {
+                    // حساب التعويض المخفي (0.05%)
+                    const bonus = Math.floor(data.total * 0.0005);
+                    const finalRefund = data.total + bonus;
+
+                    // تحديث الرصيد
+                    updateMora.run(finalRefund, userID, guildID);
+                }
+
+                // حذف جميع المحافظ
+                sql.prepare("DELETE FROM user_portfolio WHERE guildID = ?").run(guildID);
+                // إعادة حالة السوق
+                sql.prepare("UPDATE settings SET marketStatus = 'normal' WHERE guild = ?").run(guildID);
+            });
+
+            transaction();
+
+            // 6. إرسال الإشعارات في الكازينو (خارج الترانزاكشن لتجنب البطء)
+            for (const [userID, data] of Object.entries(userAssets)) {
+                const bonus = Math.floor(data.total * 0.0005);
+                const finalRefund = data.total + bonus;
+
+                const userEmbed = new EmbedBuilder()
+                    .setTitle('❖ مــرســوم امبـراطـوري !')
+                    .setColor("Random") // لون عشوائي
+                    .setThumbnail('https://i.postimg.cc/CdpdVfxQ/5902480522066201408-120-removebg-preview.png') // الصورة الصغيرة
+                    .setImage('https://media.discordapp.net/attachments/1394280285289320550/1432409477272965190/line.png?ex=690eca88&is=690d7908&hm=b21b91d8e7b66da4c28a29dd513bd1104c76ab6c875f23cd9405daf3ce48c050&=&format=webp&quality=lossless')
+                    .setDescription(
+                        `بـ أمـر من الامبـراطـور تـم بيـع كـل اصولـك بـسبب الركود الحالي بسوق الاسهم والاستثمارات لننتقل للمرحلة التالية من انعاش السـوق ستحصـل عـلى تعويض بمقدار ممتلكاتك الحالية\n\n` +
+                        `**✶ الاصـول المبـاعـة:**\n` +
+                        data.items.join('\n') + 
+                        `\n\n**المجموع:**\n` +
+                        `**${finalRefund.toLocaleString()}** ${EMOJI_MORA}`
+                    );
+
+                await casinoChannel.send({ content: `<@${userID}>`, embeds: [userEmbed] }).catch(() => {});
+                // تأخير بسيط لتجنب الريت ليميت (اختياري)
+                await new Promise(res => setTimeout(res, 500));
+            }
+
+            await msg.edit(`✅ **تمت العملية بنجاح!** تم بيع الأصول وتعويض ${Object.keys(userAssets).length} عضو، وإرسال الإشعارات في ${casinoChannel}.`);
         }
     },
 
