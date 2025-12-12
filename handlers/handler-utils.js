@@ -73,5 +73,5 @@ async function sendLevelUpMessage(interaction, member, newLevel, oldLevel, xpDat
 
 module.exports = {
     sendLevelUpMessage,
-    getFreeBalance // تصدير الدالة لتستخدمها الملفات الأخرى (transfer/pvp)
+    getFreeBalance 
 };
