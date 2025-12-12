@@ -185,15 +185,7 @@ async function startGame(channel, user, member, opponent, bet, client, guild, sq
     
     // (ملاحظة: user محجوز مسبقاً في activePlayers)
 
-    // 🔥 فحص الرصيد الحر للاعب الأول 🔥
-    const userFreeBalance = getFreeBalance(member, sql);
-    if (userFreeBalance < bet) {
-        client.activePlayers.delete(user.id); // تحرير
-        const msg = `❌ **عذراً!** لديك قرض (أو رصيد حر غير كافٍ).\nالرصيد الحر المتاح للرهان: **${userFreeBalance.toLocaleString()}** مورا فقط.`;
-        if (interaction && !interaction.replied) await interaction.followUp({ content: msg, ephemeral: true });
-        else channel.send(msg);
-        return;
-    }
+    // تم إزالة فحص الرصيد الحر هنا للسماح باللعب الفردي
 
     let userData = client.getLevel.get(user.id, guild.id);
     // (الفحص المزدوج للتأكد)
@@ -207,6 +199,17 @@ async function startGame(channel, user, member, opponent, bet, client, guild, sq
 
     // --- PvP ---
     if (opponent && opponent.id !== user.id && !opponent.bot) {
+        
+        // 🔥 فحص الرصيد الحر للمتحدي (هنا فقط نمنع أموال القرض) 🔥
+        const userFreeBalance = getFreeBalance(member, sql);
+        if (userFreeBalance < bet) {
+            client.activePlayers.delete(user.id); // تحرير
+            const msg = `❌ **عذراً!** لا يمكنك المراهنة ضد لاعبين بمال القرض.\nالرصيد الحر المتاح: **${userFreeBalance.toLocaleString()}** مورا فقط.`;
+            if (interaction && !interaction.replied) await interaction.followUp({ content: msg, ephemeral: true });
+            else channel.send(msg);
+            return;
+        }
+
         // التحقق من الخصم
         if (client.activePlayers.has(opponent.id)) {
             client.activePlayers.delete(user.id); // تحرير
