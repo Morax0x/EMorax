@@ -1,5 +1,4 @@
 const { EmbedBuilder, SlashCommandBuilder } = require("discord.js");
-const { getFreeBalance } = require('../../handlers/handler-utils.js');
 
 const TAX_RATE = 0.05; // 5%
 const COOLDOWN_MS = 5 * 60 * 1000; // 5 دقائق
@@ -83,18 +82,10 @@ module.exports = {
             senderData = { ...client.defaultData, user: sender.id, guild: guild.id };
         }
 
-        // 🔥 فحص الرصيد الحر (القرض) 🔥
-        const freeBalance = getFreeBalance(senderMember, sql);
-        
-        if (freeBalance < amount) {
-            const loanData = sql.prepare("SELECT remainingAmount FROM user_loans WHERE userID = ? AND guildID = ?").get(sender.id, guild.id);
-            const debt = loanData ? loanData.remainingAmount : 0;
-            
-            // رسالة ذكية لا تكشف التفاصيل المملة إلا عند الحاجة
-            return replyError(`❌ **رصيد غير كافي (محجوز للقرض)!**\n` +
-                `💰 رصيدك الكلي: **${senderData.mora.toLocaleString()}**\n` +
-                `🏦 قيمة القرض: **${debt.toLocaleString()}**\n` +
-                `🔓 **الرصيد الحر المسموح تحويله:** **${freeBalance.toLocaleString()}** مورا فقط.`);
+        // 🔥 فحص القرض: ممنوع التحويل نهائياً إذا كان هناك دين 🔥
+        const loanData = sql.prepare("SELECT remainingAmount FROM user_loans WHERE userID = ? AND guildID = ?").get(sender.id, guild.id);
+        if (loanData && loanData.remainingAmount > 0) {
+            return replyError(`❌ **عذراً!** عليك قرض بقيمة **${loanData.remainingAmount.toLocaleString()}** مورا.\nيجب سداد القرض بالكامل قبل أن تتمكن من تحويل الأموال لأعضاء آخرين.`);
         }
 
         const now = Date.now();
