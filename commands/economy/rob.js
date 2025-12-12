@@ -11,7 +11,7 @@ const MAX_BANK_PERCENT = 0.05;
 const ROBBER_FINE_PERCENT = 0.10;
 
 const MIN_ROB_AMOUNT = 100;
-const MIN_REQUIRED_CASH = 500;
+const MIN_REQUIRED_CASH = 100;
 const COOLDOWN_MS = 1 * 60 * 60 * 1000;
 
 const activeGames = new Set();
@@ -137,17 +137,12 @@ module.exports = {
         // السارق لا يستطيع سرقة أموال القرض، فقط الأموال الحرة.
         const victimFreeBalance = getFreeBalance(victim, sql);
         
-        // سنعتبر الرصيد الحر هو "الكاش" المتاح للسرقة (تبسيطاً، لأننا لا نعرف توزيعه بين البنك والكاش بدقة هنا)
-        // لكن لضمان العدالة، سنقارن الرصيد الحر بالحد الأدنى
+        // سنعتبر الرصيد الحر هو الحد الأقصى للسرقة
         if (victimFreeBalance < MIN_REQUIRED_CASH) {
             return reply(`هذا العضو مفلس (أو أمواله محجوزة للقرض) ولا يملك الحد الأدنى للسرقة (${MIN_REQUIRED_CASH.toLocaleString()} ${EMOJI_MORA}).`);
         }
 
         // --- توزيع الرصيد الحر (وهمياً) ---
-        // بما أننا لا نعرف هل الرصيد الحر في البنك أم الكاش، سنفترض أن السرقة تتم من "وعاء" الرصيد الحر
-        // لكن الكود الأصلي يعتمد على targetPool.
-        // الحل: سنحدد الحد الأقصى للسرقة بناءً على الرصيد الحر
-        
         const robberMora = robberData.mora || 0;
         const robberBank = robberData.bank || 0;
         const robberTotal = robberMora + robberBank; 
