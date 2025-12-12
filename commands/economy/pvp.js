@@ -1,7 +1,7 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, SlashCommandBuilder } = require("discord.js");
 const { activePvpChallenges, getUserRace, getWeaponData, cleanDisplayName } = require('../../handlers/pvp-core.js');
 const weaponsConfig = require('../../json/weapons-config.json');
-// 🔥 استيراد دالة الرصيد الحر 🔥
+// 🔥 استيراد دالة الرصيد الحر (للتحقق من تهريب الأموال) 🔥
 const { getFreeBalance } = require('../../handlers/handler-utils.js');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
@@ -103,13 +103,17 @@ module.exports = {
             return replyError("ما تقدر تتحدى بـوت يا متـخـلف <a:MugiStronk:1438795606872166462>");
         }
 
-        // 🔥 فحص الرصيد الحر للمتحدي 🔥
+        // 🔥 فحص الرصيد الحر للمتحدي (لمنع تهريب القروض) 🔥
         const challengerFree = getFreeBalance(challenger, sql);
         if (challengerFree < bet) {
-            return replyError(`❌ **عذراً!** لديك قرض (أو رصيد حر غير كافٍ).\nالرصيد الحر المتاح للرهان: **${challengerFree.toLocaleString()}** مورا فقط.`);
+            return replyError(`❌ **عذراً!** لديك قرض (أو رصيد حر غير كافٍ).\nالرصيد الحر المتاح للرهان الجماعي: **${challengerFree.toLocaleString()}** مورا فقط.`);
         }
-        
-        // (يمكننا أيضاً فحص الخصم هنا، لكن الأفضل فحصه عند قبوله للتحدي لكي لا نكشف معلوماته المالية علناً قبل أن يوافق)
+
+        // 🔥 فحص الرصيد الحر للخصم (لمنع تهريب القروض) 🔥
+        const opponentFree = getFreeBalance(opponent, sql);
+        if (opponentFree < bet) {
+            return replyError(`❌ الخصم ${opponent.displayName} لديه قرض ولا يملك رصيداً حراً كافياً للمراهنة!`);
+        }
 
         const getScore = client.getLevel;
         const setScore = client.setLevel;
@@ -142,6 +146,7 @@ module.exports = {
             return replyError(`🕐 لقد قمت بقتال مؤخراً. يرجى الانتظار **${minutes} دقيقة و ${seconds} ثانية**.`);
         }
 
+        // التحقق من توفر "الكاش" للدفع (يجب أن يكون الكاش بيده)
         if (challengerData.mora < bet) {
             return replyError(`ليس لديك **${bet.toLocaleString()}** ${EMOJI_MORA} في رصيدك (الكاش) لهذا الرهان!`);
         }
