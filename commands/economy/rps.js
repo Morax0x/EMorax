@@ -1,7 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder, ButtonBuilder, ActionRowBuilder, ButtonStyle, ComponentType, Colors } = require('discord.js');
 const { calculateMoraBuff } = require('../../streak-handler.js'); 
-// 🔥 استيراد دالة الرصيد الحر 🔥
-const { getFreeBalance } = require('../../handlers/handler-utils.js');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const OWNER_ID = "1145327691772481577"; 
@@ -12,6 +10,7 @@ const MOVES = [ROCK, PAPER, SCISSORS];
 
 const MIN_BET = 20;
 const MAX_BET_SOLO = 100; 
+const MAX_LOAN_BET = 500; // 🔒 الحد الأقصى للمقترضين في الجماعي
 const COOLDOWN_MS = 1 * 60 * 60 * 1000; 
 
 function formatTime(ms) {
@@ -86,9 +85,8 @@ module.exports = {
 
         // 🛑🛑 1. الحماية من التكرار (أهم نقطة) 🛑🛑
         if (client.activePlayers.has(user.id)) {
-            // اذا اللاعب مشغول، نتجاهل الأمر تماماً أو نرسل رسالة مؤقتة
             if (isSlash) return interaction.editReply({ content: "🚫 لديك لعبة أو طلب معلق حالياً! أكمله أولاً." });
-            return; // في الرسائل العادية نتجاهل عشان ما يصير سبام
+            return; 
         }
 
         const sql = client.sql;
@@ -153,8 +151,7 @@ module.exports = {
 
                     // إزالة حجز القناة فقط، ونبقي حجز اللاعب لأنه بدأ اللعب
                     client.activeGames.delete(channel.id);
-                    // (activePlayers.delete(user.id) لا نحذفها هنا، ستُحذف عند انتهاء اللعبة)
-
+                    
                     return startGame(channel, user, member, opponentInput, proposedBet, client, guild, sql, isSlash ? interaction : null);
                 }
             } catch (e) {
@@ -183,12 +180,8 @@ async function startGame(channel, user, member, opponent, bet, client, guild, sq
         return;
     }
     
-    // (ملاحظة: user محجوز مسبقاً في activePlayers)
-
-    // تم إزالة فحص الرصيد الحر هنا للسماح باللعب الفردي
-
     let userData = client.getLevel.get(user.id, guild.id);
-    // (الفحص المزدوج للتأكد)
+    // (الفحص المزدوج للتأكد من الكاش)
     if (!userData || userData.mora < bet) {
         client.activePlayers.delete(user.id); // تحرير
         const msg = `❌ ليس لديك مورا كافية! (رصيدك: ${userData ? userData.mora : 0})`;
@@ -200,40 +193,39 @@ async function startGame(channel, user, member, opponent, bet, client, guild, sq
     // --- PvP ---
     if (opponent && opponent.id !== user.id && !opponent.bot) {
         
-        // 🔥 فحص الرصيد الحر للمتحدي (هنا فقط نمنع أموال القرض) 🔥
-        const userFreeBalance = getFreeBalance(member, sql);
-        if (userFreeBalance < bet) {
-            client.activePlayers.delete(user.id); // تحرير
-            const msg = `❌ **عذراً!** لا يمكنك المراهنة ضد لاعبين بمال القرض.\nالرصيد الحر المتاح: **${userFreeBalance.toLocaleString()}** مورا فقط.`;
-            if (interaction && !interaction.replied) await interaction.followUp({ content: msg, ephemeral: true });
-            else channel.send(msg);
-            return;
+        // 🔥 1. فحص القرض للمتحدي 🔥
+        if (bet > MAX_LOAN_BET) {
+            const myLoan = sql.prepare("SELECT remainingAmount FROM user_loans WHERE userID = ? AND guildID = ?").get(user.id, guild.id);
+            if (myLoan && myLoan.remainingAmount > 0) {
+                client.activePlayers.delete(user.id);
+                const msg = `❌ **عذراً!** عليك قرض. حدك الأقصى في التحديات هو **${MAX_LOAN_BET}** ${EMOJI_MORA} حتى تسدد قرضك.`;
+                if (interaction && !interaction.replied) await interaction.followUp({ content: msg, ephemeral: true }); else channel.send(msg);
+                return;
+            }
         }
 
-        // التحقق من الخصم
+        // 🔥 2. فحص القرض للخصم 🔥
+        if (bet > MAX_LOAN_BET) {
+            const oppLoan = sql.prepare("SELECT remainingAmount FROM user_loans WHERE userID = ? AND guildID = ?").get(opponent.id, guild.id);
+            if (oppLoan && oppLoan.remainingAmount > 0) {
+                client.activePlayers.delete(user.id);
+                const msg = `❌ الخصم ${opponent} عليه قرض ولا يمكنه المراهنة بأكثر من **${MAX_LOAN_BET}** ${EMOJI_MORA}.`;
+                if (interaction && !interaction.replied) await interaction.followUp(msg); else channel.send(msg);
+                return;
+            }
+        }
+
+        // التحقق من انشغال الخصم
         if (client.activePlayers.has(opponent.id)) {
-            client.activePlayers.delete(user.id); // تحرير
+            client.activePlayers.delete(user.id); 
             const msg = `🚫 اللاعب ${opponent} لديه لعبة نشطة بالفعل.`;
             if (interaction) await interaction.followUp(msg); else channel.send(msg);
             return;
         }
 
-        const opponentMember = await guild.members.fetch(opponent.id).catch(() => null);
-        if (!opponentMember) return;
-
-        // 🔥 فحص الرصيد الحر للخصم 🔥
-        const opponentFreeBalance = getFreeBalance(opponentMember, sql);
-        if (opponentFreeBalance < bet) {
-            client.activePlayers.delete(user.id); // تحرير
-            const msg = `❌ الخصم ${opponent} لديه قرض ولا يملك رصيداً حراً كافياً للمراهنة!`;
-            if (interaction && !interaction.replied) await interaction.followUp(msg);
-            else channel.send(msg);
-            return;
-        }
-
         let opponentData = client.getLevel.get(opponent.id, guild.id);
         if (!opponentData || opponentData.mora < bet) {
-            client.activePlayers.delete(user.id); // تحرير
+            client.activePlayers.delete(user.id); 
             const msg = `❌ الخصم ${opponent} لا يملك مورا كافية!`;
             if (interaction && !interaction.replied) await interaction.followUp(msg);
             else channel.send(msg);
@@ -277,6 +269,7 @@ async function startGame(channel, user, member, opponent, bet, client, guild, sq
 
             await response.deferUpdate();
             
+            // إعادة التحقق من الرصيد لحظة القبول
             userData = client.getLevel.get(user.id, guild.id);
             opponentData = client.getLevel.get(opponent.id, guild.id);
             
