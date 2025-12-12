@@ -1,6 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, Colors, Collection } = require("discord.js");
 const { calculateMoraBuff } = require('../../streak-handler.js');
-// 🔥 استيراد دالة الرصيد الحر 🔥
 const { getFreeBalance } = require('../../handlers/handler-utils.js');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
@@ -90,16 +89,13 @@ module.exports = {
              return message.reply(payload);
         };
 
-        // تهيئة المتغيرات
         if (!client.activeGames) client.activeGames = new Set();
         if (!client.activePlayers) client.activePlayers = new Set();
 
-        // 1. التحقق من اللاعب النشط
         if (client.activePlayers.has(author.id)) {
             return reply({ content: "🚫 **لديك لعبة نشطة بالفعل!** أكملها أولاً.", ephemeral: true });
         }
 
-        // 2. التحقق من القناة
         if (client.activeGames.has(channel.id)) {
             return reply({ content: "🚫 **هناك لعبة جارية في هذه القناة.** انتظر انتهائها.", ephemeral: true });
         }
@@ -107,7 +103,6 @@ module.exports = {
         let userData = client.getLevel.get(author.id, guild.id);
         if (!userData) userData = { ...client.defaultData, user: author.id, guild: guild.id };
 
-        // 3. التحقق من الكولداون
         const now = Date.now();
         if (author.id !== OWNER_ID) {
             const timeLeft = (userData.lastGuess || 0) + COOLDOWN_MS - now;
@@ -116,7 +111,6 @@ module.exports = {
             }
         }
 
-        // --- المراهنة التلقائية ---
         if (!betInput) {
             let proposedBet = 100;
             const userBalance = userData.mora;
@@ -124,7 +118,6 @@ module.exports = {
             if (userBalance < MIN_BET) return replyError(`❌ لا تملك مورا كافية للعب (الحد الأدنى ${MIN_BET})!`);
             if (userBalance < 100) proposedBet = userBalance;
 
-            // حجز اللاعب والقناة
             client.activePlayers.add(author.id);
             client.activeGames.add(channel.id);
 
@@ -150,7 +143,6 @@ module.exports = {
                 
                 if (confirmation.customId === 'guess_auto_cancel') {
                     await confirmation.update({ content: '❌ تم الإلغاء.', embeds: [], components: [] });
-                    // 🔓 تحرير
                     client.activeGames.delete(channel.id);
                     client.activePlayers.delete(author.id);
                     return;
@@ -161,7 +153,6 @@ module.exports = {
                     if (!isSlash) await confirmMsg.delete().catch(() => {});
                     else await confirmation.editReply({ content: '✅', embeds: [], components: [] });
 
-                    // إزالة حجز القناة فقط لبدء اللعبة الفعلية (اللاعب يبقى محجوزاً)
                     client.activeGames.delete(channel.id); 
                     
                     return startGuessGame(channel, author, opponents, proposedBet, client, guild, sql, replyError, reply);
@@ -174,7 +165,6 @@ module.exports = {
                 return;
             }
         } else {
-            // إذا حدد مبلغ، نحجزه ونبدأ
             client.activePlayers.add(author.id);
             return startGuessGame(channel, author, opponents, betInput, client, guild, sql, replyError, reply);
         }
@@ -184,7 +174,6 @@ module.exports = {
 async function startGuessGame(channel, author, opponents, bet, client, guild, sql, replyError, replyFunction) {
     const channelId = channel.id;
 
-    // فحص مزدوج للقناة
     if (client.activeGames.has(channelId)) {
         client.activePlayers.delete(author.id);
         const msg = "🚫 هناك لعبة نشطة بالفعل في هذه القناة!";
@@ -198,18 +187,6 @@ async function startGuessGame(channel, author, opponents, bet, client, guild, sq
         return replyError(`الحد الأدنى للرهان هو **${MIN_BET}** ${EMOJI_MORA} !`);
     }
 
-    // 🔥 فحص الرصيد الحر لصاحب اللعبة 🔥
-    const authorFreeBalance = getFreeBalance(author, sql);
-    if (authorFreeBalance < bet) {
-        client.activePlayers.delete(author.id);
-        return replyError(`❌ **عذراً!** لديك قرض (أو رصيد حر غير كافٍ).\nالرصيد الحر المتاح للرهان: **${authorFreeBalance.toLocaleString()}** مورا فقط.`);
-    }
-
-    if (opponents.size === 0 && bet > MAX_BET_SOLO) {
-        client.activePlayers.delete(author.id);
-        return replyError(`🚫 **تنبيه:** الحد الأقصى للرهان في اللعب الفردي (ضد البوت) هو **${MAX_BET_SOLO}** ${EMOJI_MORA}!\n(للعب بمبالغ أكبر، تحدى لاعبين آخرين).`);
-    }
-
     const getScore = client.getLevel;
     const setScore = client.setLevel;
     let authorData = getScore.get(author.id, guild.id);
@@ -220,16 +197,40 @@ async function startGuessGame(channel, author, opponents, bet, client, guild, sq
         return replyError(`ليس لديك مورا كافية لهذا الرهان! (رصيدك: ${authorData.mora})`);
     }
 
-    // حجز القناة الآن
-    client.activeGames.add(channelId);
-    
-    // تسجيل وقت اللعب لصاحب الأمر
-    if (author.id !== OWNER_ID) authorData.lastGuess = Date.now();
-    setScore.run(authorData);
-
+    // --- الفرز بين الفردي والجماعي ---
     if (opponents.size === 0) {
+        // --- فردي: مسموح بمال القرض ---
+        if (bet > MAX_BET_SOLO) {
+            client.activePlayers.delete(author.id);
+            return replyError(`🚫 **تنبيه:** الحد الأقصى للرهان في اللعب الفردي (ضد البوت) هو **${MAX_BET_SOLO}** ${EMOJI_MORA}!\n(للعب بمبالغ أكبر، تحدى لاعبين آخرين).`);
+        }
+        client.activeGames.add(channelId);
+        if (author.id !== OWNER_ID) authorData.lastGuess = Date.now();
+        setScore.run(authorData);
         await playSolo(channel, author, bet, authorData, getScore, setScore, sql, replyFunction, client);
+
     } else {
+        // --- جماعي: ممنوع بمال القرض ---
+        
+        // 🔥 فحص الرصيد الحر لصاحب اللعبة (فقط في الجماعي) 🔥
+        const authorFreeBalance = getFreeBalance(author, sql);
+        if (authorFreeBalance < bet) {
+            client.activePlayers.delete(author.id);
+            return replyError(`❌ **عذراً!** لديك قرض (أو رصيد حر غير كافٍ).\nالرصيد الحر المتاح للرهان الجماعي: **${authorFreeBalance.toLocaleString()}** مورا فقط.`);
+        }
+
+        // 🔥 فحص الرصيد الحر للخصوم 🔥
+        for (const opponent of opponents.values()) {
+            const opponentFree = getFreeBalance(opponent, sql);
+            if (opponentFree < bet) {
+                client.activePlayers.delete(author.id);
+                return replyError(`❌ اللاعب ${opponent.displayName} لديه قرض ولا يملك رصيداً حراً كافياً للمشاركة!`);
+            }
+        }
+
+        client.activeGames.add(channelId);
+        if (author.id !== OWNER_ID) authorData.lastGuess = Date.now();
+        setScore.run(authorData);
         await playChallenge(channel, author, opponents, bet, authorData, getScore, setScore, sql, replyFunction, client);
     }
 }
@@ -239,7 +240,6 @@ async function playSolo(channel, author, bet, authorData, getScore, setScore, sq
     const targetNumber = Math.floor(Math.random() * 100) + 1;
     let attempts = 0;
 
-    // خصم الرهان
     authorData.mora -= bet;
     setScore.run(authorData);
 
@@ -267,7 +267,6 @@ async function playSolo(channel, author, bet, authorData, getScore, setScore, sq
         const attemptsLeft = SOLO_ATTEMPTS - attempts;
 
         if (guess === targetNumber) {
-            // ( 🌟 الفردي: تطبيق البفات 🌟 )
             const moraMultiplier = calculateMoraBuff(author, sql);
             const finalWinnings = Math.floor(currentWinnings * moraMultiplier);
 
@@ -305,7 +304,6 @@ async function playSolo(channel, author, bet, authorData, getScore, setScore, sq
     });
 
     collector.on('end', (collected, reason) => {
-        // 🔓 تحرير عند الانتهاء
         client.activeGames.delete(channelId);
         client.activePlayers.delete(author.id);
 
@@ -358,7 +356,6 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
         }
     }
 
-    // حجز الخصوم
     opponents.forEach(o => client.activePlayers.add(o.id));
 
     const row = new ActionRowBuilder().addComponents(
@@ -406,7 +403,7 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
             if (player.id !== OWNER_ID && player.id !== author.id) data.lastGuess = Date.now();
             setScore.run(data);
         }
-        // تحديث كولداون صاحب التحدي
+        
         if (author.id !== OWNER_ID) {
             authorData.lastGuess = Date.now();
             setScore.run(authorData);
@@ -432,7 +429,6 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
             if (guess === targetNumber) {
                 let winnerData = getScore.get(msg.author.id, channel.guild.id);
                 
-                // ( 🌟 الجماعي: بدون بفات - صافي 🌟 )
                 const finalWinnings = totalPot;
 
                 winnerData.mora += finalWinnings;
@@ -456,7 +452,6 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
         });
 
         gameCollector.on('end', (collected, reason) => {
-            // تحرير الجميع
             client.activeGames.delete(channelId);
             client.activePlayers.delete(author.id);
             finalPlayers.forEach(p => client.activePlayers.delete(p.id));
@@ -470,7 +465,6 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
 
                 channel.send({ embeds: [loseEmbed] });
 
-                // إرجاع الأموال
                 for (const player of finalPlayers) {
                     let data = getScore.get(player.id, channel.guild.id);
                     data.mora += bet;
@@ -510,7 +504,6 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
 
     challengeCollector.on('end', async (collected, reason) => {
         if (reason === 'decline' || reason !== 'started') {
-            // تحرير الجميع عند الفشل
             client.activeGames.delete(channelId);
             client.activePlayers.delete(author.id);
             opponents.forEach(o => client.activePlayers.delete(o.id));
