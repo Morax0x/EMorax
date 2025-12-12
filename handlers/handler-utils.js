@@ -2,22 +2,28 @@ const { EmbedBuilder, PermissionsBitField } = require("discord.js");
 
 // =========================================================
 // 🌟 دالة حساب الرصيد الحر (للتحقق الخلفي فقط) 🌟
+// المعادلة: (الكاش + البنك) - قيمة القرض المتبقي
 // تستخدم في ملفات التحويل والرهان فقط، ولا تظهر للاعب
 // =========================================================
 function getFreeBalance(member, sql) {
     if (!sql || typeof sql.prepare !== 'function') return 0;
     
-    // جلب الكاش الحالي (الإجمالي)
-    const levelData = sql.prepare("SELECT mora FROM levels WHERE user = ? AND guild = ?").get(member.id, member.guild.id);
-    const currentMora = levelData ? levelData.mora : 0;
+    // جلب الكاش والبنك
+    const levelData = sql.prepare("SELECT mora, bank FROM levels WHERE user = ? AND guild = ?").get(member.id, member.guild.id);
+    const currentMora = levelData ? (levelData.mora || 0) : 0;
+    const currentBank = levelData ? (levelData.bank || 0) : 0;
+    
+    // حساب الثروة الكلية (كاش + بنك)
+    const totalWealth = currentMora + currentBank;
 
     // جلب الدين المتبقي
     const loanData = sql.prepare("SELECT remainingAmount FROM user_loans WHERE userID = ? AND guildID = ?").get(member.id, member.guild.id);
     const debt = loanData ? loanData.remainingAmount : 0;
 
-    // الرصيد الحر = الإجمالي - الدين
-    const freeBalance = currentMora - debt;
+    // الرصيد الحر = الثروة الكلية - الدين
+    const freeBalance = totalWealth - debt;
     
+    // لا يمكن أن يكون السالب رصيداً متاحاً
     return Math.max(0, freeBalance);
 }
 
