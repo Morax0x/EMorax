@@ -30,10 +30,10 @@
     {
       "id": "daily_react_boost",
       "name": "اضف 3 رياكشن بروم التعزيز",
-      "description": "قم بإضافة 3 تفاعلات (Reactions) في روم التعزيز.",
+      "description": "قم بإضافة 3 رياكشن في روم التعزيز.",
       "stat": "boost_channel_reactions", 
       "goal": 3,
-      "reward": { "mora": 300, "xp": 150 },
+      "reward": { "mora": 300, "xp": 200 },
       "emoji": "🚀",
       "type": "daily"
     },
