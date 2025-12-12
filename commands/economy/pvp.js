@@ -1,11 +1,9 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, SlashCommandBuilder } = require("discord.js");
 const { activePvpChallenges, getUserRace, getWeaponData, cleanDisplayName } = require('../../handlers/pvp-core.js');
-const weaponsConfig = require('../../json/weapons-config.json');
-// 🔥 استيراد دالة الرصيد الحر (للتحقق من تهريب الأموال) 🔥
-const { getFreeBalance } = require('../../handlers/handler-utils.js');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const PVP_COOLDOWN_MS = 5 * 60 * 1000;
+const MAX_LOAN_BET = 500; // 🔒 الحد الأقصى للمقترضين
 
 const CHALLENGE_IMAGES = [
     'https://i.postimg.cc/5NX6dF4R/download-2.gif',
@@ -103,16 +101,20 @@ module.exports = {
             return replyError("ما تقدر تتحدى بـوت يا متـخـلف <a:MugiStronk:1438795606872166462>");
         }
 
-        // 🔥 فحص الرصيد الحر للمتحدي (لمنع تهريب القروض) 🔥
-        const challengerFree = getFreeBalance(challenger, sql);
-        if (challengerFree < bet) {
-            return replyError(`❌ **عذراً!** لديك قرض (أو رصيد حر غير كافٍ).\nالرصيد الحر المتاح للرهان الجماعي: **${challengerFree.toLocaleString()}** مورا فقط.`);
+        // 🔥 1. فحص القروض للمتحدي 🔥
+        if (bet > MAX_LOAN_BET) {
+            const challengerLoan = sql.prepare("SELECT remainingAmount FROM user_loans WHERE userID = ? AND guildID = ?").get(challenger.id, guild.id);
+            if (challengerLoan && challengerLoan.remainingAmount > 0) {
+                return replyError(`❌ **عذراً!** عليك قرض لم يتم سداده.\nلا يمكنك المراهنة بأكثر من **${MAX_LOAN_BET}** ${EMOJI_MORA} حتى تسدد قرضك.`);
+            }
         }
 
-        // 🔥 فحص الرصيد الحر للخصم (لمنع تهريب القروض) 🔥
-        const opponentFree = getFreeBalance(opponent, sql);
-        if (opponentFree < bet) {
-            return replyError(`❌ الخصم ${opponent.displayName} لديه قرض ولا يملك رصيداً حراً كافياً للمراهنة!`);
+        // 🔥 2. فحص القروض للخصم 🔥
+        if (bet > MAX_LOAN_BET) {
+            const opponentLoan = sql.prepare("SELECT remainingAmount FROM user_loans WHERE userID = ? AND guildID = ?").get(opponent.id, guild.id);
+            if (opponentLoan && opponentLoan.remainingAmount > 0) {
+                return replyError(`❌ الخصم ${opponent.displayName} عليه قرض ولا يمكنه المراهنة بأكثر من **${MAX_LOAN_BET}** ${EMOJI_MORA}.`);
+            }
         }
 
         const getScore = client.getLevel;
@@ -146,7 +148,6 @@ module.exports = {
             return replyError(`🕐 لقد قمت بقتال مؤخراً. يرجى الانتظار **${minutes} دقيقة و ${seconds} ثانية**.`);
         }
 
-        // التحقق من توفر "الكاش" للدفع (يجب أن يكون الكاش بيده)
         if (challengerData.mora < bet) {
             return replyError(`ليس لديك **${bet.toLocaleString()}** ${EMOJI_MORA} في رصيدك (الكاش) لهذا الرهان!`);
         }
