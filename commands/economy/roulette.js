@@ -345,6 +345,9 @@ async function playSoloRound(message, user, member, bet, userData, client, sql) 
     let currentMultiplier = 1.0;
     const MULTIPLIERS = getMultipliers(1);
 
+    // قائمة ألوان الأزرار للتبديل العشوائي
+    const buttonStyles = [ButtonStyle.Primary, ButtonStyle.Secondary, ButtonStyle.Success, ButtonStyle.Danger];
+
     const updateEmbed = () => {
         return new EmbedBuilder()
             .setTitle('❖ رولــيـت (فردي)')
@@ -436,8 +439,11 @@ async function playSoloRound(message, user, member, bet, userData, client, sql) 
                         { name: 'الربح الحالي', value: `${currentWin} (${finalProfit} مع البف)`, inline: true }
                     );
 
+                    // 🔥 اختيار لون عشوائي للزر في كل مرة 🔥
+                    const randomStyle = buttonStyles[Math.floor(Math.random() * buttonStyles.length)];
+
                     const newRow = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId('rl_pull').setLabel('سحب الزناد مجدداً').setStyle(ButtonStyle.Danger),
+                        new ButtonBuilder().setCustomId('rl_pull').setLabel('سحب الزناد مجدداً').setStyle(randomStyle),
                         new ButtonBuilder().setCustomId('rl_cashout').setLabel(`انسحاب (${finalProfit})`).setStyle(ButtonStyle.Success).setDisabled(false)
                     );
 
