@@ -83,7 +83,7 @@ module.exports = {
         };
 
         const channel = interactionOrMessage.channel;
-        const sql = client.sql;
+        const sql = client.sql; // تعريف sql مبكراً
 
         if (activePvpChallenges.has(channel.id)) {
             return replyError("هناك تحدٍ نشط بالفعل في هذه القناة. يرجى الانتظار حتى ينتهي.");
@@ -105,7 +105,7 @@ module.exports = {
         if (bet > MAX_LOAN_BET) {
             const challengerLoan = sql.prepare("SELECT remainingAmount FROM user_loans WHERE userID = ? AND guildID = ?").get(challenger.id, guild.id);
             if (challengerLoan && challengerLoan.remainingAmount > 0) {
-                return replyError(`❌ **عذراً!** عليك قرض لم يتم سداده.\nلا يمكنك المراهنة بأكثر من **${MAX_LOAN_BET}** ${EMOJI_MORA} حتى تسدد قرضك.`);
+                return replyError(`❌ **عذراً!** عليك قرض لم يتم سداده.\nلا يمكنك المراهنة بأكثر من **${MAX_LOAN_BET}** ${EMOJI_MORA} في التحديات حتى تسدد قرضك.`);
             }
         }
 
