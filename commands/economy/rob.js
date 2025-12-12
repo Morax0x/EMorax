@@ -1,6 +1,4 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, Colors, SlashCommandBuilder } = require("discord.js");
-// 🔥 استيراد دالة الرصيد الحر 🔥
-const { getFreeBalance } = require('../../handlers/handler-utils.js');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 
@@ -120,9 +118,10 @@ module.exports = {
         }
 
         // 🔥 فحص قروض السارق (يجب أن يكون لديه رصيد حر لدفع الغرامة) 🔥
-        const robberFreeBalance = getFreeBalance(robber, sql);
-        if (robberFreeBalance < MIN_REQUIRED_CASH) {
-             return reply(`❌ **لا يمكنك السرقة!**\nعليك قرض أو رصيدك الحر أقل من **${MIN_REQUIRED_CASH.toLocaleString()}** ${EMOJI_MORA} (مطلوب لتغطية الغرامة).`);
+        // هنا نتحقق فقط من أن لديه أموالاً تكفي لتغطية الحد الأدنى للغرامة
+        const robberTotalWealth = (robberData.mora || 0) + (robberData.bank || 0);
+        if (robberTotalWealth < MIN_REQUIRED_CASH) {
+             return reply(`❌ **لا يمكنك السرقة!**\nتحتاج إلى رصيد إجمالي لا يقل عن **${MIN_REQUIRED_CASH.toLocaleString()}** ${EMOJI_MORA} لتتمكن من السرقة.`);
         }
 
         const now = Date.now();
@@ -133,21 +132,20 @@ module.exports = {
             return reply(`🕐حـرامـي مـجتـهد انـت <:stop:1436337453098340442> انتـظـر **\`${timeString}\`** عشان تسـوي عمـليـة سـطو ثـانيـة.`);
         }
 
-        // 🔥 فحص "الرصيد الحر" للضحية 🔥
-        // السارق لا يستطيع سرقة أموال القرض، فقط الأموال الحرة.
-        const victimFreeBalance = getFreeBalance(victim, sql);
+        // 🔥 فحص رصيد الضحية 🔥
+        // نتحقق من أن الضحية يملك الحد الأدنى للسرقة (بغض النظر عن القروض)
+        const victimTotalWealth = (victimData.mora || 0) + (victimData.bank || 0);
         
-        // سنعتبر الرصيد الحر هو الحد الأقصى للسرقة
-        if (victimFreeBalance < MIN_REQUIRED_CASH) {
-            return reply(`هذا العضو مفلس (أو أمواله محجوزة للقرض) ولا يملك الحد الأدنى للسرقة (${MIN_REQUIRED_CASH.toLocaleString()} ${EMOJI_MORA}).`);
+        if (victimTotalWealth < MIN_REQUIRED_CASH) {
+            return reply(`هذا العضو مفلس ولا يملك الحد الأدنى للسرقة (${MIN_REQUIRED_CASH.toLocaleString()} ${EMOJI_MORA}).`);
         }
 
-        // --- توزيع الرصيد الحر (وهمياً) ---
+        // --- توزيع الرصيد (وهمياً) ---
         const robberMora = robberData.mora || 0;
         const robberBank = robberData.bank || 0;
         const robberTotal = robberMora + robberBank; 
 
-        // تحديد الهدف (كاش/بنك) بناءً على الرصيد الفعلي (وليس الحر) لتحديد الصعوبة
+        // تحديد الهدف (كاش/بنك) بناءً على الرصيد الفعلي لتحديد الصعوبة
         const victimMora = victimData.mora || 0;
         const victimBank = victimData.bank || 0;
 
@@ -181,14 +179,9 @@ module.exports = {
 
         let amountToSteal = Math.min(robberCap, victimCap);
         
-        // 🔥 الشرط الأهم: لا يمكن سرقة أكثر من الرصيد الحر 🔥
-        if (amountToSteal > victimFreeBalance) {
-            amountToSteal = victimFreeBalance;
-        }
-
-        // التحقق النهائي بعد تطبيق سقف الرصيد الحر
+        // التحقق النهائي
         if (amountToSteal < MIN_ROB_AMOUNT) {
-             return reply(`بعد خصم الديون، لم يتبق لدى الضحية ما يكفي لسرقته!`);
+             return reply(`الضحية لا تملك ما يكفي لسرقته الآن!`);
         }
 
         robberData.lastRob = now;
