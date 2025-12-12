@@ -1,12 +1,12 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, Colors, Collection } = require("discord.js");
 const { calculateMoraBuff } = require('../../streak-handler.js');
-const { getFreeBalance } = require('../../handlers/handler-utils.js');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const MIN_BET = 25;
 const MAX_BET_SOLO = 100; // 🔒 الحد الأقصى ضد البوت
 const SOLO_ATTEMPTS = 7;
 const COOLDOWN_MS = 1 * 60 * 60 * 1000;
+const MAX_LOAN_BET = 500; // 🔒 الحد الأقصى للمقترضين في اللعب الجماعي
 const OWNER_ID = "1145327691772481577";
 
 function formatTime(ms) {
@@ -111,6 +111,7 @@ module.exports = {
             }
         }
 
+        // --- المراهنة التلقائية ---
         if (!betInput) {
             let proposedBet = 100;
             const userBalance = userData.mora;
@@ -143,6 +144,7 @@ module.exports = {
                 
                 if (confirmation.customId === 'guess_auto_cancel') {
                     await confirmation.update({ content: '❌ تم الإلغاء.', embeds: [], components: [] });
+                    // 🔓 تحرير
                     client.activeGames.delete(channel.id);
                     client.activePlayers.delete(author.id);
                     return;
@@ -210,21 +212,25 @@ async function startGuessGame(channel, author, opponents, bet, client, guild, sq
         await playSolo(channel, author, bet, authorData, getScore, setScore, sql, replyFunction, client);
 
     } else {
-        // --- جماعي: ممنوع بمال القرض ---
+        // --- جماعي: فحص القروض بحد أقصى 500 ---
         
-        // 🔥 فحص الرصيد الحر لصاحب اللعبة (فقط في الجماعي) 🔥
-        const authorFreeBalance = getFreeBalance(author, sql);
-        if (authorFreeBalance < bet) {
-            client.activePlayers.delete(author.id);
-            return replyError(`❌ **عذراً!** لديك قرض (أو رصيد حر غير كافٍ).\nالرصيد الحر المتاح للرهان الجماعي: **${authorFreeBalance.toLocaleString()}** مورا فقط.`);
+        // 🔥 1. فحص القرض لصاحب اللعبة 🔥
+        if (bet > MAX_LOAN_BET) {
+            const authorLoan = sql.prepare("SELECT remainingAmount FROM user_loans WHERE userID = ? AND guildID = ?").get(author.id, guild.id);
+            if (authorLoan && authorLoan.remainingAmount > 0) {
+                client.activePlayers.delete(author.id);
+                return replyError(`❌ **عذراً!** عليك قرض. حدك الأقصى للرهان الجماعي هو **${MAX_LOAN_BET}** ${EMOJI_MORA} حتى تسدد قرضك.`);
+            }
         }
 
-        // 🔥 فحص الرصيد الحر للخصوم 🔥
-        for (const opponent of opponents.values()) {
-            const opponentFree = getFreeBalance(opponent, sql);
-            if (opponentFree < bet) {
-                client.activePlayers.delete(author.id);
-                return replyError(`❌ اللاعب ${opponent.displayName} لديه قرض ولا يملك رصيداً حراً كافياً للمشاركة!`);
+        // 🔥 2. فحص القرض للخصوم 🔥
+        if (bet > MAX_LOAN_BET) {
+            for (const opponent of opponents.values()) {
+                const opponentLoan = sql.prepare("SELECT remainingAmount FROM user_loans WHERE userID = ? AND guildID = ?").get(opponent.id, guild.id);
+                if (opponentLoan && opponentLoan.remainingAmount > 0) {
+                    client.activePlayers.delete(author.id);
+                    return replyError(`❌ اللاعب ${opponent.displayName} عليه قرض ولا يمكنه المشاركة برهان أعلى من **${MAX_LOAN_BET}**.`);
+                }
             }
         }
 
@@ -338,14 +344,6 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
             client.activeGames.delete(channelId);
             client.activePlayers.delete(author.id);
             return replyFunction({ content: "لا يمكنك تحدي البوت في اللعب الجماعي!", ephemeral: true });
-        }
-
-        // 🔥 فحص الرصيد الحر لكل خصم 🔥
-        const opponentFree = getFreeBalance(opponent, sql);
-        if (opponentFree < bet) {
-            client.activeGames.delete(channelId);
-            client.activePlayers.delete(author.id);
-            return replyFunction({ content: `❌ اللاعب ${opponent.displayName} لديه قرض ولا يملك رصيداً حراً كافياً!`, ephemeral: true });
         }
 
         let opponentData = getScore.get(opponent.id, channel.guild.id);
