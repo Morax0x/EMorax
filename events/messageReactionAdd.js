@@ -86,11 +86,12 @@ module.exports = {
             weeklyStats.reactions_added += 1;
             totalStats.total_reactions_added += 1;
 
-            // 🔥🔥 التحقق من روم التعزيز (Bump Channel) 🔥🔥
-            const settings = sql.prepare("SELECT bumpChannelID FROM settings WHERE guild = ?").get(guildID);
+            // 🔥🔥 التحقق من روم التعزيز (Boost Channel) 🔥🔥
+            // تم التعديل هنا لاستخدام boostChannelID بدلاً من bumpChannelID
+            const settings = sql.prepare("SELECT boostChannelID FROM settings WHERE guild = ?").get(guildID);
             
             // إذا كان التفاعل في الروم المحدد، نزيد العداد الخاص
-            if (settings && settings.bumpChannelID && reaction.message.channel.id === settings.bumpChannelID) {
+            if (settings && settings.boostChannelID && reaction.message.channel.id === settings.boostChannelID) {
                 dailyStats.boost_channel_reactions = (dailyStats.boost_channel_reactions || 0) + 1;
             }
 
