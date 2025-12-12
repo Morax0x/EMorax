@@ -1,12 +1,12 @@
 const { Events } = require("discord.js");
 const ownerReactionDelete = require("./ownerReactionDelete.js");
 
-// القيم الافتراضية الكاملة (يجب أن تطابق الأعمدة في قاعدة البيانات)
+// القيم الافتراضية الكاملة
 const defaultTotalStats = { 
     total_messages: 0, 
     total_images: 0, 
     total_stickers: 0, 
-    total_emojis_sent: 0, // ( 🌟 تمت الإضافة )
+    total_emojis_sent: 0, 
     total_reactions_added: 0, 
     total_replies_sent: 0, 
     total_mentions_received: 0, 
@@ -15,10 +15,12 @@ const defaultTotalStats = {
 };
 
 const defaultDailyStats = {
-    messages: 0, images: 0, stickers: 0, emojis_sent: 0, // ( 🌟 تمت الإضافة )
+    messages: 0, images: 0, stickers: 0, emojis_sent: 0, 
     reactions_added: 0, replies_sent: 0, mentions_received: 0, 
     vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, 
-    streaming_minutes: 0, disboard_bumps: 0 
+    streaming_minutes: 0, disboard_bumps: 0,
+    // 🔥 القيمة الجديدة للمهمة اليومية 🔥
+    boost_channel_reactions: 0 
 };
 
 function safeMerge(base, defaults) {
@@ -79,16 +81,23 @@ module.exports = {
             weeklyStats = safeMerge(weeklyStats, defaultDailyStats);
             totalStats = safeMerge(totalStats, defaultTotalStats);
 
-            // زيادة العدادات
+            // زيادة العدادات العامة
             dailyStats.reactions_added += 1;
             weeklyStats.reactions_added += 1;
             totalStats.total_reactions_added += 1;
 
-            // الحفظ (باستخدام الدوال الجاهزة في client التي تتوقع كائناً كاملاً)
+            // 🔥🔥 التحقق من روم التعزيز (Bump Channel) 🔥🔥
+            const settings = sql.prepare("SELECT bumpChannelID FROM settings WHERE guild = ?").get(guildID);
+            
+            // إذا كان التفاعل في الروم المحدد، نزيد العداد الخاص
+            if (settings && settings.bumpChannelID && reaction.message.channel.id === settings.bumpChannelID) {
+                dailyStats.boost_channel_reactions = (dailyStats.boost_channel_reactions || 0) + 1;
+            }
+
+            // الحفظ
             client.setDailyStats.run(dailyStats);
             client.setWeeklyStats.run(weeklyStats);
             
-            // ( 🌟 الحفظ الكامل والشامل لتجنب خطأ Missing Parameter 🌟 )
             client.setTotalStats.run({
                 id: totalStatsId,
                 userID,
@@ -96,7 +105,7 @@ module.exports = {
                 total_messages: totalStats.total_messages,
                 total_images: totalStats.total_images,
                 total_stickers: totalStats.total_stickers,
-                total_emojis_sent: totalStats.total_emojis_sent, // ✅ موجود الآن
+                total_emojis_sent: totalStats.total_emojis_sent, 
                 total_reactions_added: totalStats.total_reactions_added,
                 total_replies_sent: totalStats.total_replies_sent,
                 total_mentions_received: totalStats.total_mentions_received,
@@ -113,7 +122,6 @@ module.exports = {
             }
 
         } catch (err) {
-            // تجاهل الخطأ إذا كان بسبب قاعدة البيانات المغلقة مؤقتاً
             if (!err.message.includes('database connection is not open')) {
                 console.error("[Reaction Stats Error]", err);
             }
