@@ -26,7 +26,8 @@ async function recordBump(client, guildID, userID) {
     const totalID = `${userID}-${guildID}`;
 
     try {
-        sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(dailyID, userID, guildID, dateStr);
+        // 🔥 إضافة القيم الافتراضية الجديدة في حال عدم وجود السجل 🔥
+        sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, disboard_bumps, boost_channel_reactions) VALUES (?,?,?,?,1,0) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(dailyID, userID, guildID, dateStr);
         sql.prepare(`INSERT INTO user_weekly_stats (id, userID, guildID, weekStartDate, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(weeklyID, userID, guildID, weekStr);
         sql.prepare(`INSERT INTO user_total_stats (id, userID, guildID, total_disboard_bumps) VALUES (?,?,?,1) ON CONFLICT(id) DO UPDATE SET total_disboard_bumps = total_disboard_bumps + 1`).run(totalID, userID, guildID);
 
@@ -252,7 +253,6 @@ module.exports = {
                     }
 
                     // 3. التحقق من الكولداون (العام - Global)
-                    // نستخدم مفتاح يعتمد على السيرفر والكلمة فقط (وليس العضو)
                     const cooldownKey = `${message.guild.id}-${trigger}`;
                     const now = Date.now();
                     
