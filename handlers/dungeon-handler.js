@@ -272,9 +272,15 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
             if (monster.hp <= 0) {
                 ongoing = false;
                 
-                // توزيع الجوائز
-                const xp = floorConfig.xp;
-                const mora = floorConfig.mora;
+                // 🔥🔥 حساب البونص بناءً على مستوى بوابة القائد 🔥🔥
+                const hostData = sql.prepare("SELECT dungeon_gate_level FROM levels WHERE user = ?").get(partyIDs[0]);
+                const gateLevel = hostData?.dungeon_gate_level || 1;
+                // كل مستوى يزيد الجوائز بنسبة 10%
+                const bonusMultiplier = 1 + ((gateLevel - 1) * 0.1); 
+
+                const xp = Math.floor(floorConfig.xp * bonusMultiplier);
+                const mora = Math.floor(floorConfig.mora * bonusMultiplier);
+
                 players.filter(p => !p.isDead).forEach(p => {
                     sql.prepare("UPDATE levels SET xp = xp + ?, mora = mora + ? WHERE user = ?").run(xp, mora, p.id);
                     // تحديث أعلى طابق
@@ -283,6 +289,8 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                 });
 
                 log.push(`🎉 **${monster.name} هُزم!** (+${mora}💰 +${xp}✨)`);
+                if (gateLevel > 1) log.push(`💎 **بونص البوابة (Lv.${gateLevel}):** x${bonusMultiplier.toFixed(1)}`);
+
                 await battleMsg.edit({ embeds: [generateBattleEmbed(players, monster, floor, theme, log, 'Green')], components: [] });
                 
                 // استراحة وإنعاش بسيط
