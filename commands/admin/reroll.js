@@ -13,7 +13,7 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild),
 
     name: 'reroll',
-    aliases: ['g-reroll'],
+    aliases: ['g-reroll', 'اعادة-سحب'],
     category: "Admin", 
     description: 'اختيار فائز جديد أو إنهاء قيفاواي معلق.',
 
@@ -56,7 +56,7 @@ module.exports = {
         // 1. إذا تم إدخال الآيدي يدوياً، نفذ الريرول فوراً
         if (manualID) {
             try {
-                // (true تعني force reroll حتى لو لم يكن منتهياً)
+                // نستخدم endGiveaway مع force: true لعمل Reroll كامل (اختيار فائزين جدد وتوزيع الجوائز)
                 await endGiveaway(client, manualID, true); 
                 return reply({ content: `✅ تم طلب إعادة السحب للقيفاواي: ${manualID}` });
             } catch (err) {
@@ -68,7 +68,7 @@ module.exports = {
         // 2. إذا لم يدخل آيدي، اعرض القائمة المنسدلة
         const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
 
-        // جلب القيفاوايات المنتهية + المعلقة التي انتهى وقتها
+        // جلب القيفاوايات المنتهية + المعلقة التي انتهى وقتها (لآخر 7 أيام)
         const giveaways = sql.prepare(`
             SELECT * FROM active_giveaways 
             WHERE (isFinished = 1 OR endsAt <= ?) AND endsAt > ? 
@@ -80,10 +80,24 @@ module.exports = {
         }
 
         const options = giveaways.map(g => {
-            const endsDate = getKSADateString(g.endsAt);
+            // محاولة تنسيق التاريخ، مع وضع افتراضي في حال فشل الدالة المساعدة
+            let endsDate = "تاريخ غير معروف";
+            try {
+                if (typeof getKSADateString === 'function') {
+                    endsDate = getKSADateString(g.endsAt);
+                } else {
+                    endsDate = new Date(g.endsAt).toLocaleDateString('en-US');
+                }
+            } catch (e) {}
+
             const status = g.isFinished ? "منتهي" : "معلق";
+            
+            // التأكد من طول النص لا يتجاوز الحدود
+            let label = g.prize || "جائزة مجهولة";
+            if (label.length > 100) label = label.substring(0, 97) + "...";
+
             return new StringSelectMenuOptionBuilder()
-                .setLabel(g.prize.substring(0, 100))
+                .setLabel(label)
                 .setValue(g.messageID)
                 .setDescription(`[${status}] (ID: ${g.messageID}) - ${endsDate}`)
                 .setEmoji(g.isFinished ? '✅' : '⏳');
