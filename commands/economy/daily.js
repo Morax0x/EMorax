@@ -36,7 +36,7 @@ function getTimeUntilNextMidnightKSA() {
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('راتب')
-        .setDescription('احصل على راتبك اليومي (يتجدد الساعة 12 ص بتوقيت السعودية).'),
+        .setDescription('احصل على راتبك اليومي'),
 
     name: 'daily',
     aliases: ['راتب', 'يومي', 'd', 'جائزة', 'جائزه'],
@@ -93,10 +93,19 @@ module.exports = {
             const minutes = Math.floor((timeLeft % 3600000) / 60000);
             const seconds = Math.floor((timeLeft % 60000) / 1000);
             
-            const replyContent = `🕐 لقد استلمت راتبك اليوم بالفعل.\nيعود الراتب القادم خلال: **${hours} ساعة و ${minutes} دقيقة و ${seconds} ثانية** (بتوقيت السعودية).`;
+            // حساب الوقت القادم بصيغة Timestamp للديسكورد (Relative Time)
+            const nextTimeUnix = Math.floor((Date.now() + timeLeft) / 1000);
 
-            if (isSlash) return interaction.editReply({ content: replyContent, ephemeral: true });
-            return message.reply(replyContent);
+            const cooldownEmbed = new EmbedBuilder()
+                .setColor('#2291D4')
+                .setThumbnail('https://i.postimg.cc/c428jYdZ/Daily.png')
+                .setDescription(
+                    `❖ استـلـمـت راتبـك بالفعـل <:stop:1436337453098340442>\n` +
+                    `بمكـنـك استلام راتبـك التالي <t:${nextTimeUnix}:R>`
+                );
+
+            if (isSlash) return interaction.editReply({ embeds: [cooldownEmbed], ephemeral: true });
+            return message.reply({ embeds: [cooldownEmbed] });
         }
 
         // 2. حساب الستريك
