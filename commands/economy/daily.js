@@ -41,7 +41,7 @@ module.exports = {
     name: 'daily',
     aliases: ['راتب', 'يومي', 'd', 'جائزة', 'جائزه'],
     category: "Economy",
-    description: "احصل على راتبك اليومي (يتجدد الساعة 12 ص بتوقيت السعودية).",
+    description: "احصل على راتبك اليومي",
 
     async execute(interactionOrMessage, args) {
 
@@ -98,7 +98,7 @@ module.exports = {
                 .setThumbnail('https://i.postimg.cc/c428jYdZ/Daily.png')
                 .setDescription(
                     `❖ استـلـمـت راتبـك بالفعـل <:stop:1436337453098340442>\n` +
-                    `✶ بمكـنـك استلام راتبـك التالي:\n` +
+                    `✶ يمكـنـك استلام راتبـك التالي:\n` +
                     `✶ <t:${nextTimeUnix}:R>`
                 );
 
