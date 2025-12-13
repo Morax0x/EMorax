@@ -24,7 +24,6 @@ try {
 try {
     const { registerFont } = require('canvas');
 
-    // 1️⃣ تحميل خط النصوص (Bein) من مجلد fonts
     const beinPath = path.join(__dirname, 'fonts', 'bein-ar-normal.ttf');
     
     if (fs.existsSync(beinPath)) {
@@ -40,7 +39,6 @@ try {
         }
     }
 
-    // 2️⃣ تحميل خط الإيموجي (NotoEmoji) من مجلد efonts
     const emojiPath = path.join(__dirname, 'efonts', 'NotoEmoji.ttf');
     
     if (fs.existsSync(emojiPath)) {
@@ -55,7 +53,7 @@ try {
 }
 
 // ==================================================================
-// 3. تحديثات الجداول
+// 3. تحديثات الجداول (لضمان عمل الأوامر الجديدة)
 // ==================================================================
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastFish INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN rodLevel INTEGER DEFAULT 1").run(); } catch (e) {}
@@ -66,12 +64,13 @@ try { if(sql.open) sql.prepare("ALTER TABLE user_total_stats ADD COLUMN total_em
 try { if(sql.open) sql.prepare("ALTER TABLE user_total_stats ADD COLUMN total_disboard_bumps INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE user_daily_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE user_weekly_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
-// 🔥 السطر الجديد للمهمة اليومية (تفاعلات روم التعزيز) 🔥
 try { if(sql.open) sql.prepare("ALTER TABLE user_daily_stats ADD COLUMN boost_channel_reactions INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN shopLogChannelID TEXT").run(); } catch (e) {} 
-// 🔥 السطر الجديد لحفظ آيدي روم التعزيز في الإعدادات 🔥
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN boostChannelID TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN voiceChannelID TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN savedStatusType TEXT").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN savedStatusText TEXT").run(); } catch (e) {}
 
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id INTEGER PRIMARY KEY AUTOINCREMENT, guildID TEXT NOT NULL, trigger TEXT NOT NULL, response TEXT NOT NULL, images TEXT, matchType TEXT DEFAULT 'exact', cooldown INTEGER DEFAULT 0, allowedChannels TEXT, ignoredChannels TEXT, UNIQUE(guildID, trigger))").run(); } catch(e) {}
 
@@ -80,20 +79,18 @@ try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id IN
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
-// ✅ هذا هو التعريف الوحيد الصحيح (الاستدعاء الأول)
 const { checkLoanPayments } = require('./handlers/loan-handler.js'); 
 
 const questsConfig = require('./json/quests-config.json');
 const farmAnimals = require('./json/farm-animals.json');
 
 const { generateSingleAchievementAlert, generateQuestAlert } = require('./generators/achievement-generator.js'); 
-const { createRandomDropGiveaway, endGiveaway, getUserWeight } = require('./handlers/giveaway-handler.js');
+const { createRandomDropGiveaway, endGiveaway, getUserWeight, initGiveaways } = require('./handlers/giveaway-handler.js'); // 🔥 تمت إضافة initGiveaways
 const { checkUnjailTask } = require('./handlers/report-handler.js'); 
 const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
 const { handleShopInteractions } = require('./handlers/shop-handler.js'); 
-
-// 🌟🌟🌟 استيراد هاندلر المزرعة الجديد 🌟🌟🌟
 const { checkFarmIncome } = require('./handlers/farm-handler.js');
+const autoJoin = require('./handlers/auto-join.js'); // 🔥 استيراد هاندلر الصوت والحالة
 
 // ==================================================================
 // 5. إعداد العميل (Client)
@@ -320,7 +317,7 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         if (stat === 'replies_sent') totalStats.total_replies_sent = (totalStats.total_replies_sent || 0) + amount;
         if (stat === 'mentions_received') totalStats.total_mentions_received = (totalStats.total_mentions_received || 0) + amount;
         if (stat === 'vc_minutes') totalStats.total_vc_minutes = (totalStats.total_vc_minutes || 0) + amount;
-          
+           
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
         client.setTotalStats.run({
@@ -556,6 +553,12 @@ async function updateRainbowRoles(client) {
 client.on(Events.ClientReady, async () => { 
     console.log(`✅ Logged in as ${client.user.username}`);
     
+    // 🔥 تشغيل نظام الاستعادة التلقائي (صوت + حالة) 🔥
+    await autoJoin(client);
+
+    // 🔥 تشغيل استعادة القيف اواي 🔥
+    await initGiveaways(client);
+
     client.antiRolesCache = new Map();
     await loadRoleSettings(sql, client.antiRolesCache);
 
@@ -593,15 +596,11 @@ client.on(Events.ClientReady, async () => {
     setInterval(calculateInterest, 60 * 60 * 1000); calculateInterest();
     setInterval(updateMarketPrices, 60 * 60 * 1000); updateMarketPrices();
     
-    // ( 🌟 دالة القروض المفصولة 🌟 )
     setInterval(() => checkLoanPayments(client, sql), 60 * 60 * 1000); // كل ساعة
 
-    // 🔥🔥 (إلغاء القديم واستخدام الجديد للمزرعة) 🔥🔥
-    // تم حذف setInterval(processFarmYields...) القديم
-    // --------------------------------------------------------
+    // فحص المزرعة
     setInterval(() => checkFarmIncome(client, sql), 60 * 60 * 1000); // فحص كل ساعة
     checkFarmIncome(client, sql); // فحص فوري عند التشغيل
-    // --------------------------------------------------------
 
     setInterval(() => checkDailyStreaks(client, sql), 3600000); checkDailyStreaks(client, sql);
     setInterval(() => checkDailyMediaStreaks(client, sql), 3600000); checkDailyMediaStreaks(client, sql);
