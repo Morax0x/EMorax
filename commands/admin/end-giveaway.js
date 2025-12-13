@@ -12,46 +12,52 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild),
 
     name: 'g-end',
-    aliases: ['إنهاء', 'end-giveaway', 'g-finish'],
+    aliases: ['إنهاء', 'end-giveaway', 'g-finish', 'انهاء-قيف'],
     category: "Admin",
     description: "إنهاء قيفاواي نشط فوراً واختيار الفائزين.",
 
     async execute(interactionOrMessage, args) {
         const isSlash = !!interactionOrMessage.isChatInputCommand;
-        let messageID, user;
+        let messageID;
 
         if (isSlash) {
             messageID = interactionOrMessage.options.getString('message_id');
-            user = interactionOrMessage.user;
             await interactionOrMessage.deferReply({ ephemeral: true });
         } else {
             if (!args[0]) return interactionOrMessage.reply("❌ يرجى وضع آيدي رسالة القيفاواي.");
             messageID = args[0];
-            user = interactionOrMessage.author;
         }
 
         const client = interactionOrMessage.client;
 
         try {
-            // التحقق من وجود القيفاواي
-            const giveaway = client.sql.prepare("SELECT * FROM active_giveaways WHERE messageID = ? AND isFinished = 0").get(messageID);
+            // التحقق من وجود القيفاواي وأنه لم ينتهِ بعد
+            const giveaway = client.sql.prepare("SELECT * FROM active_giveaways WHERE messageID = ?").get(messageID);
 
             if (!giveaway) {
-                const msg = "❌ لم يتم العثور على قيفاواي نشط بهذا الآيدي (أو أنه انتهى بالفعل).";
+                const msg = "❌ لم يتم العثور على قيفاواي بهذا الآيدي.";
                 if (isSlash) await interactionOrMessage.editReply(msg);
                 else await interactionOrMessage.reply(msg);
                 return;
             }
 
-            // استدعاء دالة الإنهاء (مع تفعيل الفرز الفوري)
-            // نمرر true كمعامل ثالث لإجبار الإنهاء حتى لو الوقت ما خلص
+            if (giveaway.isFinished === 1) {
+                const msg = "⚠️ هذا القيفاواي منتهي بالفعل.";
+                if (isSlash) await interactionOrMessage.editReply(msg);
+                else await interactionOrMessage.reply(msg);
+                return;
+            }
+
+            // استدعاء دالة الإنهاء مع تفعيل الإجبار (force = true)
+            // المعامل الثالث (true) هو المهم هنا لأنه يجبر الدالة على الإنهاء حتى لو الوقت لم ينقضِ
             await endGiveaway(client, messageID, true); 
 
-            const successMsg = `✅ تم إنهاء القيفاواي (ID: ${messageID}) بنجاح!`;
+            const successMsg = `✅ تم إنهاء القيفاواي (ID: ${messageID}) واختيار الفائزين بنجاح!`;
+            
             if (isSlash) {
                 await interactionOrMessage.editReply(successMsg);
             } else {
-                await interactionOrMessage.react('✅');
+                await interactionOrMessage.reply(successMsg);
             }
 
         } catch (error) {
