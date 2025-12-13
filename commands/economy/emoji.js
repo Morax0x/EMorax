@@ -127,12 +127,14 @@ module.exports = {
                 }
 
                 if (confirmation.customId === 'mem_auto_confirm') {
-                    await confirmation.deferUpdate();
-                    if (!isSlash) await confirmMsg.delete().catch(() => {});
-                    else await confirmation.editReply({ content: '✅', embeds: [], components: [] });
+                    // 🔥 التعديل هنا: نمرر التفاعل الجديد (confirmation) بدلاً من القديم
+                    await confirmation.deferUpdate(); 
                     
+                    // نحذف القفل للسماح للعبة بالبدء
                     client.activeGames.delete(channel.id);
-                    return startMemoryGame(channel, user, member, proposedBet, client, guild, sql, isSlash ? interaction : null);
+                    
+                    // نمرر confirmation كـ interaction، هذا سيجعل اللعبة تقوم بتعديل رسالة الزر مباشرة
+                    return startMemoryGame(channel, user, member, proposedBet, client, guild, sql, confirmation);
                 }
             } catch (e) {
                 client.activeGames.delete(channel.id);
@@ -152,14 +154,16 @@ async function startMemoryGame(channel, user, member, bet, client, guild, sql, i
     let userData = client.getLevel.get(user.id, guild.id);
     if (!userData || userData.mora < bet) {
         const msg = `❌ ليس لديك مورا كافية! (رصيدك: ${userData ? userData.mora : 0})`;
-        if (interaction && !interaction.replied) await interaction.followUp({ content: msg, ephemeral: true });
+        if (interaction && !interaction.replied && !interaction.deferred) await interaction.reply({ content: msg, ephemeral: true });
+        else if (interaction) await interaction.editReply({ content: msg, ephemeral: true });
         else channel.send(msg);
         return;
     }
 
     if (bet > MAX_BET_SOLO) {
         const msg = `🚫 الحد الأقصى للرهان هو **${MAX_BET_SOLO}** ${EMOJI_MORA}.`;
-        if (interaction && !interaction.replied) await interaction.followUp({ content: msg, ephemeral: true });
+        if (interaction && !interaction.replied && !interaction.deferred) await interaction.reply({ content: msg, ephemeral: true });
+        else if (interaction) await interaction.editReply({ content: msg, ephemeral: true });
         else channel.send(msg);
         return;
     }
@@ -183,7 +187,6 @@ async function startMemoryGame(channel, user, member, bet, client, guild, sql, i
     const targetEmoji = gridEmojis[targetIndex];
 
     // 3. بناء الشبكة (مرحلة الحفظ)
-    // 3 صفوف، كل صف 3 أزرار
     const rowsReveal = [];
     for (let i = 0; i < 3; i++) {
         const row = new ActionRowBuilder();
@@ -208,8 +211,8 @@ async function startMemoryGame(channel, user, member, bet, client, guild, sql, i
 
     let gameMsg;
     if (interaction) {
-        if (!interaction.replied) gameMsg = await interaction.editReply({ content: " ", embeds: [memorizeEmbed], components: rowsReveal });
-        else gameMsg = await interaction.editReply({ content: " ", embeds: [memorizeEmbed], components: rowsReveal });
+        // نستخدم editReply لأن التفاعل (سواء الأمر الأصلي أو الزر) قد تم الرد عليه أو تأجيله
+        gameMsg = await interaction.editReply({ content: " ", embeds: [memorizeEmbed], components: rowsReveal });
     } else {
         gameMsg = await channel.send({ content: `${user}`, embeds: [memorizeEmbed], components: rowsReveal });
     }
