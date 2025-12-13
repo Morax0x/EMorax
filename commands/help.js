@@ -2,7 +2,7 @@ const { EmbedBuilder, PermissionsBitField, ActionRowBuilder, StringSelectMenuBui
 
 const HELP_IMAGE = 'https://i.postimg.cc/h4Hb5VX6/help.png';
 
-// (مترجم الأوصاف الإدارية)
+// (مترجم الأوصاف الإدارية والأوامر الجديدة)
 const DESCRIPTION_TRANSLATIONS = new Map([
     ['mora-admin', 'تعديل رصيد المورا لعضو (إضافة/إزالة)'],
     ['xp', 'التحكم بنقاط الخبرة (إضافة/إزالة)'],
@@ -33,7 +33,10 @@ const DESCRIPTION_TRANSLATIONS = new Map([
     ['checkdb', 'فحص قاعدة البيانات (للمطور)'],
     ['reroll', 'إعادة سحب فائز في قيف اواي'],
     ['set-shop-log', 'تحديد قناة سجلات المتجر'],
-    ['boss', 'التحكم في وحش العالم (للمالك)']
+    ['boss', 'التحكم في وحش العالم (للمالك)'],
+    ['dungeon', 'دخول الدانجون (PvE) لمحاربة الوحوش'],
+    ['arrange', 'لعبة ترتيب الأرقام (سرعة وذاكرة)'],
+    ['top', 'عرض قائمة المتصدرين (مورا/لفل/ستريك)']
 ]);
 
 // خريطة للأسماء العربية اليدوية
@@ -65,7 +68,9 @@ const MANUAL_ARABIC_NAMES = new Map([
     ['shop', 'متجر'],
     ['fish', 'صيد'],
     ['emoji', 'ايموجي'],
-    ['boss', 'وحش']
+    ['boss', 'وحش'],
+    ['dungeon', 'دانجون'],
+    ['arrange', 'ترتيب']
 ]);
 
 function getArabicDescription(cmd) {
@@ -130,10 +135,12 @@ function buildCasinoEmbed(client) {
 ✶** ${getCmdName(commands, 'emoji')}: ** \`لعبة تحدي الذاكرة (إيموجي)\`
 ✶** ${getCmdName(commands, 'rob')}: ** \`لسرقة ونهب رصيد مستخدم آخر\`
 ✶** ${getCmdName(commands, 'guess')}: ** \`لعبة تخمين الرقم فردي او جماعي\`
+✶** ${getCmdName(commands, 'arrange')}: ** \`لعبة ترتيب الأرقام (سرعة)\`
 ✶** ${getCmdName(commands, 'gametime')}: ** \`لاظهار فترة التهدئة لأوامر الكازينو\`
 ✶** ${getCmdName(commands, 'fish')}: ** \`صيد السمك وكسب المورا\`
 
-**❖ اوامـر الـقـتـال**
+**❖ اوامـر الـقـتـال والـمـغـامـرة**
+✶** ${getCmdName(commands, 'dungeon')}: ** \`دخول الدانجون ومحاربة الوحوش (PvE)\`
 ✶** ${getCmdName(commands, 'pvp')}: ** \`قتال وتحدي شخص آخر والمراهنة\`
 ✶** ${getCmdName(commands, 'my-skills')}: ** \`لعرض عتادك القتالي ومهاراتك\`
 ✶** ${getCmdName(commands, 'weapon-info')}: ** \`لعرض تفاصيل سلاح العرق الخاص بك\`
