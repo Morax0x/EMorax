@@ -7,7 +7,7 @@ const { getUserWeight, endGiveaway, createRandomDropGiveaway } = require('./hand
 const { handleReroll } = require('./handlers/reroll-handler.js'); 
 const { handleCustomRoleInteraction } = require('./handlers/custom-role-handler.js'); 
 const { handleReactionRole } = require('./handlers/reaction-role-handler.js'); 
-const { handleBossInteraction } = require('./handlers/boss-handler.js'); // ✅ استيراد الوحش
+const { handleBossInteraction } = require('./handlers/boss-handler.js');
 
 // محاولة استيراد المزرعة إذا كانت موجودة
 let handleFarmInteractions;
@@ -163,8 +163,7 @@ module.exports = (client, sql, antiRolesCache) => {
                     await handleCustomRoleInteraction(i, client, sql);
                 }
                 
-                // ✅ World Boss Buttons (Attack & Skill & Status)
-                // تم تعديل الشرط ليشمل أي زر يبدأ بـ boss_
+                // ✅ World Boss Buttons
                 else if (id.startsWith('boss_')) {
                     await handleBossInteraction(i, client, sql);
                 }
@@ -179,18 +178,18 @@ module.exports = (client, sql, antiRolesCache) => {
                     await handleStreakPanel(i, client, sql);
                 }
 
-                // ✅ Shop/Fish/Market Buttons
+                // ✅ Shop/Fish/Market Buttons (تم إضافة أزرار الدانجون هنا 🔥)
                 else if (
                     id.startsWith('buy_') || id.startsWith('upgrade_') || id.startsWith('shop_') || 
                     id.startsWith('replace_') || id === 'cancel_purchase' || id === 'open_xp_modal' ||
-                    id === 'max_level' || id === 'max_rod' || id === 'max_boat' ||
+                    id === 'max_level' || id === 'max_rod' || id === 'max_boat' || id === 'max_dungeon' || // تمت الإضافة
                     id === 'cast_rod' || id.startsWith('pull_rod') || 
                     id.startsWith('sell_') || id.startsWith('mem_') || 
-                    id === 'replace_guard'
+                    id === 'replace_guard' || id === 'confirm_dungeon_upgrade' // تمت الإضافة
                 ) {
                     await handleShopInteractions(i, client, sql);
                 }
-                 
+                  
                 // ✅ أزرار بناء القيفاواي (Builder)
                 else if (id === 'g_builder_content') {
                     const data = giveawayBuilders.get(i.user.id) || {};
@@ -331,8 +330,7 @@ module.exports = (client, sql, antiRolesCache) => {
             // 5. Select Menus
             // ====================================================
             } else if (i.isStringSelectMenu()) {
-                // ⚠️ (تم الإصلاح): إزالة deferUpdate الإجباري هنا لأنه يسبب مشاكل مع الهاندلرز التي ترد برد جديد
-
+                
                 const id = i.customId;
                 
                 // ✅ قائمة مهارات الوحش
