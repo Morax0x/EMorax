@@ -6,31 +6,48 @@ module.exports = {
         .setName('صوت')
         .setDescription('التحكم في تواجد البوت الصوتي.')
         .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
-        .addSubcommand(sub => sub.setName('دخول').setDescription('إدخال البوت للقناة الصوتية (24/7).'))
-        .addSubcommand(sub => sub.setName('خروج').setDescription('إخراج البوت من القناة الصوتية.')),
+        .addSubcommand(sub => sub.setName('دخول').setDescription('إدخال البوت للقناة الصوتية (تثبيت 24/7).'))
+        .addSubcommand(sub => sub.setName('خروج').setDescription('إخراج البوت من القناة الصوتية وإلغاء التثبيت.')),
 
     name: 'voice',
+    aliases: ['صوت', 'v'],
     category: "Admin",
     description: "التحكم في البوت الصوتي",
 
-    async execute(interaction) {
-        const isSlash = !!interaction.isChatInputCommand;
+    async execute(interactionOrMessage, args) {
+        // دعم السلاش والرسائل العادية
+        const isSlash = !!interactionOrMessage.isChatInputCommand;
         let member, guild, client;
+        let sub;
 
         if (isSlash) {
-            member = interaction.member;
-            guild = interaction.guild;
-            client = interaction.client;
-            await interaction.deferReply({ ephemeral: true });
-        } else { return; }
+            member = interactionOrMessage.member;
+            guild = interactionOrMessage.guild;
+            client = interactionOrMessage.client;
+            sub = interactionOrMessage.options.getSubcommand();
+            await interactionOrMessage.deferReply({ ephemeral: true });
+        } else {
+            // دعم الرسائل العادية (مثال: -صوت دخول)
+            member = interactionOrMessage.member;
+            guild = interactionOrMessage.guild;
+            client = interactionOrMessage.client;
+            sub = args[0]; // دخول أو خروج
+        }
 
-        const sub = interaction.options.getSubcommand();
+        const reply = async (content) => {
+            if (isSlash) return interactionOrMessage.editReply(content);
+            return interactionOrMessage.reply(content);
+        };
 
-        if (sub === 'دخول') {
+        const sql = client.sql; // تأكد أن client.sql معرف
+
+        // --- أمر الدخول ---
+        if (sub === 'دخول' || sub === 'join') {
             const channel = member.voice.channel;
-            if (!channel) return interaction.editReply("❌ يجب أن تكون في قناة صوتية أولاً.");
+            if (!channel) return reply("❌ يجب أن تكون في قناة صوتية أولاً.");
 
             try {
+                // 1. الانضمام للقناة
                 joinVoiceChannel({
                     channelId: channel.id,
                     guildId: guild.id,
@@ -39,22 +56,31 @@ module.exports = {
                     selfMute: false  
                 });
 
-                // ( 🌟 تم حذف كود تغيير الحالة إلى Streaming من هنا 🌟 )
-                // ( الآن ستبقى الفقاعة كما هي ولن تتغير )
+                // 2. حفظ القناة في قاعدة البيانات للتثبيت
+                sql.prepare("INSERT OR IGNORE INTO settings (guild) VALUES (?)").run(guild.id);
+                sql.prepare("UPDATE settings SET voiceChannelID = ? WHERE guild = ?").run(channel.id, guild.id);
 
-                return interaction.editReply(`✅ **تم الدخول!**\n- القناة: ${channel.name}\n- المايك: مفتوح 🎙️`);
+                return reply(`✅ **تم الدخول والتثبيت!**\n- القناة: ${channel.name}\n- سيعود البوت لهذه القناة تلقائياً إذا أعيد تشغيله.`);
             
             } catch (error) {
                 console.error(error);
-                return interaction.editReply("❌ حدث خطأ في الاتصال.");
+                return reply("❌ حدث خطأ في الاتصال.");
             }
         }
 
-        if (sub === 'خروج') {
+        // --- أمر الخروج ---
+        if (sub === 'خروج' || sub === 'leave') {
             const connection = getVoiceConnection(guild.id);
-            if (!connection) return interaction.editReply("❌ أنا لست في قناة صوتية.");
-            connection.destroy();
-            return interaction.editReply("✅ تم الخروج.");
+            
+            // 1. حذف القناة من قاعدة البيانات لإلغاء التثبيت
+            sql.prepare("UPDATE settings SET voiceChannelID = NULL WHERE guild = ?").run(guild.id);
+
+            if (connection) {
+                connection.destroy();
+                return reply("✅ تم الخروج وإلغاء التثبيت.");
+            } else {
+                return reply("✅ تم إلغاء التثبيت (البوت ليس في قناة حالياً).");
+            }
         }
     },
 };
