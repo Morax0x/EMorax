@@ -8,10 +8,11 @@ const weaponsConfig = require(path.join(rootDir, 'json', 'weapons-config.json'))
 const skillsConfig = require(path.join(rootDir, 'json', 'skills-config.json'));
 
 // --- ثوابت النظام ---
-const EMOJI_MORA = '<:mora:1435647151349698621>'; // تأكد من الايدي
+const EMOJI_MORA = '<:mora:1435647151349698621>'; 
 const BASE_HP = 100;
 const HP_PER_LEVEL = 4;
 const DUNGEON_COOLDOWN = 3 * 60 * 60 * 1000; // 3 ساعات
+const OWNER_ID = "1145327691772481577"; // 👑 آيدي الأونر
 
 // صور الفوز والخسارة
 const WIN_IMAGES = [
@@ -262,16 +263,19 @@ function handleSkillUsage(player, skill, monster, log) {
 async function startDungeon(interaction, sql) {
     const user = interaction.user;
 
-    const lastRun = sql.prepare("SELECT last_dungeon FROM levels WHERE user = ? AND guild = ?").get(user.id, interaction.guild.id);
-    if (lastRun && lastRun.last_dungeon) {
-        const timeLeft = DUNGEON_COOLDOWN - (Date.now() - lastRun.last_dungeon);
-        if (timeLeft > 0) {
-            const hours = Math.floor(timeLeft / (1000 * 60 * 60));
-            const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
-            return interaction.reply({ 
-                content: `⏳ أنت متعب جداً! يمكنك دخول الدانجون مجدداً بعد **${hours} ساعة و ${minutes} دقيقة**.`, 
-                ephemeral: true 
-            });
+    // 🔥🔥 1. التحقق من الكولداون (للشخص الذي يطلب الدانجون فقط) 🔥🔥
+    if (user.id !== OWNER_ID) {
+        const lastRun = sql.prepare("SELECT last_dungeon FROM levels WHERE user = ? AND guild = ?").get(user.id, interaction.guild.id);
+        if (lastRun && lastRun.last_dungeon) {
+            const timeLeft = DUNGEON_COOLDOWN - (Date.now() - lastRun.last_dungeon);
+            if (timeLeft > 0) {
+                const hours = Math.floor(timeLeft / (1000 * 60 * 60));
+                const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+                return interaction.reply({ 
+                    content: `⏳ **استرح قليلاً!**\nيمكنك طلب دانجون جديد بعد **${hours} ساعة و ${minutes} دقيقة**.\n*(يمكنك الانضمام لفريق شخص آخر في أي وقت)*`, 
+                    ephemeral: true 
+                });
+            }
         }
     }
 
@@ -323,10 +327,8 @@ async function lobbyPhase(interaction, theme, sql) {
             if (party.includes(i.user.id)) return i.reply({ content: "⚠️ أنت منضم بالفعل.", ephemeral: true });
             if (party.length >= 5) return i.reply({ content: "🚫 الفريق ممتلئ.", ephemeral: true });
             
-            const joinerCD = sql.prepare("SELECT last_dungeon FROM levels WHERE user = ? AND guild = ?").get(i.user.id, i.guild.id);
-            if (joinerCD && joinerCD.last_dungeon && (DUNGEON_COOLDOWN - (Date.now() - joinerCD.last_dungeon) > 0)) {
-                return i.reply({ content: "❌ لا يمكنك الانضمام، أنت في وقت انتظار (Cooldown).", ephemeral: true });
-            }
+            // ✅ تم إزالة شرط الكولداون هنا! 
+            // يمكن لأي شخص الانضمام حتى لو كان لديه وقت انتظار على "طلب" الدانجون.
 
             const userData = sql.prepare("SELECT mora FROM levels WHERE user = ?").get(i.user.id);
             if (!userData || userData.mora < 100) return i.reply({ content: "❌ ليس لديك 100 مورا.", ephemeral: true });
@@ -341,7 +343,9 @@ async function lobbyPhase(interaction, theme, sql) {
 
     collector.on('end', async (c, reason) => {
         if (reason === 'start') {
+            // 🔥🔥 تسجيل وقت الدخول للجميع (ليصبح لديهم كولداون على الطلب لاحقاً) 🔥🔥
             party.forEach(id => {
+                // يمكنك استثناء الأونر هنا أيضاً إذا أردت، لكن الشرط في البداية كافٍ
                 sql.prepare("UPDATE levels SET mora = mora - 100, last_dungeon = ? WHERE user = ? AND guild = ?").run(Date.now(), id, interaction.guild.id);
             });
             await runDungeon(interaction, party, theme, sql);
@@ -568,9 +572,9 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                             if (floor > currentMax) sql.prepare("UPDATE levels SET max_dungeon_floor = ? WHERE user = ? AND guild = ?").run(floor, p.id, guild.id);
                             
                             // 🌟 إضافة المعزز بناءً على الطابق 🌟
-                            const buffPercent = floor; // نسبة البف تساوي رقم الطابق (مثلاً طابق 5 = 5%)
+                            const buffPercent = floor; 
                             const multiplier = floor / 100;
-                            const duration = 15 * 60 * 1000; // 15 دقيقة
+                            const duration = 15 * 60 * 1000; 
                             const expireTime = Date.now() + duration;
 
                             sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guild.id, p.id, buffPercent, expireTime, 'xp', multiplier);
