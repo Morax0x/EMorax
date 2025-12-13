@@ -1,4 +1,5 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, Colors, ComponentType, SlashCommandBuilder } = require("discord.js");
+const marketConfig = require('../../json/market-items.json'); // استيراد ملف الإعدادات للفلترة
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 
@@ -70,7 +71,7 @@ function cleanEmojiFromName(name) {
 function buildGridView(allItems, pageIndex, timeRemaining) {
     const startIndex = pageIndex * ITEMS_PER_PAGE;
     const itemsOnPage = allItems.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-    const totalPages = Math.ceil(allItems.length / ITEMS_PER_PAGE);
+    // const totalPages = Math.ceil(allItems.length / ITEMS_PER_PAGE); // (غير مستخدم حالياً لكن مفيد مستقبلاً)
 
     const col1 = [], col2 = [], col3 = [];
     itemsOnPage.forEach((item, index) => {
@@ -187,7 +188,14 @@ module.exports = {
             }
         };
 
-        const allItems = sql.prepare("SELECT * FROM market_items").all();
+        // 🔥 1. جلب العناصر من قاعدة البيانات
+        const dbItems = sql.prepare("SELECT * FROM market_items").all();
+
+        // 🔥 2. تصفية العناصر: نعرض فقط العناصر الموجودة في ملف JSON (الأسهم والعقارات)
+        // هذا سيستبعد الطعوم وأي شيء آخر غير معرف في ملف market-items.json
+        const validItemIds = new Set(marketConfig.map(i => i.id));
+        const allItems = dbItems.filter(item => validItemIds.has(item.id));
+
         if (allItems.length === 0) {
             const embed = new EmbedBuilder().setTitle('📈 سوق الاستثمار').setDescription("السوق فارغ حالياً.").setColor(Colors.Red);
             return reply({ embeds: [embed] });
