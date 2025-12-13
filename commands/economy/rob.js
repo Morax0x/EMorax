@@ -9,7 +9,7 @@ const MAX_BANK_PERCENT = 0.05;
 const ROBBER_FINE_PERCENT = 0.10;
 
 const MIN_ROB_AMOUNT = 100;
-const MIN_REQUIRED_CASH = 100;
+const MIN_REQUIRED_CASH = 100; // الحد الأدنى للثروة المطلوبة (للسارق والضحية)
 const COOLDOWN_MS = 1 * 60 * 60 * 1000;
 
 const activeGames = new Set();
@@ -38,7 +38,7 @@ function deductFromRobber(data, amount) {
     } else {
         const remaining = amount - data.mora;
         data.mora = 0; // تصفير الكاش
-        data.bank -= remaining; // خصم الباقي من البنك
+        data.bank = Math.max(0, data.bank - remaining); // خصم الباقي من البنك
     }
     return data;
 }
@@ -117,11 +117,10 @@ module.exports = {
             victimData = { ...client.defaultData, user: victim.id, guild: guild.id };
         }
 
-        // 🔥 فحص قروض السارق (يجب أن يكون لديه رصيد حر لدفع الغرامة) 🔥
-        // هنا نتحقق فقط من أن لديه أموالاً تكفي لتغطية الحد الأدنى للغرامة
+        // 🔥 فحص ثروة السارق (يجب أن يكون لديه رصيد لدفع الغرامة) 🔥
         const robberTotalWealth = (robberData.mora || 0) + (robberData.bank || 0);
         if (robberTotalWealth < MIN_REQUIRED_CASH) {
-             return reply(`❌ **لا يمكنك السرقة!**\nتحتاج إلى رصيد إجمالي لا يقل عن **${MIN_REQUIRED_CASH.toLocaleString()}** ${EMOJI_MORA} لتتمكن من السرقة.`);
+             return reply(`❌ **لا يمكنك السرقة!**\nتحتاج إلى رصيد إجمالي (كاش + بنك) لا يقل عن **${MIN_REQUIRED_CASH.toLocaleString()}** ${EMOJI_MORA} لتتمكن من دفع الغرامة في حال فشلت.`);
         }
 
         const now = Date.now();
@@ -132,20 +131,19 @@ module.exports = {
             return reply(`🕐حـرامـي مـجتـهد انـت <:stop:1436337453098340442> انتـظـر **\`${timeString}\`** عشان تسـوي عمـليـة سـطو ثـانيـة.`);
         }
 
-        // 🔥 فحص رصيد الضحية 🔥
-        // نتحقق من أن الضحية يملك الحد الأدنى للسرقة (بغض النظر عن القروض)
+        // 🔥 فحص ثروة الضحية 🔥
         const victimTotalWealth = (victimData.mora || 0) + (victimData.bank || 0);
         
         if (victimTotalWealth < MIN_REQUIRED_CASH) {
-            return reply(`هذا العضو مفلس ولا يملك الحد الأدنى للسرقة (${MIN_REQUIRED_CASH.toLocaleString()} ${EMOJI_MORA}).`);
+            return reply(`❌ الضحية **${victim.displayName}** فقير جداً (أقل من **${MIN_REQUIRED_CASH}** مورا)! لا يستحق العناء.`);
         }
 
-        // --- توزيع الرصيد (وهمياً) ---
+        // --- توزيع الرصيد (لتحديد مكان السرقة) ---
         const robberMora = robberData.mora || 0;
         const robberBank = robberData.bank || 0;
         const robberTotal = robberMora + robberBank; 
 
-        // تحديد الهدف (كاش/بنك) بناءً على الرصيد الفعلي لتحديد الصعوبة
+        // تحديد الهدف (كاش/بنك) بناءً على الرصيد الفعلي
         const victimMora = victimData.mora || 0;
         const victimBank = victimData.bank || 0;
 
@@ -179,9 +177,14 @@ module.exports = {
 
         let amountToSteal = Math.min(robberCap, victimCap);
         
-        // التحقق النهائي
+        // التحقق النهائي للمبلغ المسروق
         if (amountToSteal < MIN_ROB_AMOUNT) {
-             return reply(`الضحية لا تملك ما يكفي لسرقته الآن!`);
+             // محاولة أخيرة: إذا كان المبلغ المحسوب قليل جداً، نسرق الحد الأدنى إذا توفر، وإلا نفشل العملية
+             if (victimPoolAmount >= MIN_ROB_AMOUNT) {
+                 amountToSteal = MIN_ROB_AMOUNT;
+             } else {
+                 return reply(`❌ الضحية لا يملك ما يكفي لسرقته في ${poolName}!`);
+             }
         }
 
         robberData.lastRob = now;
