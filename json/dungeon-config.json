@@ -1,0 +1,120 @@
+{
+  "themes": {
+    "fire": {
+      "name": "🌋 الجحيم المستعر",
+      "emoji": "🔥",
+      "weakness": "ice",
+      "boss": "إفريت النار العظيم"
+    },
+    "ice": {
+      "name": "❄️ الصقيع الأبدي",
+      "emoji": "🧊",
+      "weakness": "fire",
+      "boss": "تنين الجليد الأزرق"
+    },
+    "dark": {
+      "name": "🌑 الظلام الدامس",
+      "emoji": "💀",
+      "weakness": "light",
+      "boss": "سيد الظلال المرعب"
+    },
+    "mythic": {
+      "name": "🐉 الأراضي الأسطورية",
+      "emoji": "✨",
+      "weakness": "none",
+      "boss": "الحارس الذهبي القديم"
+    }
+  },
+  "floors": [
+    {
+      "floor": 1,
+      "type": "minion",
+      "hp_scale": 1.0,
+      "atk_scale": 0.8,
+      "xp": 50,
+      "mora": 100,
+      "ai": "basic"
+    },
+    {
+      "floor": 2,
+      "type": "minion",
+      "hp_scale": 1.5,
+      "atk_scale": 1.0,
+      "xp": 70,
+      "mora": 150,
+      "ai": "basic"
+    },
+    {
+      "floor": 3,
+      "type": "elite",
+      "hp_scale": 2.5,
+      "atk_scale": 1.2,
+      "xp": 100,
+      "mora": 250,
+      "ai": "smart"
+    },
+    {
+      "floor": 4,
+      "type": "elite",
+      "hp_scale": 3.5,
+      "atk_scale": 1.5,
+      "xp": 150,
+      "mora": 350,
+      "ai": "smart"
+    },
+    {
+      "floor": 5,
+      "type": "boss",
+      "hp_scale": 8.0,
+      "atk_scale": 2.0,
+      "xp": 500,
+      "mora": 1000,
+      "ai": "boss_tier1"
+    },
+    {
+      "floor": 6,
+      "type": "horde",
+      "hp_scale": 4.0,
+      "atk_scale": 1.8,
+      "xp": 250,
+      "mora": 500,
+      "ai": "aggressive"
+    },
+    {
+      "floor": 7,
+      "type": "elite",
+      "hp_scale": 5.0,
+      "atk_scale": 2.2,
+      "xp": 350,
+      "mora": 700,
+      "ai": "smart"
+    },
+    {
+      "floor": 8,
+      "type": "guardian",
+      "hp_scale": 7.0,
+      "atk_scale": 2.5,
+      "xp": 500,
+      "mora": 900,
+      "ai": "defensive"
+    },
+    {
+      "floor": 9,
+      "type": "guardian",
+      "hp_scale": 9.0,
+      "atk_scale": 2.8,
+      "xp": 700,
+      "mora": 1200,
+      "ai": "smart"
+    },
+    {
+      "floor": 10,
+      "type": "boss",
+      "hp_scale": 15.0,
+      "atk_scale": 3.5,
+      "xp": 2000,
+      "mora": 5000,
+      "ai": "boss_final"
+    }
+  ]
+}
