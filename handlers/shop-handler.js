@@ -26,6 +26,7 @@ const THUMBNAILS = new Map([
     ['upgrade_skill', 'https://i.postimg.cc/CMkxJJF4/tsmym-bdwn-ʿnwan-8.png'],
     ['upgrade_rod', 'https://i.postimg.cc/Wz0g0Zg0/fishing.png'], 
     ['upgrade_boat', 'https://i.postimg.cc/Wz0g0Zg0/fishing.png'], 
+    ['upgrade_dungeon', 'https://media.discordapp.net/attachments/1145327691772481577/1169000000000000000/dungeon_gate.gif'], // صورة الدانجون
     ['exchange_xp', 'https://i.postimg.cc/2yKbQSd3/tsmym-bdwn-ʿnwan-6.png'],
     ['personal_guard_1d', 'https://i.postimg.cc/CMv2qp8n/tsmym-bdwn-ʿnwan-1.png'],
     ['streak_shield', 'https://i.postimg.cc/3rbLwCMj/tsmym-bdwn-ʿnwan-2.png'],
@@ -101,31 +102,23 @@ function getAllUserAvailableSkills(member, sql) {
     return allSkills; 
 }
 
-function getBuyableItems() { return shopItems.filter(it => !['upgrade_weapon', 'upgrade_skill', 'exchange_xp', 'upgrade_rod', 'fishing_gear_menu'].includes(it.id)); }
+function getBuyableItems() { return shopItems.filter(it => !['upgrade_weapon', 'upgrade_skill', 'exchange_xp', 'upgrade_rod', 'fishing_gear_menu', 'upgrade_dungeon'].includes(it.id)); }
 
 // 🔥 دالة حساب الانزلاق السعري (Slippage Calculation) 🔥
 function calculateSlippage(basePrice, quantity, isBuy) {
-    // عامل الانزلاق: 0.0001 تعني أن كل حبة ترفع/تخفض السعر بنسبة 0.01%
     const slippageFactor = 0.0001; 
-    
-    // حساب التأثير الكلي للكمية
     const impact = quantity * slippageFactor;
-    
     let avgPrice;
     if (isBuy) {
-        // عند الشراء: السعر يزيد كلما زادت الكمية
         avgPrice = basePrice * (1 + (impact / 2)); 
     } else {
-        // عند البيع: السعر يقل كلما زادت الكمية المباعة
         avgPrice = basePrice * (1 - (impact / 2));
     }
-    
-    // ضمان أن السعر لا يقل عن 1 مورا
     return Math.max(Math.floor(avgPrice), 1);
 }
 
 // ============================================================================
-// 🔥🔥 نظام الكوبونات والخصومات (المعدل) 🔥🔥
+// 🔥🔥 نظام الكوبونات والخصومات 🔥🔥
 // ============================================================================
 
 async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalPrice, client, sql, callbackType) {
@@ -222,12 +215,11 @@ async function handlePurchaseWithCoupons(interaction, itemData, quantity, totalP
     });
 }
 
-// الدالة النهائية لتنفيذ الشراء (تم إضافة معززات XP وتصحيح الردود)
+// الدالة النهائية لتنفيذ الشراء
 async function processFinalPurchase(interaction, itemData, quantity, finalPrice, discountUsed, couponType, client, sql, callbackType, couponIdToDelete = null) {
     let userData = client.getLevel.get(interaction.user.id, interaction.guild.id);
     if (!userData) userData = { ...client.defaultData, user: interaction.user.id, guild: interaction.guild.id };
 
-    // دالة مساعدة لضمان إرسال الرد
     const safeReply = async (payload) => {
         payload.ephemeral = true; 
         if (interaction.deferred || interaction.replied) {
@@ -255,13 +247,10 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         sql.prepare("INSERT OR REPLACE INTO user_role_coupon_usage (guildID, userID, lastUsedTimestamp) VALUES (?, ?, ?)").run(interaction.guild.id, interaction.user.id, Date.now());
     }
 
-    client.setLevel.run(userData);
-
-    // 2. تسليم الغرض
+    // --- معالجة أنواع العناصر ---
     if (callbackType === 'item') {
         if (itemData.id === 'personal_guard_1d') {
             userData.hasGuard = (userData.hasGuard || 0) + 3; userData.guardExpires = 0;
-            client.setLevel.run(userData);
         }
         else if (itemData.id === 'streak_shield') {
             const setStreak = sql.prepare("INSERT OR REPLACE INTO streaks (id, guildID, userID, streakCount, lastMessageTimestamp, hasGracePeriod, hasItemShield, nicknameActive, hasReceivedFreeShield, separator, dmNotify, highestStreak) VALUES (@id, @guildID, @userID, @streakCount, @lastMessageTimestamp, @hasGracePeriod, @hasItemShield, @nicknameActive, @hasReceivedFreeShield, @separator, @dmNotify, @highestStreak);");
@@ -275,30 +264,18 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             const fullMediaStreakData = { id: existingMediaStreak?.id || `${interaction.guild.id}-${interaction.user.id}`, guildID: interaction.guild.id, userID: interaction.user.id, streakCount: existingMediaStreak?.streakCount || 0, lastMediaTimestamp: existingMediaStreak?.lastMediaTimestamp || 0, hasGracePeriod: existingMediaStreak?.hasGracePeriod || 0, hasItemShield: 1, hasReceivedFreeShield: existingMediaStreak?.hasReceivedFreeShield || 0, dmNotify: existingMediaStreak?.dmNotify ?? 1, highestStreak: existingMediaStreak?.highestStreak || 0 };
             setMediaStreak.run(fullMediaStreakData);
         }
-        // 🔥✅ تفعيل معززات الخبرة عند الشراء الأول ✅🔥
         else if (itemData.id.startsWith('xp_buff_')) {
-            let multiplier = 0;
-            let buffPercent = 0;
-            let duration = 0;
-
+            let multiplier = 0, buffPercent = 0, duration = 0;
             switch (itemData.id) {
-                case 'xp_buff_1d_3': 
-                    multiplier = 0.45; buffPercent = 45; duration = 24 * 60 * 60 * 1000; 
-                    break;
-                case 'xp_buff_1d_7': 
-                    multiplier = 0.70; buffPercent = 70; duration = 48 * 60 * 60 * 1000; 
-                    break;
-                case 'xp_buff_2d_10': 
-                    multiplier = 0.90; buffPercent = 90; duration = 72 * 60 * 60 * 1000; 
-                    break;
+                case 'xp_buff_1d_3': multiplier = 0.45; buffPercent = 45; duration = 24 * 60 * 60 * 1000; break;
+                case 'xp_buff_1d_7': multiplier = 0.70; buffPercent = 70; duration = 48 * 60 * 60 * 1000; break;
+                case 'xp_buff_2d_10': multiplier = 0.90; buffPercent = 90; duration = 72 * 60 * 60 * 1000; break;
             }
-
             if (duration > 0) {
                 const expiresAt = Date.now() + duration;
                 sql.prepare("INSERT INTO user_buffs (userID, guildID, buffType, multiplier, expiresAt, buffPercent) VALUES (?, ?, ?, ?, ?, ?)").run(interaction.user.id, interaction.guild.id, 'xp', multiplier, expiresAt, buffPercent);
             }
         }
-        // ------------------------------------------
         else if (itemData.id === 'vip_role_3d') {
             const settings = sql.prepare("SELECT vipRoleID FROM settings WHERE guild = ?").get(interaction.guild.id);
             if (settings && settings.vipRoleID) {
@@ -309,12 +286,11 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
             }
         }
         else if (itemData.id === 'change_race') {
-            let removedRoleName = "لا يوجد";
             try {
                 const allRaceRoles = sql.prepare("SELECT roleID, raceName FROM race_roles WHERE guildID = ?").all(interaction.guild.id);
                 const raceRoleIDs = allRaceRoles.map(r => r.roleID);
                 const userRaceRole = interaction.member.roles.cache.find(r => raceRoleIDs.includes(r.id));
-                if (userRaceRole) { await interaction.member.roles.remove(userRaceRole); removedRoleName = userRaceRole.name; }
+                if (userRaceRole) { await interaction.member.roles.remove(userRaceRole); }
             } catch (err) {}
             const expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000);
             sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(interaction.guild.id, interaction.user.id, -5, expiresAt, 'xp', -0.05);
@@ -331,6 +307,11 @@ async function processFinalPurchase(interaction, itemData, quantity, finalPrice,
         if (itemData.isBuy) sql.prepare("INSERT INTO user_skills (userID, guildID, skillID, skillLevel) VALUES (?, ?, ?, ?)").run(interaction.user.id, interaction.guild.id, itemData.skillId, newLevel);
         else sql.prepare("UPDATE user_skills SET skillLevel = ? WHERE id = ?").run(newLevel, itemData.dbId);
     }
+    else if (callbackType === 'dungeon') {
+        userData.dungeon_gate_level = (userData.dungeon_gate_level || 1) + 1;
+    }
+
+    client.setLevel.run(userData); // حفظ البيانات بعد الخصم والتعديل
 
     let successMsg = `✅ **تمت العملية بنجاح!**\n📦 **العنصر:** ${itemData.name || itemData.raceName || 'Unknown'}\n💰 **المبلغ المدفوع:** ${finalPrice.toLocaleString()} ${EMOJI_MORA}`;
     if (discountUsed > 0) successMsg += `\n📉 **تم تطبيق خصم:** ${discountUsed}%`;
@@ -398,6 +379,66 @@ function _buildSkillEmbedFields(embed, buttonRow, skillConfig, currentLevel) {
         if (skillConfig.max_level === 1) { nextEffect = skillConfig.base_value; } else { nextEffect = skillConfig.base_value + (skillConfig.value_increment * currentLevel); }
         embed.addFields({ name: "المستوى القادم", value: `Lv. ${currentLevel + 1}`, inline: true }, { name: "التأثير القادم", value: `${nextEffect}${effectType}`, inline: true }, { name: "التكلفة", value: `${nextLevelPrice.toLocaleString()} ${EMOJI_MORA}`, inline: true });
         buttonRow.addComponents(new ButtonBuilder().setCustomId(buttonId).setLabel(buttonLabel).setStyle(ButtonStyle.Success).setEmoji('⬆️'));
+    }
+}
+
+// --- 🔥 معالجة ترقية الدانجون (Dungeon Gate) 🔥 ---
+async function _handleDungeonUpgrade(i, client, sql) {
+    if(i.replied || i.deferred) await i.editReply("جاري التحميل..."); else await i.deferReply({ flags: MessageFlags.Ephemeral });
+    
+    let userData = client.getLevel.get(i.user.id, i.guild.id);
+    const currentLevel = userData ? (userData.dungeon_gate_level || 1) : 1;
+    const maxLevel = 10; // الحد الأقصى للمستويات
+
+    // إعدادات الترقية (التكلفة تتضاعف كل مرة)
+    const basePrice = 50000;
+    const price = Math.floor(basePrice * Math.pow(1.5, currentLevel - 1)); // يغلى السعر كل مرة
+
+    const embed = new EmbedBuilder()
+        .setTitle(`⛩️ بـوابـة الـدانجـون`)
+        .setDescription(`تطوير البوابة يزيد من الجوائز والخبرة المكتسبة من الوحوش.`)
+        .setColor('DarkRed')
+        .setThumbnail(THUMBNAILS.get('upgrade_dungeon'))
+        .setImage(BANNER_URL)
+        .addFields({ name: 'المستوى الحالي', value: `Lv. ${currentLevel}`, inline: true });
+
+    const row = new ActionRowBuilder();
+
+    if (currentLevel >= maxLevel) {
+        embed.addFields({ name: "التطوير القادم", value: "وصلت للحد الأقصى (Lv.10)", inline: true });
+        row.addComponents(new ButtonBuilder().setCustomId('max_dungeon').setLabel('الحد الأقصى').setStyle(ButtonStyle.Secondary).setDisabled(true));
+    } else {
+        const nextBonus = (1 + (currentLevel * 0.1)).toFixed(1); // مثال: Lv.1 -> 1.1x Bonus
+        embed.addFields(
+            { name: "المستوى القادم", value: `Lv. ${currentLevel + 1}`, inline: true },
+            { name: "التكلفة", value: `${price.toLocaleString()} ${EMOJI_MORA}`, inline: true },
+            { name: "بونص الجوائز", value: `x${nextBonus}`, inline: true }
+        );
+        row.addComponents(new ButtonBuilder().setCustomId('confirm_dungeon_upgrade').setLabel('ترقية البوابة').setStyle(ButtonStyle.Danger).setEmoji('⛩️'));
+    }
+
+    await i.editReply({ embeds: [embed], components: [row] });
+}
+
+async function _processDungeonUpgrade(i, client, sql) {
+    try {
+        let userData = client.getLevel.get(i.user.id, i.guild.id);
+        const currentLevel = userData.dungeon_gate_level || 1;
+        const basePrice = 50000;
+        const price = Math.floor(basePrice * Math.pow(1.5, currentLevel - 1));
+
+        const itemData = { 
+            name: `ترقية بوابة الدانجون (Lv.${currentLevel + 1})`, 
+            id: 'upgrade_dungeon', 
+            price: price 
+        };
+
+        // استخدام نظام الكوبونات
+        await handlePurchaseWithCoupons(i, itemData, 1, price, client, sql, 'dungeon');
+
+    } catch (e) {
+        console.error(e);
+        if (!i.replied) await i.reply({ content: "❌ حدث خطأ.", flags: MessageFlags.Ephemeral });
     }
 }
 
@@ -763,14 +804,12 @@ async function _handleBuySellModal(i, client, sql, types) {
         const getPortfolio = sql.prepare("SELECT * FROM user_portfolio WHERE userID = ? AND guildID = ? AND itemID = ?");
         
         if (isBuyMarket) {
-             // 🔥 حساب السعر مع الانزلاق السعري 🔥
              const avgPrice = calculateSlippage(item.currentPrice, quantity, true);
              const totalCost = Math.floor(avgPrice * quantity);
 
              if (userMora < totalCost) {
                  let msg = `❌ رصيدك غير كافي!`;
                  if (userBank >= totalCost) msg += `\n💡 لديك في البنك **${userBank.toLocaleString()}**، اسحب منها.`;
-                 // تنبيه إضافي إذا كان السعر قد ارتفع بسبب الكمية
                  if (totalCost > (item.currentPrice * quantity)) {
                     msg += `\n⚠️ السعر ارتفع بسبب الانزلاق السعري (الكمية الكبيرة). التكلفة الحالية: **${totalCost.toLocaleString()}**`;
                  }
@@ -789,7 +828,6 @@ async function _handleBuySellModal(i, client, sql, types) {
              const userQty = pfItem ? pfItem.quantity : 0;
              if (userQty < quantity) return await i.editReply({ content: `❌ لا تملك الكمية.` });
              
-             // 🔥 حساب الربح مع الانزلاق السعري 🔥
              const avgPrice = calculateSlippage(item.currentPrice, quantity, false);
              const totalGain = Math.floor(avgPrice * quantity);
 
@@ -856,6 +894,7 @@ async function handleShopSelectMenu(i, client, sql) {
             return await i.editReply({ embeds: [embed], components: [row] });
         }
         if (selected === 'upgrade_weapon') { await _handleWeaponUpgrade(i, client, sql); return; }
+        if (selected === 'upgrade_dungeon') { await _handleDungeonUpgrade(i, client, sql); return; } // 🔥🔥
         if (selected === 'upgrade_skill') {
             await i.deferReply({ flags: MessageFlags.Ephemeral });
             const allUserSkills = getAllUserAvailableSkills(i.member, sql);
@@ -891,6 +930,7 @@ async function handleShopInteractions(i, client, sql) {
 
     if (i.customId === 'upgrade_rod') await _handleRodUpgrade(i, client, sql);
     else if (i.customId === 'upgrade_boat') await _handleBoatUpgrade(i, client, sql);
+    else if (i.customId === 'confirm_dungeon_upgrade') await _processDungeonUpgrade(i, client, sql); // 🔥🔥
     else if (i.isStringSelectMenu() && i.customId === 'shop_buy_bait_menu') await _handleBaitBuy(i, client, sql);
     
     else if (i.customId.startsWith('buy_item_')) await _handleShopButton(i, client, sql);
