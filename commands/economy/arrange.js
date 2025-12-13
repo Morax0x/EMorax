@@ -106,8 +106,16 @@ module.exports = {
                 
                 db.prepare('UPDATE levels SET mora = mora - ? WHERE user = ? AND guild = ?').run(finalBetAmount, userId, guildId);
 
+                // تسجيل الكولداون ووقت آخر استخدام في قاعدة البيانات
                 if (userId !== OWNER_ID) {
                     cooldowns.set(userId, Date.now());
+                }
+                
+                // تحديث عمود lastArrange في قاعدة البيانات للأوامر المعتمدة على الوقت
+                try {
+                    db.prepare("UPDATE levels SET lastArrange = ? WHERE user = ? AND guild = ?").run(Date.now(), userId, guildId);
+                } catch (e) {
+                    // تجاهل الخطأ في حال عدم وجود العمود مؤقتاً
                 }
 
                 const numbersCount = 9;
