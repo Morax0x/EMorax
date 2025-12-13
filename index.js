@@ -60,6 +60,14 @@ try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN rodLevel INTEGER D
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN boatLevel INTEGER DEFAULT 1").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN currentLocation TEXT DEFAULT 'beach'").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastMemory INTEGER DEFAULT 0").run(); } catch (e) {} 
+try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastArrange INTEGER DEFAULT 0").run(); } catch (e) {} 
+
+// 🔥🔥 تحديثات الدانجون (مهم جداً) 🔥🔥
+try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN last_dungeon INTEGER DEFAULT 0").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN dungeon_gate_level INTEGER DEFAULT 1").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN max_dungeon_floor INTEGER DEFAULT 0").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN dungeon_wins INTEGER DEFAULT 0").run(); } catch (e) {}
+
 try { if(sql.open) sql.prepare("ALTER TABLE user_total_stats ADD COLUMN total_emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE user_total_stats ADD COLUMN total_disboard_bumps INTEGER DEFAULT 0").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE user_daily_stats ADD COLUMN emojis_sent INTEGER DEFAULT 0").run(); } catch (e) {}
@@ -85,12 +93,12 @@ const questsConfig = require('./json/quests-config.json');
 const farmAnimals = require('./json/farm-animals.json');
 
 const { generateSingleAchievementAlert, generateQuestAlert } = require('./generators/achievement-generator.js'); 
-const { createRandomDropGiveaway, endGiveaway, getUserWeight, initGiveaways } = require('./handlers/giveaway-handler.js'); // 🔥 تمت إضافة initGiveaways
+const { createRandomDropGiveaway, endGiveaway, getUserWeight, initGiveaways } = require('./handlers/giveaway-handler.js');
 const { checkUnjailTask } = require('./handlers/report-handler.js'); 
 const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
 const { handleShopInteractions } = require('./handlers/shop-handler.js'); 
 const { checkFarmIncome } = require('./handlers/farm-handler.js');
-const autoJoin = require('./handlers/auto-join.js'); // 🔥 استيراد هاندلر الصوت والحالة
+const autoJoin = require('./handlers/auto-join.js'); 
 
 // ==================================================================
 // 5. إعداد العميل (Client)
@@ -131,19 +139,20 @@ client.generateQuestAlert = generateQuestAlert;
 if (sql.open) {
     client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
     
+    // 🔥🔥 تم تحديث هذا الأمر ليشمل أعمدة الدانجون للحفظ الصحيح 🔥🔥
     client.setLevel = sql.prepare(`
         INSERT OR REPLACE INTO levels (
             user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, 
-            lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, 
+            lastInterest, totalInterestEarned, hasGuard, guardExpires, totalVCTime, lastCollected, 
             lastRob, lastGuess, lastRPS, lastRoulette, lastTransfer, lastDeposit, shop_purchases, 
             total_meow_count, boost_count, lastPVP, lastFarmYield, lastFish, rodLevel, boatLevel, 
-            currentLocation, lastMemory
+            currentLocation, lastMemory, lastArrange, last_dungeon, dungeon_gate_level, max_dungeon_floor, dungeon_wins
         ) VALUES (
             @user, @guild, @xp, @level, @totalXP, @mora, @lastWork, @lastDaily, @dailyStreak, @bank, 
-            @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @lastCollected, @totalVCTime, 
+            @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @totalVCTime, @lastCollected, 
             @lastRob, @lastGuess, @lastRPS, @lastRoulette, @lastTransfer, @lastDeposit, @shop_purchases, 
             @total_meow_count, @boost_count, @lastPVP, @lastFarmYield, @lastFish, @rodLevel, @boatLevel, 
-            @currentLocation, @lastMemory
+            @currentLocation, @lastMemory, @lastArrange, @last_dungeon, @dungeon_gate_level, @max_dungeon_floor, @dungeon_wins
         );
     `);
     
@@ -153,7 +162,9 @@ if (sql.open) {
         lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, 
         total_meow_count: 0, boost_count: 0, lastPVP: 0, lastFarmYield: 0,
         lastFish: 0, rodLevel: 1, boatLevel: 1, currentLocation: 'beach',
-        lastMemory: 0 
+        lastMemory: 0, lastArrange: 0,
+        // 🔥 قيم الدانجون الافتراضية 🔥
+        last_dungeon: 0, dungeon_gate_level: 1, max_dungeon_floor: 0, dungeon_wins: 0
     };
 
     client.getDailyStats = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?");
@@ -317,7 +328,7 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         if (stat === 'replies_sent') totalStats.total_replies_sent = (totalStats.total_replies_sent || 0) + amount;
         if (stat === 'mentions_received') totalStats.total_mentions_received = (totalStats.total_mentions_received || 0) + amount;
         if (stat === 'vc_minutes') totalStats.total_vc_minutes = (totalStats.total_vc_minutes || 0) + amount;
-           
+            
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
         client.setTotalStats.run({
