@@ -15,7 +15,7 @@ module.exports = {
                     { name: 'Watching (يشاهد 📺)', value: 'Watching' },
                     { name: 'Listening (يستمع 🎧)', value: 'Listening' },
                     { name: 'Competing (يتنافس 🏆)', value: 'Competing' },
-                    { name: 'Streaming (بث مباشر 🟣)', value: 'Streaming' } // (ملاحظة: البث يتطلب رابطاً)
+                    { name: 'Streaming (بث مباشر 🟣)', value: 'Streaming' }
                 ))
         .addStringOption(option =>
             option.setName('النص')
@@ -24,7 +24,7 @@ module.exports = {
         .addStringOption(option =>
             option.setName('الوضع')
                 .setDescription('لون الدائرة (أخضر، أصفر، أحمر)')
-                .setRequired(false) // اختياري (الافتراضي أخضر)
+                .setRequired(false)
                 .addChoices(
                     { name: 'Online (متصل 🟢)', value: 'online' },
                     { name: 'Idle (خامل 🟡)', value: 'idle' },
@@ -44,22 +44,20 @@ module.exports = {
 
         let activityData;
 
+        // تجهيز بيانات النشاط
         if (typeStr === 'Custom') {
-            // حالة الفقاعة
             activityData = {
                 name: content, 
                 type: ActivityType.Custom, 
                 state: content 
             };
         } else if (typeStr === 'Streaming') {
-            // حالة البث (اللون البنفسجي)
             activityData = {
                 name: content,
                 type: ActivityType.Streaming,
-                url: "https://www.twitch.tv/discord" // رابط وهمي لتفعيل اللون
+                url: "https://www.twitch.tv/discord"
             };
         } else {
-            // الحالات العادية
             let type;
             switch (typeStr) {
                 case 'Playing': type = ActivityType.Playing; break;
@@ -70,14 +68,36 @@ module.exports = {
             activityData = { name: content, type: type };
         }
 
-        // تطبيق النشاط + اللون
+        // 1. تطبيق النشاط + اللون فوراً
         interaction.client.user.setPresence({
             activities: [activityData],
             status: statusStr
         });
 
+        // 2. حفظ الإعدادات في قاعدة البيانات (لضمان البقاء بعد الريستارت)
+        const sql = interaction.client.sql;
+        const guildID = interaction.guild.id;
+
+        // نحفظ البيانات في جدول settings (سنستخدم guildID الحالي كمرجع لحفظ الإعداد العام للبوت)
+        try {
+            sql.prepare("INSERT OR IGNORE INTO settings (guild) VALUES (?)").run(guildID);
+            
+            // تحديث الأعمدة الخاصة بالحالة (تأكد أن الأعمدة موجودة كما أضفناها سابقاً)
+            sql.prepare(`
+                UPDATE settings 
+                SET savedStatusType = ?, 
+                    savedStatusText = ? 
+                WHERE guild = ?
+            `).run(typeStr, content, guildID);
+            
+            // يمكننا أيضاً حفظ "الوضع" (online/idle...) إذا أردت، لكن حالياً سنكتفي بالنشاط
+            // إذا أردت حفظ اللون أيضاً، ستحتاج لإضافة عمود savedStatusColor
+        } catch (e) {
+            console.error("Failed to save status to DB:", e);
+        }
+
         await interaction.reply({ 
-            content: `✅ **تم التحديث!**\n- النشاط: **${typeStr}**\n- النص: \`${content}\`\n- اللون: **${statusStr}**`, 
+            content: `✅ **تم التحديث والحفظ!**\n- النشاط: **${typeStr}**\n- النص: \`${content}\`\n- اللون: **${statusStr}**`, 
             ephemeral: true 
         });
     },
