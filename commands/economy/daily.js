@@ -36,7 +36,7 @@ function getTimeUntilNextMidnightKSA() {
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('راتب')
-        .setDescription('احصل على راتبك اليومي'),
+        .setDescription('احصل على راتبك اليومي (يتجدد الساعة 12 ص بتوقيت السعودية).'),
 
     name: 'daily',
     aliases: ['راتب', 'يومي', 'd', 'جائزة', 'جائزه'],
@@ -89,9 +89,6 @@ module.exports = {
 
         if (todayKSA === lastDailyKSA) {
             const timeLeft = getTimeUntilNextMidnightKSA();
-            const hours = Math.floor(timeLeft / 3600000);
-            const minutes = Math.floor((timeLeft % 3600000) / 60000);
-            const seconds = Math.floor((timeLeft % 60000) / 1000);
             
             // حساب الوقت القادم بصيغة Timestamp للديسكورد (Relative Time)
             const nextTimeUnix = Math.floor((Date.now() + timeLeft) / 1000);
@@ -101,7 +98,8 @@ module.exports = {
                 .setThumbnail('https://i.postimg.cc/c428jYdZ/Daily.png')
                 .setDescription(
                     `❖ استـلـمـت راتبـك بالفعـل <:stop:1436337453098340442>\n` +
-                    `بمكـنـك استلام راتبـك التالي <t:${nextTimeUnix}:R>`
+                    `✶ بمكـنـك استلام راتبـك التالي:\n` +
+                    `✶ <t:${nextTimeUnix}:R>`
                 );
 
             if (isSlash) return interaction.editReply({ embeds: [cooldownEmbed], ephemeral: true });
@@ -153,7 +151,7 @@ module.exports = {
         descriptionLines = [
             `✥ استلـمـت جـائـزتـك اليـوميـة`,
             `✶ حـصـلـت عـلـى **${finalAmount}** <:mora:1435647151349698621>${buffString}`,
-            `- أنت في اليوم **${newStreak}** على التوالـي!`
+            `✶ أنت في اليوم **${newStreak}** على التوالـي!`
         ];
 
         const embed = new EmbedBuilder()
