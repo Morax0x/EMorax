@@ -9,7 +9,6 @@ try {
     fishingConfig = require(path.join(rootDir, 'json', 'fishing-config.json'));
 } catch (e) {
     console.warn("[GameTime] Could not load fishing-config.json, using defaults.");
-    // قيم افتراضية في حال فشل التحميل
     fishingConfig.rods = [{ level: 1, cooldown: 300000 }]; 
     fishingConfig.boats = [{ level: 1, speed_bonus: 0 }];
 }
@@ -32,21 +31,32 @@ function formatTimeSimple(ms) {
     return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
-// قائمة الأوامر الثابتة
+// دالة لحساب الوقت المتبقي لمنتصف الليل بتوقيت السعودية (للراتب)
+function getTimeUntilNextMidnightKSA() {
+    const now = new Date();
+    const ksaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Riyadh' }));
+    const nextMidnight = new Date(ksaTime);
+    nextMidnight.setHours(24, 0, 0, 0); 
+    return nextMidnight.getTime() - ksaTime.getTime();
+}
+
+// دالة لمعرفة تاريخ اليوم بتوقيت السعودية
+function getKSADateString(timestamp) {
+    return new Date(timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
+}
+
+// قائمة الأوامر الثابتة (تم إزالة إيداع وتحويل)
 const COMMANDS_TO_CHECK = [
-    { name: 'daily', db_column: 'lastDaily', cooldown: 22 * 60 * 60 * 1000, label: 'راتب' },
-    // تم إزالة فوائد البنك من هنا
+    // { name: 'daily' ... } -> الراتب له معالجة خاصة
     { name: 'work', db_column: 'lastWork', cooldown: 1 * 60 * 60 * 1000, label: 'عمل' },
     { name: 'rob', db_column: 'lastRob', cooldown: 1 * 60 * 60 * 1000, label: 'سرقة' },
     { name: 'rps', db_column: 'lastRPS', cooldown: 1 * 60 * 60 * 1000, label: 'حجرة' },
-    { name: 'guess', db_column: 'lastGuess', cooldown: 1 * 60 * 60 * 1000, label: 'تخمين' },
+    { name: 'guess', db_column: 'lastGuess', cooldown: 1 * 60 * 60 * 1000, label: 'خمن' }, // تم تغيير الاسم
     { name: 'roulette', db_column: 'lastRoulette', cooldown: 1 * 60 * 60 * 1000, label: 'روليت' },
-    { name: 'emoji', db_column: 'lastMemory', cooldown: 1 * 60 * 60 * 1000, label: 'ايموجي' }, // ✅ تمت الإضافة
-    { name: 'arrange', db_column: 'lastArrange', cooldown: 1 * 60 * 60 * 1000, label: 'رتب' }, // ✅ تمت إضافة رتب هنا
+    { name: 'emoji', db_column: 'lastMemory', cooldown: 1 * 60 * 60 * 1000, label: 'ايموجي' }, 
+    { name: 'arrange', db_column: 'lastArrange', cooldown: 1 * 60 * 60 * 1000, label: 'رتب' },
     { name: 'pvp', db_column: 'lastPVP', cooldown: 5 * 60 * 1000, label: 'تحدي' },
-    { name: 'transfer', db_column: 'lastTransfer', cooldown: 5 * 60 * 1000, label: 'تحويل' },
-    { name: 'deposit', db_column: 'lastDeposit', cooldown: 1 * 60 * 60 * 1000, label: 'إيداع' },
-    // الصيد (Fish) سيتم حسابه ديناميكياً في الأسفل
+    // تم إزالة transfer و deposit
 ];
 
 module.exports = {
@@ -104,9 +114,22 @@ module.exports = {
             const now = Date.now();
             const descriptionLines = [];
 
-            // 1. حساب الأوامر الثابتة
+            // 1. معالجة خاصة للراتب (Daily)
+            const lastDaily = data.lastDaily || 0;
+            const todayKSA = getKSADateString(now);
+            const lastDailyKSA = getKSADateString(lastDaily);
+
+            if (todayKSA === lastDailyKSA) {
+                // استلم اليوم -> ينتظر لمنتصف الليل
+                const timeUntilMidnight = getTimeUntilNextMidnightKSA();
+                descriptionLines.push(`${EMOJI_WAIT} **راتب**: \`${formatTimeSimple(timeUntilMidnight)}\``);
+            } else {
+                // لم يستلم اليوم -> جاهز
+                descriptionLines.push(`${EMOJI_READY} **راتب**`);
+            }
+
+            // 2. حساب الأوامر الثابتة
             for (const cmd of COMMANDS_TO_CHECK) {
-                // تأكد من وجود العمود في الداتابيس، وإلا اعتبر القيمة 0
                 const lastUsed = data[cmd.db_column] || 0;
                 const cooldownAmount = cmd.cooldown;
                 const timeLeft = lastUsed + cooldownAmount - now;
@@ -118,7 +141,7 @@ module.exports = {
                 }
             }
 
-            // 2. 🎣 حساب كولداون الصيد (ديناميكي)
+            // 3. 🎣 حساب كولداون الصيد (ديناميكي)
             const userRodLevel = data.rodLevel || 1;
             const userBoatLevel = data.boatLevel || 1;
 
