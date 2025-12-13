@@ -371,11 +371,8 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
             // 1. تحقق موت الوحش (فوز)
             if (monster.hp <= 0) {
                 ongoing = false;
-                
-                // أولاً: تعطيل الأزرار في رسالة المعركة (لتبقى كمرجع)
                 await battleMsg.edit({ components: [] });
 
-                // حساب الجوائز
                 const hostData = sql.prepare("SELECT dungeon_gate_level FROM levels WHERE user = ?").get(partyIDs[0]);
                 const gateLevel = hostData?.dungeon_gate_level || 1;
                 const bonusMultiplier = 1 + ((gateLevel - 1) * 0.1);
@@ -388,14 +385,12 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                     if (floor > currentMax) sql.prepare("UPDATE levels SET max_dungeon_floor = ? WHERE user = ?").run(floor, p.id);
                 });
 
-                // --- إرسال ايمبد الفوز المنفصل ---
                 const randomWinImage = WIN_IMAGES[Math.floor(Math.random() * WIN_IMAGES.length)];
-                
                 const winEmbed = new EmbedBuilder()
                     .setTitle(`🎉 انتصار ساحق!`)
                     .setDescription(`تم القضاء على **${monster.name}** بنجاح!\n\n💰 **المورا:** ${mora} ${EMOJI_MORA}\n✨ **الخبرة:** ${xp} XP\n💎 **بونص البوابة:** x${bonusMultiplier.toFixed(1)}`)
                     .setColor(Colors.Gold)
-                    .setThumbnail(monster.name.includes("زعيم") ? "https://i.imgur.com/example_boss_dead.png" : null) // صورة اختيارية
+                    .setThumbnail(monster.name.includes("زعيم") ? "https://i.imgur.com/example_boss_dead.png" : null)
                     .setImage(randomWinImage);
 
                 if (floor === 10) {
@@ -408,13 +403,11 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                         sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guild.id, p.id, 15, expireTime, 'mora', 0.15);
                     });
                     
-                    await channel.send({ embeds: [winEmbed] }); // إرسال منفصل
+                    await channel.send({ embeds: [winEmbed] });
                     return;
                 }
 
-                await channel.send({ embeds: [winEmbed] }); // إرسال منفصل
-
-                // إنعاش بسيط
+                await channel.send({ embeds: [winEmbed] });
                 players.forEach(p => { if(!p.isDead) p.hp = Math.min(p.hp + Math.floor(p.maxHp * 0.2), p.maxHp); p.defending = false; });
                 await new Promise(r => setTimeout(r, 3000));
                 continue;
@@ -433,14 +426,11 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                 if (target.hp <= 0) { target.hp = 0; target.isDead = true; log.push(`💀 **${target.name}** سقط!`); }
             }
 
-            // 3. تحقق خسارة الفريق
+            // 3. تحقق خسارة الفريق (تم التعديل هنا)
             if (players.every(p => p.isDead)) {
                 ongoing = false;
-                
-                // تعطيل الأزرار في المعركة
                 await battleMsg.edit({ components: [] });
 
-                // عقوبة الخسارة
                 const expireTime = Date.now() + (15 * 60 * 1000);
                 players.forEach(p => {
                     sql.prepare(`INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)`).run(guild.id, p.id, -15, expireTime, 'mora', -0.15);
@@ -450,23 +440,30 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                 const randomLoseImage = LOSE_IMAGES[Math.floor(Math.random() * LOSE_IMAGES.length)];
                 const loseEmbed = new EmbedBuilder()
                     .setTitle("☠️ هُزم الفريق...")
-                    .setDescription(`انتهت رحلتكم في الطابق ${floor}.\n\n🩹 **العقوبة:**\nإصابة خطيرة (Wounded)\n-15% كسب مورا لمدة 15 دقيقة.`)
+                    .setDescription(`انتهت رحلتكم في الطابق ${floor}.\n\n🩹 **العقوبة:**\n✦ اصبـح جـريـح وبطـور الشفـاء \` 15 د \`\n✦ حـصـل عـلى اضـعـاف اكس بي ومورا: -15% \` 15 د \` <a:Nerf:1438795685280612423>`)
                     .setColor('DarkRed')
                     .setImage(randomLoseImage);
 
-                await channel.send({ embeds: [loseEmbed] }); // إرسال منفصل
+                // إضافة حالة الفريق النهائية
+                let teamStatus = players.map(p => {
+                    const icon = p.isDead ? '💀' : '🛡️';
+                    const hpBar = p.isDead ? 'MORT' : `\`${p.hp}/${p.maxHp}\``;
+                    return `${icon} **${p.name}**\n${hpBar} | ⚔️${p.atk}`;
+                }).join('\n\n');
+
+                loseEmbed.addFields({ name: `🛡️ **حالة الفريق النهائية**`, value: teamStatus, inline: false });
+
+                await channel.send({ embeds: [loseEmbed] });
                 return;
             }
 
             players.forEach(p => p.defending = false);
-            // الاحتفاظ بآخر 5 أسطر فقط
             if (log.length > 5) log = log.slice(-5);
             await battleMsg.edit({ embeds: [generateBattleEmbed(players, monster, floor, theme, log)] });
         }
     }
 }
 
-// 🔥🔥 تعديل شكل السجل ليكون في حقل منفصل 🔥🔥
 function generateBattleEmbed(players, monster, floor, theme, log, color = '#2F3136') {
     const embed = new EmbedBuilder()
         .setTitle(`${theme.emoji} الطابق ${floor} | ضد ${monster.name}`)
@@ -487,7 +484,7 @@ function generateBattleEmbed(players, monster, floor, theme, log, color = '#2F31
 
     embed.addFields({ name: `🛡️ **فريق المغامرين**`, value: teamStatus, inline: false });
 
-    // وضع السجل في Field منفصل بدلاً من الـ Description
+    // السجل في حقل منفصل
     if (log.length > 0) {
         embed.addFields({ name: "📝 سجل المعركة:", value: log.join('\n'), inline: false });
     }
