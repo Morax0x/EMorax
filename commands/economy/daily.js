@@ -1,9 +1,6 @@
 const { EmbedBuilder, Colors, SlashCommandBuilder } = require("discord.js");
 const { calculateMoraBuff } = require('../../streak-handler.js');
 
-const COOLDOWN_MS = 22 * 60 * 60 * 1000;
-const STREAK_BREAK_MS = 48 * 60 * 60 * 1000;
-
 const REWARDS = {
     1: { min: 100, max: 150 },
     2: { min: 150, max: 200 },
@@ -19,15 +16,32 @@ function getRandomAmount(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+// دالة لمعرفة التاريخ الحالي بتوقيت السعودية (UTC+3) كنص (YYYY-MM-DD)
+function getKSADateString(timestamp) {
+    return new Date(timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
+}
+
+// دالة لحساب الوقت المتبقي حتى منتصف الليل بتوقيت السعودية
+function getTimeUntilNextMidnightKSA() {
+    const now = new Date();
+    // الحصول على الوقت الحالي في السعودية
+    const ksaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Riyadh' }));
+    
+    const nextMidnight = new Date(ksaTime);
+    nextMidnight.setHours(24, 0, 0, 0); // ضبط الوقت لمنتصف الليل القادم
+    
+    return nextMidnight.getTime() - ksaTime.getTime();
+}
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('راتب')
-        .setDescription('احصل على راتبك اليومي من المورا (مرة كل 22 ساعة).'),
+        .setDescription('احصل على راتبك اليومي (يتجدد الساعة 12 ص بتوقيت السعودية).'),
 
     name: 'daily',
-    aliases: ['راتب', 'يومي', 'd'],
+    aliases: ['راتب', 'يومي', 'd', 'جائزة', 'جائزه'],
     category: "Economy",
-    description: "احصل على راتبك اليومي من المورا (مرة كل 22 ساعة).",
+    description: "احصل على راتبك اليومي (يتجدد الساعة 12 ص بتوقيت السعودية).",
 
     async execute(interactionOrMessage, args) {
 
@@ -67,31 +81,41 @@ module.exports = {
         }
 
         const now = Date.now();
-        const timeLeft = (data.lastDaily || 0) + COOLDOWN_MS - now;
+        const lastDaily = data.lastDaily || 0;
 
-        if (timeLeft > 0) {
+        // 1. التحقق من التاريخ (بتوقيت السعودية)
+        const todayKSA = getKSADateString(now);
+        const lastDailyKSA = getKSADateString(lastDaily);
+
+        if (todayKSA === lastDailyKSA) {
+            const timeLeft = getTimeUntilNextMidnightKSA();
             const hours = Math.floor(timeLeft / 3600000);
             const minutes = Math.floor((timeLeft % 3600000) / 60000);
-            const replyContent = `🕐 لا يمكنك استلام راتبك الآن. يرجى الانتظار **${hours} ساعة و ${minutes} دقيقة**.`;
+            const seconds = Math.floor((timeLeft % 60000) / 1000);
+            
+            const replyContent = `🕐 لقد استلمت راتبك اليوم بالفعل.\nيعود الراتب القادم خلال: **${hours} ساعة و ${minutes} دقيقة و ${seconds} ثانية** (بتوقيت السعودية).`;
 
-            if (isSlash) {
-                return interaction.editReply({ content: replyContent, ephemeral: true });
-            } else {
-                return message.reply(replyContent);
-            }
+            if (isSlash) return interaction.editReply({ content: replyContent, ephemeral: true });
+            return message.reply(replyContent);
         }
 
-        const timeSinceLastDaily = now - (data.lastDaily || 0);
+        // 2. حساب الستريك
         let newStreak = data.dailyStreak || 0;
+        
+        // نحسب الفرق بالأيام بين اليوم وآخر استلام لمعرفة إذا انقطع الستريك
+        const dayDifference = (new Date(todayKSA) - new Date(lastDailyKSA)) / (1000 * 60 * 60 * 24);
 
-        if (timeSinceLastDaily > STREAK_BREAK_MS) {
-            newStreak = 1;
-        } else {
+        if (dayDifference === 1) {
+            // استلم بالأمس، نزيد الستريك
             newStreak += 1;
+        } else {
+            // انقطع الستريك (أو أول مرة)
+            newStreak = 1;
         }
 
         if (newStreak > MAX_STREAK_DAY) {
-            newStreak = 1;
+            newStreak = 1; // إعادة الستريك بعد الوصول للحد الأقصى (اختياري، أو يمكن تثبيته على 7)
+            // في الكود القديم كان يعيد للواحد، سأبقيه كما هو.
         }
 
         const rewardRange = REWARDS[newStreak] || REWARDS[MAX_STREAK_DAY];
@@ -116,20 +140,12 @@ module.exports = {
             buffString = ` (${buffPercent.toFixed(0)}%)`;
         }
 
-        if (newStreak === MAX_STREAK_DAY) {
-            descriptionLines = [
-                `✥ استلـمـت جـائـزتـك اليـوميـة`,
-                `✶ حـصـلـت عـلـى **${finalAmount}** <:mora:1435647151349698621>${buffString}`,
-                `🎉 **لقد وصلت الجائزة الكبرى!** (بين ${rewardRange.min} - ${rewardRange.max})`,
-                `- أنت في اليوم **${newStreak}** على التوالـي!`
-            ];
-        } else {
-            descriptionLines = [
-                `✥ استلـمـت جـائـزتـك اليـوميـة`,
-                `✶ حـصـلـت عـلـى **${finalAmount}** <:mora:1435647151349698621>${buffString}`,
-                `- أنت في اليوم **${newStreak}** على التوالـي!`
-            ];
-        }
+        // إعداد الرسالة (تم إزالة سطر الجائزة الكبرى)
+        descriptionLines = [
+            `✥ استلـمـت جـائـزتـك اليـوميـة`,
+            `✶ حـصـلـت عـلـى **${finalAmount}** <:mora:1435647151349698621>${buffString}`,
+            `- أنت في اليوم **${newStreak}** على التوالـي!`
+        ];
 
         const embed = new EmbedBuilder()
             .setColor(Colors.Gold)
