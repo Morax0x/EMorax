@@ -252,7 +252,7 @@ async function startRoulette(channel, user, member, opponents, bet, client, guil
     } else {
         // --- Solo ---
         if (bet > MAX_BET_SOLO) {
-            const msg = `🚫 الحد الأقصى للفردي **${MAX_BET_SOLO}** ${EMOJI_MORA}.`;
+            const msg = `🚫 الحد الأقصى للرهان الفردي هو **${MAX_BET_SOLO}** ${EMOJI_MORA}.`;
             if (interaction) await interaction.followUp({ content: msg, ephemeral: true }); else channel.send(msg);
             return;
         }
@@ -299,13 +299,20 @@ async function playSoloRound(message, user, member, bet, userData, client, sql) 
         if (i.customId === 'rl_cashout') {
             const win = Math.floor(bet * currentMultiplier * calculateMoraBuff(member, sql));
             userData.mora += win; client.setLevel.run(userData);
-            const winEmbed = new EmbedBuilder().setTitle('✅ نجاة!').setDescription(`ربحت **${win}** ${EMOJI_MORA}`).setColor(Colors.Green);
+            
+            const winEmbed = new EmbedBuilder()
+                .setTitle('✅ نجاة!')
+                .setDescription(`انـسـحبـت من اللعـبـة ونجـوت بـ: **${win}** ${EMOJI_MORA}`)
+                .setColor(Colors.Green)
+                .setImage('https://i.postimg.cc/K8QBCQmS/download-1.gif')
+                .setThumbnail(user.displayAvatarURL());
+
             await message.edit({ embeds: [winEmbed], components: [] });
             collector.stop('finished');
         } 
         else if (i.customId === 'rl_pull') {
             if (chambers[currentTurn] === 1) {
-                const loseEmbed = new EmbedBuilder().setTitle('💥 بــــووم!').setDescription(`خسرت **${bet}** ${EMOJI_MORA}`).setColor(Colors.Red).setImage('https://i.postimg.cc/3Np26Tx9/download.gif');
+                const loseEmbed = new EmbedBuilder().setTitle('💥 بــــووم!').setDescription(`خسرت **${bet}** ${EMOJI_MORA}`).setColor(Colors.Red).setImage('https://i.postimg.cc/3Np26Tx9/download.gif').setThumbnail(user.displayAvatarURL());
                 await message.edit({ embeds: [loseEmbed], components: [] });
                 collector.stop('finished');
             } else {
@@ -314,7 +321,7 @@ async function playSoloRound(message, user, member, bet, userData, client, sql) 
                 if (currentTurn === 5) {
                     const win = Math.floor(bet * MULTIPLIERS[4] * calculateMoraBuff(member, sql));
                     userData.mora += win; client.setLevel.run(userData);
-                    const maxEmbed = new EmbedBuilder().setTitle('🏆 نجاة أسطورية!').setDescription(`ربحت **${win}** ${EMOJI_MORA}`).setColor("Gold");
+                    const maxEmbed = new EmbedBuilder().setTitle('🏆 نجاة أسطورية!').setDescription(`ربحت **${win}** ${EMOJI_MORA}`).setColor("Gold").setImage('https://i.postimg.cc/K8QBCQmS/download-1.gif').setThumbnail(user.displayAvatarURL());
                     await message.edit({ embeds: [maxEmbed], components: [] });
                     collector.stop('finished');
                 } else {
@@ -386,7 +393,7 @@ async function playMultiplayerGame(msg, players, bet, totalPot, client, guild) {
         }
         if (winner && maxMult > 1) {
             let d = client.getLevel.get(winner.id, guild.id); d.mora += totalPot; client.setLevel.run(d);
-            const embed = new EmbedBuilder().setTitle(`🏆 الفائز: ${winner.displayName}`).setDescription(`ربـح **${totalPot}**`).setColor("Gold");
+            const embed = new EmbedBuilder().setTitle(`🏆 الفائز: ${winner.displayName}`).setDescription(`ربـح **${totalPot}** ${EMOJI_MORA}`).setColor("Gold");
             msg.edit({ embeds: [embed], components: [] });
         } else {
             const embed = new EmbedBuilder().setTitle("💀 لا فائز").setDescription(`استرجاع الأموال.`).setColor("Red");
