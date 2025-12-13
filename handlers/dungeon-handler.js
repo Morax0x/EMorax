@@ -1,50 +1,104 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ComponentType } = require('discord.js');
-const dungeonConfig = require('../json/dungeon-config.json');
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ComponentType, Colors } = require('discord.js');
+const path = require('path');
 
-// --- 🛠️ دوال مساعدة للتصميم (مثل PvP) ---
+// تحميل الإعدادات
+const rootDir = process.cwd();
+const dungeonConfig = require(path.join(rootDir, 'json', 'dungeon-config.json'));
+const weaponsConfig = require(path.join(rootDir, 'json', 'weapons-config.json'));
+const skillsConfig = require(path.join(rootDir, 'json', 'skills-config.json'));
 
-// رسم شريط الصحة (Health Bar)
-function drawHealthBar(current, max) {
-    const totalBars = 10;
-    const percentage = Math.max(0, Math.min(current / max, 1));
-    const filledBars = Math.round(percentage * totalBars);
-    const emptyBars = totalBars - filledBars;
-    
-    const filledChar = '🟩';
-    const emptyChar = '⬛';
-    
-    if (percentage <= 0.3) return '🟥'.repeat(filledBars) + emptyChar.repeat(emptyBars); // أحمر للخطر
-    if (percentage <= 0.6) return '🟨'.repeat(filledBars) + emptyChar.repeat(emptyBars); // أصفر للمتوسط
-    return filledChar.repeat(filledBars) + emptyChar.repeat(emptyBars);
+// --- ثوابت النظام (نفس نظام PvP) ---
+const EMOJI_MORA = '<:mora:1435647151349698621>';
+const BASE_HP = 100;
+const HP_PER_LEVEL = 4;
+
+const WIN_IMAGES = [
+    'https://i.postimg.cc/JhMrnyLd/download-1.gif',
+    'https://i.postimg.cc/FHgv29L0/download.gif',
+    'https://i.postimg.cc/9MzjRZNy/haru-midoriya.gif',
+    'https://i.postimg.cc/4ygk8q3G/tumblr-nmao11Zm-Bx1r3rdh2o2-500-gif-500-281.gif',
+    'https://i.postimg.cc/pL6NNpdC/Epic7-Epic-Seven-GIF-Epic7-Epic-Seven-Tensura-Discover-Share-GIFs.gif',
+    'https://i.postimg.cc/05dLktNF/download-5.gif',
+    'https://i.postimg.cc/sXRVMwhZ/download-2.gif'
+];
+
+const LOSE_IMAGES = [
+    'https://i.postimg.cc/xd8msjxk/escapar-a-toda-velocidad.gif',
+    'https://i.postimg.cc/1zb8JGVC/download.gif',
+    'https://i.postimg.cc/rmSwjvkV/download-1.gif',
+    'https://i.postimg.cc/8PyPZRqt/download.jpg'
+];
+
+// --- دوال مساعدة (مقتبسة من الكود المرسل) ---
+
+function cleanDisplayName(name) {
+    if (!name) return "لاعب";
+    let clean = name.replace(/<a?:.+?:\d+>/g, '');
+    clean = clean.replace(/[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\DFFF]|\uD83D[\uDC00-\DFFF]|[\u2011-\u26FF]|\uD83E[\uDD00-\DFFF]/g, '');
+    return clean.trim();
 }
 
-// حساب قوة اللاعب (يدمج السلاح والمهارات)
-function calculatePlayerPower(member, sql) {
-    const weaponData = sql.prepare("SELECT * FROM user_weapons WHERE userID = ?").get(member.id);
-    // القيم الأساسية
-    let stats = { 
-        hp: 100, 
-        maxHp: 100,
-        atk: 15, 
-        def: 0,
-        name: member.displayName, 
-        id: member.id, 
-        avatar: member.user.displayAvatarURL(),
-        isDead: false, 
-        defending: false,
-        potions: 2 // عدد الجرعات المسموح بها
-    }; 
-    
-    if (weaponData) {
-        // كل لفل سلاح يزيد القوة والصحة بشكل ملحوظ
-        stats.atk += (weaponData.weaponLevel * 8); 
-        stats.hp += (weaponData.weaponLevel * 15);
-        stats.maxHp += (weaponData.weaponLevel * 15);
+// رسم شريط الصحة
+function buildHpBar(currentHp, maxHp) {
+    currentHp = Math.max(0, currentHp);
+    const percentage = (currentHp / maxHp) * 10;
+    const filled = '█';
+    const empty = '░';
+    // تلوين البار (في الديسكورد يظهر كنص، الألوان تعتمد على الايمبد)
+    return `[${filled.repeat(Math.max(0, Math.floor(percentage))) + empty.repeat(Math.max(0, 10 - Math.floor(percentage)))}] ${currentHp}/${maxHp}`;
+}
+
+// جلب العرق
+function getUserRace(member, sql) {
+    if (!member || !member.guild) return null;
+    const allRaceRoles = sql.prepare("SELECT roleID, raceName FROM race_roles WHERE guildID = ?").all(member.guild.id);
+    if (!member.roles || !member.roles.cache) return null;
+    const userRoleIDs = member.roles.cache.map(r => r.id);
+    return allRaceRoles.find(r => userRoleIDs.includes(r.roleID)) || null;
+}
+
+// حساب البيانات الحقيقية للاعب (أسلحة + لفل)
+function getRealPlayerData(member, sql) {
+    const guildID = member.guild.id;
+    const userID = member.id;
+
+    // 1. جلب اللفل لحساب الصحة
+    const userData = sql.prepare("SELECT level FROM levels WHERE user = ? AND guild = ?").get(userID, guildID);
+    const level = userData ? userData.level : 1;
+    const maxHp = BASE_HP + (level * HP_PER_LEVEL);
+
+    // 2. جلب السلاح وحساب الضرر
+    let damage = 15; // الضرر الأساسي (بدون سلاح)
+    let weaponName = "قبضة اليد";
+
+    const userRace = getUserRace(member, sql);
+    if (userRace) {
+        const weaponConfig = weaponsConfig.find(w => w.race === userRace.raceName);
+        if (weaponConfig) {
+            const userWeapon = sql.prepare("SELECT * FROM user_weapons WHERE userID = ? AND guildID = ? AND raceName = ?").get(userID, guildID, userRace.raceName);
+            if (userWeapon && userWeapon.weaponLevel > 0) {
+                damage = weaponConfig.base_damage + (weaponConfig.damage_increment * (userWeapon.weaponLevel - 1));
+                weaponName = `${weaponConfig.name} (Lv.${userWeapon.weaponLevel})`;
+            }
+        }
     }
-    return stats;
+
+    return {
+        id: userID,
+        name: cleanDisplayName(member.displayName),
+        avatar: member.user.displayAvatarURL(),
+        level: level,
+        hp: maxHp,
+        maxHp: maxHp,
+        atk: damage,
+        weaponName: weaponName,
+        isDead: false,
+        defending: false,
+        potions: 3 // عدد الجرعات المسموح بها في الدانجون
+    };
 }
 
-// اختيار وحش عشوائي من الكونفق
+// اختيار وحش عشوائي
 function getRandomMonster(type, theme) {
     let pool = [];
     if (type === 'boss') pool = dungeonConfig.monsters.bosses;
@@ -55,42 +109,12 @@ function getRandomMonster(type, theme) {
     return { name, emoji: theme.emoji };
 }
 
-// 🧠 ذكاء الوحش
-function getMonsterAction(monster, players, type) {
-    const alivePlayers = players.filter(p => !p.isDead);
-    if (alivePlayers.length === 0) return { type: 'win' };
+// --- الهاندلر الرئيسي ---
 
-    // استراتيجيات
-    const weakTarget = alivePlayers.sort((a, b) => a.hp - b.hp)[0]; 
-    const randomTarget = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
-
-    // 1. الزعماء (Bosses)
-    if (type === 'boss' || type === 'guardian') {
-        // مهارة "الغضب" عند 40% صحة
-        if (monster.hp < monster.maxHp * 0.4 && !monster.enraged) {
-            monster.enraged = true;
-            return { type: 'enrage', msg: `💢 **${monster.name}** دخل في حالة هيجان! (ATK x1.5)` };
-        }
-        // ضربة جماعية (AOE) بنسبة 25%
-        if (Math.random() < 0.25) {
-            return { type: 'aoe', target: alivePlayers, multiplier: 0.6 };
-        }
-        // ضربة قاضية للهدف الضعيف
-        if (weakTarget.hp < monster.atk && Math.random() < 0.5) {
-            return { type: 'attack', target: weakTarget, multiplier: 1.5, msg: `☠️ **${monster.name}** يحاول إعدام ${weakTarget.name}!` };
-        }
-    }
-
-    // هجوم عادي
-    return { type: 'attack', target: randomTarget, multiplier: 1 };
-}
-
-// ==================================================================
-// 🎮 1. بداية الدانجون (اختيار العالم)
-// ==================================================================
 async function startDungeon(interaction, sql) {
     const user = interaction.user;
     
+    // القائمة المنسدلة لاختيار الثيم
     const themeOptions = Object.keys(dungeonConfig.themes).map(key => ({
         label: dungeonConfig.themes[key].name,
         value: key,
@@ -101,18 +125,7 @@ async function startDungeon(interaction, sql) {
         new StringSelectMenuBuilder().setCustomId('dungeon_theme').setPlaceholder('🌍 اختر عالم الدانجون...').addOptions(themeOptions)
     );
 
-    const embed = new EmbedBuilder()
-        .setTitle(`⚔️ بوابة الدانجون`)
-        .setDescription(`مرحباً بك أيها المغامر **${user.username}**.\nاختر المنطقة التي تود استكشافها مع فريقك.`)
-        .setColor('#2F3136')
-        .setImage('https://media.discordapp.net/attachments/1145327691772481577/1169000000000000000/dungeon_gate.gif'); // صورة اختيارية
-
-    let msg;
-    if (interaction.isChatInputCommand) {
-        msg = await interaction.reply({ embeds: [embed], components: [row], fetchReply: true });
-    } else {
-        msg = await interaction.reply({ embeds: [embed], components: [row] });
-    }
+    const msg = await interaction.reply({ content: `👋 مرحباً **${user.username}**! اختر البوابة للدخول:`, components: [row], fetchReply: true });
 
     const filter = i => i.user.id === user.id && i.customId === 'dungeon_theme';
     try {
@@ -121,14 +134,10 @@ async function startDungeon(interaction, sql) {
         const theme = dungeonConfig.themes[themeKey];
         await lobbyPhase(selection, theme, sql);
     } catch (e) {
-        // انتهاء الوقت
-        if (msg.editable) msg.edit({ content: "⏰ انتهى وقت اختيار البوابة.", components: [], embeds: [] }).catch(()=>{});
+        if (msg.editable) msg.edit({ content: "⏰ انتهى وقت الاختيار.", components: [] }).catch(()=>{});
     }
 }
 
-// ==================================================================
-// 👥 2. اللوبي (تجميع الفريق)
-// ==================================================================
 async function lobbyPhase(interaction, theme, sql) {
     const host = interaction.user;
     let party = [host.id];
@@ -136,100 +145,92 @@ async function lobbyPhase(interaction, theme, sql) {
     const updateEmbed = () => {
         const memberList = party.map((id, i) => `\`${i+1}.\` <@${id}> ${id === host.id ? '👑' : ''}`).join('\n');
         return new EmbedBuilder()
-            .setTitle(`${theme.emoji} تجهيز الفريق: ${theme.name}`)
-            .setDescription(`**القائد:** ${host}\n**السعر:** 💰 100 مورا/شخص\n\n👥 **المغامرون (${party.length}/5):**\n${memberList}\n\n*اضغط "انضمام" للدخول، و "انطلاق" عند الجاهزية.*`)
-            .setColor('Gold')
+            .setTitle(`${theme.emoji} بوابة الدانجون: ${theme.name}`)
+            .setDescription(`**القائد:** ${host}\n**التكلفة:** 💰 100 مورا\n\n👥 **المغامرون:**\n${memberList}`)
+            .setColor('DarkRed')
             .setThumbnail(host.displayAvatarURL());
     };
 
     const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('join').setLabel('انضمام').setEmoji('➕').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('start').setLabel('انطلاق').setEmoji('⚔️').setStyle(ButtonStyle.Danger)
+        new ButtonBuilder().setCustomId('join').setLabel('انضمام').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('start').setLabel('انطلاق').setStyle(ButtonStyle.Danger)
     );
 
     await interaction.update({ content: null, embeds: [updateEmbed()], components: [row] });
     const msg = await interaction.message;
-
     const collector = msg.createMessageComponentCollector({ time: 60000 });
 
     collector.on('collect', async i => {
         if (i.customId === 'join') {
-            if (party.includes(i.user.id)) return i.reply({ content: "⚠️ أنت منضم بالفعل!", ephemeral: true });
-            if (party.length >= 5) return i.reply({ content: "🚫 الفريق ممتلئ (الحد الأقصى 5).", ephemeral: true });
+            if (party.includes(i.user.id)) return i.reply({ content: "⚠️ أنت منضم بالفعل.", ephemeral: true });
+            if (party.length >= 5) return i.reply({ content: "🚫 الفريق ممتلئ.", ephemeral: true });
             
-            // التحقق من الرصيد
-            const userMora = sql.prepare("SELECT mora FROM levels WHERE user = ?").get(i.user.id)?.mora || 0;
-            if (userMora < 100) return i.reply({ content: "❌ لا تملك 100 مورا للدخول.", ephemeral: true });
+            const userData = sql.prepare("SELECT mora FROM levels WHERE user = ?").get(i.user.id);
+            if (!userData || userData.mora < 100) return i.reply({ content: "❌ ليس لديك 100 مورا.", ephemeral: true });
             
             party.push(i.user.id);
             await i.update({ embeds: [updateEmbed()] });
-        } 
-        else if (i.customId === 'start') {
-            if (i.user.id !== host.id) return i.reply({ content: "⛔ فقط قائد الفريق يمكنه بدء الدانجون.", ephemeral: true });
+        } else if (i.customId === 'start') {
+            if (i.user.id !== host.id) return i.reply({ content: "⛔ فقط القائد يمكنه البدء.", ephemeral: true });
             collector.stop('start');
         }
     });
 
     collector.on('end', async (c, reason) => {
         if (reason === 'start') {
-            // خصم المورا وبدء اللعبة
             party.forEach(id => sql.prepare("UPDATE levels SET mora = mora - 100 WHERE user = ?").run(id));
             await runDungeon(interaction, party, theme, sql);
         } else {
-            const cancelEmbed = new EmbedBuilder().setDescription("❌ تم إلغاء الدانجون لعدم البدء في الوقت المحدد.").setColor('Red');
-            if (msg.editable) msg.edit({ embeds: [cancelEmbed], components: [] }).catch(()=>{});
+            if (msg.editable) msg.edit({ content: "❌ تم الإلغاء.", components: [], embeds: [] });
         }
     });
 }
 
-// ==================================================================
-// ⚔️ 3. نظام القتال (The Battle)
-// ==================================================================
 async function runDungeon(interaction, partyIDs, theme, sql) {
     const channel = interaction.channel;
     const guild = interaction.guild;
     
-    // 1. تجهيز اللاعبين
+    // 1. تجهيز اللاعبين ببيانات حقيقية
     let players = [];
     for (const id of partyIDs) {
         const m = await guild.members.fetch(id).catch(()=>null);
-        if (m) players.push(calculatePlayerPower(m, sql));
+        if (m) players.push(getRealPlayerData(m, sql));
     }
 
-    if (players.length === 0) return channel.send("❌ فشل تحميل بيانات اللاعبين.");
+    if (players.length === 0) return channel.send("❌ خطأ في البيانات.");
 
-    // حلقة الـ 10 طوابق
+    // حلقة الطوابق (10 طوابق)
     for (let floor = 1; floor <= 10; floor++) {
-        if (players.every(p => p.isDead)) break; // خسارة الفريق
+        if (players.every(p => p.isDead)) break;
 
         const floorConfig = dungeonConfig.floors.find(f => f.floor === floor) || dungeonConfig.floors[0];
         const randomMob = getRandomMonster(floorConfig.type, theme);
         
-        // موازنة الوحش (يصبح أقوى كلما زاد عدد اللاعبين)
-        const hpMult = players.length * 0.8 + 0.2; // معادلة لتقليل الصعوبة قليلاً مع العدد
+        // موازنة الوحش بناءً على قوة اللاعبين
+        // نأخذ متوسط صحة الفريق ونضربها في معامل الطابق
+        const avgPlayerHp = players.reduce((sum, p) => sum + p.maxHp, 0) / players.length;
+        const hpMultiplier = players.length * 0.9; 
         
         let monster = {
-            name: `${randomMob.name}`,
-            hp: Math.floor(100 * floorConfig.hp_mult * hpMult),
-            maxHp: Math.floor(100 * floorConfig.hp_mult * hpMult),
-            atk: Math.floor(10 * floorConfig.atk_mult),
-            enraged: false,
-            turn: 0
+            name: randomMob.name,
+            // الصحة تعتمد على (متوسط صحة اللاعبين * معامل الطابق)
+            hp: Math.floor(avgPlayerHp * floorConfig.hp_mult * (1 + (players.length * 0.2))),
+            maxHp: Math.floor(avgPlayerHp * floorConfig.hp_mult * (1 + (players.length * 0.2))),
+            // الهجوم يعتمد على معامل الطابق
+            atk: Math.floor(20 * floorConfig.atk_mult), 
+            enraged: false
         };
 
-        let log = [`⚠️ **الطابق ${floor}**: ظهر وحش **${monster.name}**! استعدوا للقتال!`];
+        let log = [`⚠️ **الطابق ${floor}**: ظهر **${monster.name}**! (HP: ${monster.maxHp})`];
         let ongoing = true;
 
-        // رسالة المعركة الأولى
         const battleMsg = await channel.send({ 
             embeds: [generateBattleEmbed(players, monster, floor, theme, log)], 
             components: [generateBattleRow()] 
         });
 
-        // حلقة الجولات داخل الطابق
         while (ongoing) {
-            // انتظار ردود اللاعبين (5 ثواني لكل جولة لتسريع اللعب)
-            const collector = battleMsg.createMessageComponentCollector({ time: 5000 });
+            const collector = battleMsg.createMessageComponentCollector({ time: 5000 }); // 5 ثواني للجولة
             let actedPlayers = [];
 
             await new Promise(resolve => {
@@ -240,10 +241,9 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                     actedPlayers.push(p.id);
                     await i.deferUpdate();
 
-                    // منطق اللاعب
                     if (i.customId === 'atk') {
-                        // الكريتيكال
-                        const isCrit = Math.random() < 0.2; // 20% فرصة
+                        // حساب الضرر مع الكريتيكال
+                        const isCrit = Math.random() < 0.2;
                         let dmg = Math.floor(p.atk * (0.9 + Math.random() * 0.2));
                         if (isCrit) dmg = Math.floor(dmg * 1.5);
                         
@@ -252,144 +252,159 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                     } 
                     else if (i.customId === 'heal') {
                         if (p.potions > 0) {
-                            const heal = Math.floor(p.maxHp * 0.4); // علاج 40%
+                            const heal = Math.floor(p.maxHp * 0.35);
                             p.hp = Math.min(p.hp + heal, p.maxHp);
                             p.potions--;
-                            log.push(`🧪 **${p.name}** شرب جرعة (+${heal} HP).`);
+                            log.push(`🧪 **${p.name}** شرب جرعة (+${heal}).`);
                         } else {
                             log.push(`⚠️ **${p.name}** نفذت جرعاته!`);
                         }
                     } 
                     else if (i.customId === 'def') {
                         p.defending = true;
-                        log.push(`🛡️ **${p.name}** اتخذ وضعية الدفاع.`);
+                        log.push(`🛡️ **${p.name}** يدافع.`);
                     }
                 });
                 collector.on('end', resolve);
             });
 
-            // 1. هل مات الوحش؟
+            // 1. تحقق موت الوحش
             if (monster.hp <= 0) {
                 ongoing = false;
                 
-                // 🔥🔥 حساب البونص بناءً على مستوى بوابة القائد 🔥🔥
+                // حساب الجوائز (مع بونص البوابة)
                 const hostData = sql.prepare("SELECT dungeon_gate_level FROM levels WHERE user = ?").get(partyIDs[0]);
                 const gateLevel = hostData?.dungeon_gate_level || 1;
-                // كل مستوى يزيد الجوائز بنسبة 10%
-                const bonusMultiplier = 1 + ((gateLevel - 1) * 0.1); 
+                const bonusMultiplier = 1 + ((gateLevel - 1) * 0.1);
 
                 const xp = Math.floor(floorConfig.xp * bonusMultiplier);
                 const mora = Math.floor(floorConfig.mora * bonusMultiplier);
 
                 players.filter(p => !p.isDead).forEach(p => {
                     sql.prepare("UPDATE levels SET xp = xp + ?, mora = mora + ? WHERE user = ?").run(xp, mora, p.id);
-                    // تحديث أعلى طابق
                     const currentMax = sql.prepare("SELECT max_dungeon_floor FROM levels WHERE user = ?").get(p.id)?.max_dungeon_floor || 0;
                     if (floor > currentMax) sql.prepare("UPDATE levels SET max_dungeon_floor = ? WHERE user = ?").run(floor, p.id);
                 });
 
-                log.push(`🎉 **${monster.name} هُزم!** (+${mora}💰 +${xp}✨)`);
-                if (gateLevel > 1) log.push(`💎 **بونص البوابة (Lv.${gateLevel}):** x${bonusMultiplier.toFixed(1)}`);
+                log.push(`🎉 **هُزم الوحش!** (+${mora}💰 +${xp}XP)`);
+                
+                // إذا ختم الدانجون (الطابق 10)
+                if (floor === 10) {
+                    const winImg = WIN_IMAGES[Math.floor(Math.random() * WIN_IMAGES.length)];
+                    const winEmbed = new EmbedBuilder()
+                        .setTitle("🏆 أبطال الدانجون!")
+                        .setDescription(`**تهانينا!** لقد قهرتم جميع الطوابق.\n\n🎁 **المكافأة الكبرى:**\nتم تفعيل **Buff (+15% XP/Mora)** لمدة 15 دقيقة!`)
+                        .setColor('Gold')
+                        .setImage(winImg);
+                    
+                    // تطبيق البف للفائزين
+                    const expireTime = Date.now() + (15 * 60 * 1000);
+                    players.filter(p => !p.isDead).forEach(p => {
+                        sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guild.id, p.id, 15, expireTime, 'xp', 0.15);
+                        sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guild.id, p.id, 15, expireTime, 'mora', 0.15);
+                    });
+
+                    await battleMsg.edit({ embeds: [winEmbed], components: [] });
+                    return; // إنهاء الدانجون
+                }
 
                 await battleMsg.edit({ embeds: [generateBattleEmbed(players, monster, floor, theme, log, 'Green')], components: [] });
                 
-                // استراحة وإنعاش بسيط
+                // استراحة وإنعاش
                 players.forEach(p => { 
                     if(!p.isDead) p.hp = Math.min(p.hp + Math.floor(p.maxHp * 0.2), p.maxHp); 
-                    p.defending = false; // إلغاء الدفاع
+                    p.defending = false;
                 });
                 
-                await new Promise(r => setTimeout(r, 2500)); // انتظار قبل الطابق التالي
-                continue; // الانتقال للطابق التالي
+                await new Promise(r => setTimeout(r, 2500));
+                continue;
             }
 
-            // 2. دور الوحش
-            monster.turn++;
-            const action = getMonsterAction(monster, players, floorConfig.type);
-            
-            if (action.type === 'attack') {
-                let dmg = Math.floor(monster.atk * action.multiplier);
-                if (action.target.defending) dmg = Math.floor(dmg * 0.5); // الدفاع يقلل الضرر 50%
-                
-                action.target.hp -= dmg;
-                log.push(action.msg || `👹 **${monster.name}** ضرب **${action.target.name}** بـ ${dmg} ضرر.`);
-                
-                if (action.target.hp <= 0) {
-                    action.target.hp = 0;
-                    action.target.isDead = true;
-                    log.push(`💀 **${action.target.name}** سقط في المعركة!`);
+            // 2. هجوم الوحش
+            const alivePlayers = players.filter(p => !p.isDead);
+            if (alivePlayers.length > 0) {
+                // الوحش يهاجم هدف عشوائي أو يستخدم مهارة
+                const target = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
+                let dmg = monster.atk;
+                let actionText = `👹 **${monster.name}** ضرب **${target.name}** بـ ${dmg} ضرر!`;
+
+                // احتمالية ضربة قوية (Special)
+                if (Math.random() < 0.3) {
+                    dmg = Math.floor(dmg * 1.5);
+                    actionText = `🔥 **${monster.name}** استخدم هجوماً ساحقاً على **${target.name}** (${dmg} ضرر)!`;
                 }
-            } 
-            else if (action.type === 'aoe') {
-                log.push(`🔥 **${monster.name}** أطلق هجوماً جماعياً!`);
-                players.filter(p => !p.isDead).forEach(p => {
-                    let dmg = Math.floor(monster.atk * 0.7);
-                    if (p.defending) dmg = Math.floor(dmg * 0.5);
-                    p.hp -= dmg;
-                    if (p.hp <= 0) {
-                        p.hp = 0;
-                        p.isDead = true;
-                        log.push(`💀 **${p.name}** مات!`);
-                    }
-                });
-            }
-            else if (action.type === 'enrage') {
-                monster.atk = Math.floor(monster.atk * 1.5);
-                log.push(action.msg);
+
+                if (target.defending) dmg = Math.floor(dmg * 0.5);
+                target.hp -= dmg;
+                log.push(actionText);
+
+                if (target.hp <= 0) {
+                    target.hp = 0;
+                    target.isDead = true;
+                    log.push(`💀 **${target.name}** سقط في المعركة!`);
+                }
             }
 
-            // 3. هل مات الفريق؟
+            // 3. خسارة الفريق
             if (players.every(p => p.isDead)) {
                 ongoing = false;
-                log.push(`☠️ **تم القضاء على الفريق...** انتهت الرحلة.`);
-                await battleMsg.edit({ embeds: [generateBattleEmbed(players, monster, floor, theme, log, 'Red')], components: [] });
+                
+                // تطبيق عقوبة الخسارة (Wounded)
+                const expireTime = Date.now() + (15 * 60 * 1000);
+                players.forEach(p => {
+                    sql.prepare(`INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)`).run(guild.id, p.id, -15, expireTime, 'mora', -0.15);
+                    sql.prepare(`INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)`).run(guild.id, p.id, 0, expireTime, 'pvp_wounded', 0);
+                });
+
+                const loseImg = LOSE_IMAGES[Math.floor(Math.random() * LOSE_IMAGES.length)];
+                const loseEmbed = new EmbedBuilder()
+                    .setTitle("☠️ هُزم الفريق...")
+                    .setDescription(`انتهت رحلتكم في الطابق ${floor}.\n\n🩹 **العقوبة:**\nأنتم الآن **جرحى** (Wounded) لمدة 15 دقيقة.\n(-15% كسب مورا)`)
+                    .setColor('DarkRed')
+                    .setImage(loseImg);
+
+                await battleMsg.edit({ embeds: [loseEmbed], components: [] });
                 return;
             }
 
-            // تحديث الرسالة للجولة القادمة
-            players.forEach(p => p.defending = false); // إعادة ضبط الدفاع
-            
-            // الاحتفاظ بآخر 7 أسطر فقط في اللوج لتجنب الامتلاء
-            if (log.length > 7) log = log.slice(-7);
+            // تحديث الواجهة
+            players.forEach(p => p.defending = false);
+            if (log.length > 6) log = log.slice(-6);
             
             await battleMsg.edit({ embeds: [generateBattleEmbed(players, monster, floor, theme, log)] });
         }
     }
-    
-    // إذا وصلوا هنا، يعني فازوا بجميع الطوابق
-    channel.send(`🏆 **أداء أسطوري!** لقد أنهيتم الدانجون بالكامل (10 طوابق)!`);
 }
 
-// --- 🎨 تصميم الايمبد (يشبه PvP) ---
+// --- تصميم الايمبد (نفس ستايل PvP) ---
 function generateBattleEmbed(players, monster, floor, theme, log, color = '#2F3136') {
     const embed = new EmbedBuilder()
         .setTitle(`${theme.emoji} الطابق ${floor} | ضد ${monster.name}`)
         .setColor(color);
 
-    // قسم الوحش (يمين/فوق)
-    const monsterHealth = drawHealthBar(monster.hp, monster.maxHp);
+    // قسم الوحش
+    const monsterBar = buildHpBar(monster.hp, monster.maxHp);
     embed.addFields({
-        name: `👹 **${monster.name}** ${monster.enraged ? '🔥(HYPE)' : ''}`,
-        value: `${monsterHealth} \`[${monster.hp}/${monster.maxHp}]\``,
+        name: `👹 **${monster.name}**`,
+        value: `${monsterBar} \`[${monster.hp}/${monster.maxHp}]\``,
         inline: false
     });
 
-    // قسم الفريق (يسار/تحت)
+    // قسم الفريق
     let teamStatus = players.map(p => {
         const icon = p.isDead ? '💀' : (p.defending ? '🛡️' : '❤️');
         const hpBar = p.isDead ? 'MORT' : `\`${p.hp}/${p.maxHp}\``;
-        return `${icon} **${p.name}**: ${hpBar}`;
-    }).join('\n');
+        return `${icon} **${p.name}**\n${hpBar} | ⚔️${p.atk}`;
+    }).join('\n\n');
 
     embed.addFields({ name: `🛡️ **فريق المغامرين**`, value: teamStatus, inline: false });
 
-    // اللوج (سجل المعركة)
+    // السجل
     embed.setDescription(`\`\`\`diff\n${log.join('\n')}\n\`\`\``);
 
     return embed;
 }
 
-// أزرار التحكم
 function generateBattleRow() {
     return new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('atk').setLabel('هجوم').setEmoji('⚔️').setStyle(ButtonStyle.Danger),
