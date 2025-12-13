@@ -1,4 +1,4 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ComponentType, Colors } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ComponentType, Colors } = require('discord.js');
 const path = require('path');
 
 // تحميل الإعدادات
@@ -37,7 +37,7 @@ function getUserRace(member, sql) {
     return allRaceRoles.find(r => userRoleIDs.includes(r.roleID)) || null;
 }
 
-// دالة جلب المهارات (نفس منطق PvP)
+// دالة جلب المهارات
 function getAllSkillData(sql, member) {
     const userRace = getUserRace(member, sql);
     const skillsOutput = {};
@@ -69,12 +69,10 @@ function getRealPlayerData(member, sql) {
     const guildID = member.guild.id;
     const userID = member.id;
 
-    // اللفل والصحة
     const userData = sql.prepare("SELECT level FROM levels WHERE user = ? AND guild = ?").get(userID, guildID);
     const level = userData ? userData.level : 1;
     const maxHp = BASE_HP + (level * HP_PER_LEVEL);
 
-    // السلاح
     let damage = 15;
     let weaponName = "قبضة اليد";
     const userRace = getUserRace(member, sql);
@@ -98,11 +96,11 @@ function getRealPlayerData(member, sql) {
         maxHp: maxHp,
         atk: damage,
         weaponName: weaponName,
-        skills: getAllSkillData(sql, member), // جلب المهارات
+        skills: getAllSkillData(sql, member),
         isDead: false,
         defending: false,
         potions: 3,
-        skillCooldowns: {} // لتتبع الكولداون
+        skillCooldowns: {}
     };
 }
 
@@ -188,32 +186,33 @@ async function lobbyPhase(interaction, theme, sql) {
     });
 }
 
-// --- دالة بناء أزرار المهارات (Ephemeral) ---
-function buildSkillButtons(player) {
+// 🔥 دالة بناء قائمة المهارات (Dropdown) 🔥
+function buildSkillSelector(player) {
     const userSkills = player.skills || {};
     const availableSkills = Object.values(userSkills).filter(s => s.currentLevel > 0 || s.id.startsWith('race_'));
     
     if (availableSkills.length === 0) return null;
 
-    const row = new ActionRowBuilder();
-    let count = 0;
-    availableSkills.forEach(skill => {
-        if (count >= 5) return; // حد أقصى 5 أزرار في الصف
-        
-        // التحقق من الكولداون
+    // استخدام Select Menu بدلاً من الأزرار لدعم عدد أكبر
+    const options = availableSkills.map(skill => {
         const cooldown = player.skillCooldowns[skill.id] || 0;
-        const isDisabled = cooldown > 0;
-        const label = isDisabled ? `${skill.name} (${cooldown})` : skill.name;
-
-        row.addComponents(new ButtonBuilder()
-            .setCustomId(`skill_use_${skill.id}`)
-            .setLabel(label)
-            .setEmoji(skill.emoji || '✨')
-            .setStyle(ButtonStyle.Primary)
-            .setDisabled(isDisabled)
-        );
-        count++;
+        const description = cooldown > 0 ? `🕓 كولداون: ${cooldown} جولات` : `⚡ القوة: ${skill.effectValue}`;
+        return new StringSelectMenuOptionBuilder()
+            .setLabel(skill.name)
+            .setValue(skill.id)
+            .setDescription(description)
+            .setEmoji(skill.emoji || '✨'); // لا يمكن تعطيل خيار فردي، سنتحقق لاحقاً
     });
+
+    // تقطيع القائمة إذا زادت عن 25 (ديسكورد ليمت)
+    const slicedOptions = options.slice(0, 25);
+
+    const row = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId('skill_select_menu')
+            .setPlaceholder('اختر مهارة لاستخدامها...')
+            .addOptions(slicedOptions)
+    );
     return row;
 }
 
@@ -253,54 +252,81 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
         });
 
         while (ongoing) {
-            const collector = battleMsg.createMessageComponentCollector({ time: 5000 });
+            const collector = battleMsg.createMessageComponentCollector({ time: 60000 }); // وقت أطول قليلاً للاختيار
             let actedPlayers = [];
 
             await new Promise(resolve => {
+                // مؤقت لإنهاء الجولة تلقائياً إذا تأخر الجميع
+                const turnTimeout = setTimeout(() => {
+                    collector.stop('turn_end');
+                }, 15000); // 15 ثانية للجولة لتسريع اللعب
+
                 collector.on('collect', async i => {
                     const p = players.find(pl => pl.id === i.user.id);
                     if (!p || p.isDead || actedPlayers.includes(p.id)) {
-                        if(!i.replied) await i.deferUpdate();
+                        if (!i.replied) await i.reply({ content: "⏳ انتظر الجولة القادمة أو لست في المعركة.", ephemeral: true });
                         return;
                     }
 
-                    // --- معالجة الأزرار ---
+                    // --- معالجة زر "المهارات" ---
                     if (i.customId === 'skill') {
-                        // إرسال قائمة المهارات بشكل خاص (Ephemeral)
-                        const skillRow = buildSkillButtons(p);
+                        const skillRow = buildSkillSelector(p);
                         if (!skillRow) return i.reply({ content: "❌ ليس لديك مهارات نشطة.", ephemeral: true });
-                        await i.reply({ content: "✨ **اختر المهارة:**", components: [skillRow], ephemeral: true });
-                        return; // لا نحتسب الدور هنا، ننتظر اختيار المهارة
-                    }
-                    
-                    if (i.customId.startsWith('skill_use_')) {
-                        // تنفيذ المهارة
-                        const skillId = i.customId.replace('skill_use_', '');
-                        const skill = p.skills[skillId];
-                        if (!skill) return i.reply({ content: "خطأ في المهارة.", ephemeral: true });
-
-                        actedPlayers.push(p.id);
-                        await i.update({ content: `✅ استخدمت **${skill.name}**!`, components: [] }); // تحديث الرسالة الخاصة
-
-                        // منطق المهارة
-                        let skillDmg = Math.floor(p.atk * 1.5); // افتراضياً المهارة تضرب 1.5x
-                        if (skill.stat_type.includes('%')) skillDmg = Math.floor(p.atk * (1 + (skill.effectValue / 100)));
                         
-                        // تأثيرات إضافية (شفاء، درع)
-                        if (skill.name.includes("شفاء") || skill.name.includes("Heal")) {
-                            const healAmount = Math.floor(p.maxHp * 0.3);
-                            p.hp = Math.min(p.hp + healAmount, p.maxHp);
-                            log.push(`✨ **${p.name}** استخدم ${skill.name} وشفى نفسه (+${healAmount}).`);
-                        } else {
-                            monster.hp -= skillDmg;
-                            log.push(`💥 **${p.name}** أطلق ${skill.name} وسبب **${skillDmg}** ضرر!`);
+                        // نرسل القائمة كرسالة مخفية
+                        const skillMsg = await i.reply({ content: "✨ **اختر المهارة:**", components: [skillRow], ephemeral: true, fetchReply: true });
+                        
+                        // انتظار اختيار المهارة
+                        try {
+                            const selection = await skillMsg.awaitMessageComponent({ 
+                                filter: subI => subI.user.id === i.user.id && subI.customId === 'skill_select_menu', 
+                                time: 10000 
+                            });
+
+                            const skillId = selection.values[0];
+                            const skill = p.skills[skillId];
+
+                            // التحقق من الكولداون
+                            if ((p.skillCooldowns[skillId] || 0) > 0) {
+                                return await selection.reply({ content: `⏳ المهارة في وضع الانتظار (${p.skillCooldowns[skillId]} جولات).`, ephemeral: true });
+                            }
+
+                            // تنفيذ المهارة
+                            actedPlayers.push(p.id);
+                            
+                            let skillDmg = 0;
+                            if (skill.stat_type.includes('%')) {
+                                skillDmg = Math.floor(p.atk * (1 + (skill.effectValue / 100)));
+                            } else {
+                                skillDmg = Math.floor(p.atk + skill.effectValue);
+                            }
+
+                            if (skill.name.includes("شفاء") || skill.name.includes("Heal")) {
+                                const healAmount = Math.floor(p.maxHp * 0.3); // شفاء 30%
+                                p.hp = Math.min(p.hp + healAmount, p.maxHp);
+                                log.push(`✨ **${p.name}** استخدم ${skill.name} وشفى نفسه (+${healAmount}).`);
+                            } else {
+                                monster.hp -= skillDmg;
+                                log.push(`💥 **${p.name}** أطلق ${skill.name} وسبب **${skillDmg}** ضرر!`);
+                            }
+
+                            p.skillCooldowns[skillId] = 3; // تعيين الكولداون
+                            await selection.update({ content: `✅ تم استخدام **${skill.name}**!`, components: [] });
+                            
+                            // إذا تحرك الجميع، ننهي الجولة فوراً
+                            if (actedPlayers.length >= players.filter(pl => !pl.isDead).length) {
+                                clearTimeout(turnTimeout);
+                                collector.stop('turn_end');
+                            }
+
+                        } catch (err) {
+                            // انتهى الوقت أو لم يختر شيئاً
+                            await i.editReply({ content: "⏰ انتهى وقت اختيار المهارة.", components: [] });
                         }
-                        
-                        // وضع كولداون (مثلاً 3 جولات)
-                        p.skillCooldowns[skillId] = 3; 
-                        return;
+                        return; // لا نكمل الكود بالأسفل لأننا عالجنا الدور
                     }
 
+                    // --- باقي الأزرار (هجوم، علاج، دفاع) ---
                     actedPlayers.push(p.id);
                     await i.deferUpdate();
 
@@ -325,7 +351,14 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                         p.defending = true;
                         log.push(`🛡️ **${p.name}** يدافع.`);
                     }
+
+                    // إذا تحرك الجميع، ننهي الجولة
+                    if (actedPlayers.length >= players.filter(pl => !pl.isDead).length) {
+                        clearTimeout(turnTimeout);
+                        collector.stop('turn_end');
+                    }
                 });
+
                 collector.on('end', resolve);
             });
 
@@ -352,7 +385,14 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
 
                 log.push(`🎉 **هُزم الوحش!** (+${mora}💰 +${xp}XP)`);
                 if (floor === 10) {
-                    const winEmbed = new EmbedBuilder().setTitle("🏆 أبطال الدانجون!").setDescription(`**تهانينا!** لقد قهرتم جميع الطوابق.`).setColor('Gold');
+                    const winEmbed = new EmbedBuilder().setTitle("🏆 أبطال الدانجون!").setDescription(`**تهانينا!** لقد قهرتم جميع الطوابق.\n\n🎁 **المكافأة الكبرى:**\nتم تفعيل **Buff (+15% XP/Mora)** لمدة 15 دقيقة!`).setColor('Gold');
+                    // تطبيق البف
+                    const expireTime = Date.now() + (15 * 60 * 1000);
+                    players.filter(p => !p.isDead).forEach(p => {
+                        sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guild.id, p.id, 15, expireTime, 'xp', 0.15);
+                        sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guild.id, p.id, 15, expireTime, 'mora', 0.15);
+                    });
+                    
                     await battleMsg.edit({ embeds: [winEmbed], components: [] });
                     return;
                 }
@@ -362,6 +402,7 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                 continue;
             }
 
+            // هجوم الوحش (يحدث مرة واحدة بعد انتهاء وقت الجولة)
             const alivePlayers = players.filter(p => !p.isDead);
             if (alivePlayers.length > 0) {
                 const target = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
@@ -376,7 +417,13 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
 
             if (players.every(p => p.isDead)) {
                 ongoing = false;
-                const loseEmbed = new EmbedBuilder().setTitle("☠️ هُزم الفريق...").setDescription(`انتهت الرحلة في الطابق ${floor}.`).setColor('DarkRed');
+                const loseEmbed = new EmbedBuilder().setTitle("☠️ هُزم الفريق...").setDescription(`انتهت الرحلة في الطابق ${floor}.\n\n🩹 **العقوبة:** جرحى لمدة 15 دقيقة.`).setColor('DarkRed');
+                // تطبيق عقوبة الخسارة
+                const expireTime = Date.now() + (15 * 60 * 1000);
+                players.forEach(p => {
+                    sql.prepare(`INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)`).run(guild.id, p.id, -15, expireTime, 'mora', -0.15);
+                    sql.prepare(`INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)`).run(guild.id, p.id, 0, expireTime, 'pvp_wounded', 0);
+                });
                 await battleMsg.edit({ embeds: [loseEmbed], components: [] });
                 return;
             }
@@ -402,11 +449,10 @@ function generateBattleEmbed(players, monster, floor, theme, log, color = '#2F31
     return embed;
 }
 
-// 🔥🔥 تحديث الأزرار لتشمل المهارات 🔥🔥
 function generateBattleRow() {
     return new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('atk').setLabel('هجوم').setEmoji('⚔️').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('skill').setLabel('مهارات').setEmoji('✨').setStyle(ButtonStyle.Primary), // زر المهارات الجديد
+        new ButtonBuilder().setCustomId('skill').setLabel('مهارات').setEmoji('✨').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId('heal').setLabel('جرعة').setEmoji('🧪').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId('def').setLabel('دفاع').setEmoji('🛡️').setStyle(ButtonStyle.Secondary)
     );
