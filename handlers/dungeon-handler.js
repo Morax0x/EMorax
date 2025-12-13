@@ -12,6 +12,24 @@ const EMOJI_MORA = '<:mora:1435647151349698621>';
 const BASE_HP = 100;
 const HP_PER_LEVEL = 4;
 
+// صور الفوز والخسارة
+const WIN_IMAGES = [
+    'https://i.postimg.cc/JhMrnyLd/download-1.gif',
+    'https://i.postimg.cc/FHgv29L0/download.gif',
+    'https://i.postimg.cc/9MzjRZNy/haru-midoriya.gif',
+    'https://i.postimg.cc/4ygk8q3G/tumblr-nmao11Zm-Bx1r3rdh2o2-500-gif-500-281.gif',
+    'https://i.postimg.cc/pL6NNpdC/Epic7-Epic-Seven-GIF-Epic7-Epic-Seven-Tensura-Discover-Share-GIFs.gif',
+    'https://i.postimg.cc/05dLktNF/download-5.gif',
+    'https://i.postimg.cc/sXRVMwhZ/download-2.gif'
+];
+
+const LOSE_IMAGES = [
+    'https://i.postimg.cc/xd8msjxk/escapar-a-toda-velocidad.gif',
+    'https://i.postimg.cc/1zb8JGVC/download.gif',
+    'https://i.postimg.cc/rmSwjvkV/download-1.gif',
+    'https://i.postimg.cc/8PyPZRqt/download.jpg'
+];
+
 // --- دوال مساعدة ---
 
 function cleanDisplayName(name) {
@@ -37,13 +55,11 @@ function getUserRace(member, sql) {
     return allRaceRoles.find(r => userRoleIDs.includes(r.roleID)) || null;
 }
 
-// دالة جلب المهارات
 function getAllSkillData(sql, member) {
     const userRace = getUserRace(member, sql);
     const skillsOutput = {};
-    
-    // 1. مهارات الداتابيس
     const userSkillsData = sql.prepare("SELECT * FROM user_skills WHERE userID = ? AND guildID = ?").all(member.id, member.guild.id);
+    
     if (userSkillsData) {
         userSkillsData.forEach(userSkill => {
             const skillConfig = skillsConfig.find(s => s.id === userSkill.skillID);
@@ -54,7 +70,6 @@ function getAllSkillData(sql, member) {
         });
     }
 
-    // 2. مهارة العرق
     if (userRace) {
         const raceSkillId = `race_${userRace.raceName.toLowerCase().replace(/\s+/g, '_')}_skill`;
         const raceSkillConfig = skillsConfig.find(s => s.id === raceSkillId);
@@ -68,7 +83,6 @@ function getAllSkillData(sql, member) {
 function getRealPlayerData(member, sql) {
     const guildID = member.guild.id;
     const userID = member.id;
-
     const userData = sql.prepare("SELECT level FROM levels WHERE user = ? AND guild = ?").get(userID, guildID);
     const level = userData ? userData.level : 1;
     const maxHp = BASE_HP + (level * HP_PER_LEVEL);
@@ -186,14 +200,12 @@ async function lobbyPhase(interaction, theme, sql) {
     });
 }
 
-// 🔥 دالة بناء قائمة المهارات (Dropdown) 🔥
 function buildSkillSelector(player) {
     const userSkills = player.skills || {};
     const availableSkills = Object.values(userSkills).filter(s => s.currentLevel > 0 || s.id.startsWith('race_'));
     
     if (availableSkills.length === 0) return null;
 
-    // استخدام Select Menu بدلاً من الأزرار لدعم عدد أكبر
     const options = availableSkills.map(skill => {
         const cooldown = player.skillCooldowns[skill.id] || 0;
         const description = cooldown > 0 ? `🕓 كولداون: ${cooldown} جولات` : `⚡ القوة: ${skill.effectValue}`;
@@ -201,10 +213,9 @@ function buildSkillSelector(player) {
             .setLabel(skill.name)
             .setValue(skill.id)
             .setDescription(description)
-            .setEmoji(skill.emoji || '✨'); // لا يمكن تعطيل خيار فردي، سنتحقق لاحقاً
+            .setEmoji(skill.emoji || '✨');
     });
 
-    // تقطيع القائمة إذا زادت عن 25 (ديسكورد ليمت)
     const slicedOptions = options.slice(0, 25);
 
     const row = new ActionRowBuilder().addComponents(
@@ -252,14 +263,13 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
         });
 
         while (ongoing) {
-            const collector = battleMsg.createMessageComponentCollector({ time: 60000 }); // وقت أطول قليلاً للاختيار
+            const collector = battleMsg.createMessageComponentCollector({ time: 60000 });
             let actedPlayers = [];
 
             await new Promise(resolve => {
-                // مؤقت لإنهاء الجولة تلقائياً إذا تأخر الجميع
                 const turnTimeout = setTimeout(() => {
                     collector.stop('turn_end');
-                }, 15000); // 15 ثانية للجولة لتسريع اللعب
+                }, 15000); 
 
                 collector.on('collect', async i => {
                     const p = players.find(pl => pl.id === i.user.id);
@@ -268,15 +278,11 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                         return;
                     }
 
-                    // --- معالجة زر "المهارات" ---
                     if (i.customId === 'skill') {
                         const skillRow = buildSkillSelector(p);
                         if (!skillRow) return i.reply({ content: "❌ ليس لديك مهارات نشطة.", ephemeral: true });
-                        
-                        // نرسل القائمة كرسالة مخفية
                         const skillMsg = await i.reply({ content: "✨ **اختر المهارة:**", components: [skillRow], ephemeral: true, fetchReply: true });
                         
-                        // انتظار اختيار المهارة
                         try {
                             const selection = await skillMsg.awaitMessageComponent({ 
                                 filter: subI => subI.user.id === i.user.id && subI.customId === 'skill_select_menu', 
@@ -286,12 +292,10 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                             const skillId = selection.values[0];
                             const skill = p.skills[skillId];
 
-                            // التحقق من الكولداون
                             if ((p.skillCooldowns[skillId] || 0) > 0) {
                                 return await selection.reply({ content: `⏳ المهارة في وضع الانتظار (${p.skillCooldowns[skillId]} جولات).`, ephemeral: true });
                             }
 
-                            // تنفيذ المهارة
                             actedPlayers.push(p.id);
                             
                             let skillDmg = 0;
@@ -302,7 +306,7 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                             }
 
                             if (skill.name.includes("شفاء") || skill.name.includes("Heal")) {
-                                const healAmount = Math.floor(p.maxHp * 0.3); // شفاء 30%
+                                const healAmount = Math.floor(p.maxHp * 0.3);
                                 p.hp = Math.min(p.hp + healAmount, p.maxHp);
                                 log.push(`✨ **${p.name}** استخدم ${skill.name} وشفى نفسه (+${healAmount}).`);
                             } else {
@@ -310,23 +314,20 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                                 log.push(`💥 **${p.name}** أطلق ${skill.name} وسبب **${skillDmg}** ضرر!`);
                             }
 
-                            p.skillCooldowns[skillId] = 3; // تعيين الكولداون
+                            p.skillCooldowns[skillId] = 3; 
                             await selection.update({ content: `✅ تم استخدام **${skill.name}**!`, components: [] });
                             
-                            // إذا تحرك الجميع، ننهي الجولة فوراً
                             if (actedPlayers.length >= players.filter(pl => !pl.isDead).length) {
                                 clearTimeout(turnTimeout);
                                 collector.stop('turn_end');
                             }
 
                         } catch (err) {
-                            // انتهى الوقت أو لم يختر شيئاً
                             await i.editReply({ content: "⏰ انتهى وقت اختيار المهارة.", components: [] });
                         }
-                        return; // لا نكمل الكود بالأسفل لأننا عالجنا الدور
+                        return;
                     }
 
-                    // --- باقي الأزرار (هجوم، علاج، دفاع) ---
                     actedPlayers.push(p.id);
                     await i.deferUpdate();
 
@@ -352,7 +353,6 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                         log.push(`🛡️ **${p.name}** يدافع.`);
                     }
 
-                    // إذا تحرك الجميع، ننهي الجولة
                     if (actedPlayers.length >= players.filter(pl => !pl.isDead).length) {
                         clearTimeout(turnTimeout);
                         collector.stop('turn_end');
@@ -362,15 +362,20 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                 collector.on('end', resolve);
             });
 
-            // تحديث الكولداون للمهارات
             players.forEach(p => {
                 for (const sid in p.skillCooldowns) {
                     if (p.skillCooldowns[sid] > 0) p.skillCooldowns[sid]--;
                 }
             });
 
+            // 1. تحقق موت الوحش (فوز)
             if (monster.hp <= 0) {
                 ongoing = false;
+                
+                // أولاً: تعطيل الأزرار في رسالة المعركة (لتبقى كمرجع)
+                await battleMsg.edit({ components: [] });
+
+                // حساب الجوائز
                 const hostData = sql.prepare("SELECT dungeon_gate_level FROM levels WHERE user = ?").get(partyIDs[0]);
                 const gateLevel = hostData?.dungeon_gate_level || 1;
                 const bonusMultiplier = 1 + ((gateLevel - 1) * 0.1);
@@ -383,26 +388,39 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                     if (floor > currentMax) sql.prepare("UPDATE levels SET max_dungeon_floor = ? WHERE user = ?").run(floor, p.id);
                 });
 
-                log.push(`🎉 **هُزم الوحش!** (+${mora}💰 +${xp}XP)`);
+                // --- إرسال ايمبد الفوز المنفصل ---
+                const randomWinImage = WIN_IMAGES[Math.floor(Math.random() * WIN_IMAGES.length)];
+                
+                const winEmbed = new EmbedBuilder()
+                    .setTitle(`🎉 انتصار ساحق!`)
+                    .setDescription(`تم القضاء على **${monster.name}** بنجاح!\n\n💰 **المورا:** ${mora} ${EMOJI_MORA}\n✨ **الخبرة:** ${xp} XP\n💎 **بونص البوابة:** x${bonusMultiplier.toFixed(1)}`)
+                    .setColor(Colors.Gold)
+                    .setThumbnail(monster.name.includes("زعيم") ? "https://i.imgur.com/example_boss_dead.png" : null) // صورة اختيارية
+                    .setImage(randomWinImage);
+
                 if (floor === 10) {
-                    const winEmbed = new EmbedBuilder().setTitle("🏆 أبطال الدانجون!").setDescription(`**تهانينا!** لقد قهرتم جميع الطوابق.\n\n🎁 **المكافأة الكبرى:**\nتم تفعيل **Buff (+15% XP/Mora)** لمدة 15 دقيقة!`).setColor('Gold');
-                    // تطبيق البف
+                    winEmbed.setTitle("🏆 أبطال الدانجون!");
+                    winEmbed.setDescription(`**تهانينا!** لقد ختمتم الدانجون.\n\n🎁 **مكافأة الختم:** Buff (+15% XP/Mora) لمدة 15 دقيقة!`);
+                    
                     const expireTime = Date.now() + (15 * 60 * 1000);
                     players.filter(p => !p.isDead).forEach(p => {
                         sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guild.id, p.id, 15, expireTime, 'xp', 0.15);
                         sql.prepare("INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)").run(guild.id, p.id, 15, expireTime, 'mora', 0.15);
                     });
                     
-                    await battleMsg.edit({ embeds: [winEmbed], components: [] });
+                    await channel.send({ embeds: [winEmbed] }); // إرسال منفصل
                     return;
                 }
-                await battleMsg.edit({ embeds: [generateBattleEmbed(players, monster, floor, theme, log, 'Green')], components: [] });
+
+                await channel.send({ embeds: [winEmbed] }); // إرسال منفصل
+
+                // إنعاش بسيط
                 players.forEach(p => { if(!p.isDead) p.hp = Math.min(p.hp + Math.floor(p.maxHp * 0.2), p.maxHp); p.defending = false; });
-                await new Promise(r => setTimeout(r, 2500));
+                await new Promise(r => setTimeout(r, 3000));
                 continue;
             }
 
-            // هجوم الوحش (يحدث مرة واحدة بعد انتهاء وقت الجولة)
+            // 2. هجوم الوحش
             const alivePlayers = players.filter(p => !p.isDead);
             if (alivePlayers.length > 0) {
                 const target = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
@@ -415,37 +433,65 @@ async function runDungeon(interaction, partyIDs, theme, sql) {
                 if (target.hp <= 0) { target.hp = 0; target.isDead = true; log.push(`💀 **${target.name}** سقط!`); }
             }
 
+            // 3. تحقق خسارة الفريق
             if (players.every(p => p.isDead)) {
                 ongoing = false;
-                const loseEmbed = new EmbedBuilder().setTitle("☠️ هُزم الفريق...").setDescription(`انتهت الرحلة في الطابق ${floor}.\n\n🩹 **العقوبة:** جرحى لمدة 15 دقيقة.`).setColor('DarkRed');
-                // تطبيق عقوبة الخسارة
+                
+                // تعطيل الأزرار في المعركة
+                await battleMsg.edit({ components: [] });
+
+                // عقوبة الخسارة
                 const expireTime = Date.now() + (15 * 60 * 1000);
                 players.forEach(p => {
                     sql.prepare(`INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)`).run(guild.id, p.id, -15, expireTime, 'mora', -0.15);
                     sql.prepare(`INSERT INTO user_buffs (guildID, userID, buffPercent, expiresAt, buffType, multiplier) VALUES (?, ?, ?, ?, ?, ?)`).run(guild.id, p.id, 0, expireTime, 'pvp_wounded', 0);
                 });
-                await battleMsg.edit({ embeds: [loseEmbed], components: [] });
+
+                const randomLoseImage = LOSE_IMAGES[Math.floor(Math.random() * LOSE_IMAGES.length)];
+                const loseEmbed = new EmbedBuilder()
+                    .setTitle("☠️ هُزم الفريق...")
+                    .setDescription(`انتهت رحلتكم في الطابق ${floor}.\n\n🩹 **العقوبة:**\nإصابة خطيرة (Wounded)\n-15% كسب مورا لمدة 15 دقيقة.`)
+                    .setColor('DarkRed')
+                    .setImage(randomLoseImage);
+
+                await channel.send({ embeds: [loseEmbed] }); // إرسال منفصل
                 return;
             }
 
             players.forEach(p => p.defending = false);
-            if (log.length > 6) log = log.slice(-6);
+            // الاحتفاظ بآخر 5 أسطر فقط
+            if (log.length > 5) log = log.slice(-5);
             await battleMsg.edit({ embeds: [generateBattleEmbed(players, monster, floor, theme, log)] });
         }
     }
 }
 
+// 🔥🔥 تعديل شكل السجل ليكون في حقل منفصل 🔥🔥
 function generateBattleEmbed(players, monster, floor, theme, log, color = '#2F3136') {
-    const embed = new EmbedBuilder().setTitle(`${theme.emoji} الطابق ${floor} | ضد ${monster.name}`).setColor(color);
+    const embed = new EmbedBuilder()
+        .setTitle(`${theme.emoji} الطابق ${floor} | ضد ${monster.name}`)
+        .setColor(color);
+
     const monsterBar = buildHpBar(monster.hp, monster.maxHp);
-    embed.addFields({ name: `👹 **${monster.name}**`, value: `${monsterBar} \`[${monster.hp}/${monster.maxHp}]\``, inline: false });
+    embed.addFields({ 
+        name: `👹 **${monster.name}** ${monster.enraged ? '🔥' : ''}`, 
+        value: `${monsterBar} \`[${monster.hp}/${monster.maxHp}]\``, 
+        inline: false 
+    });
+
     let teamStatus = players.map(p => {
         const icon = p.isDead ? '💀' : (p.defending ? '🛡️' : '❤️');
         const hpBar = p.isDead ? 'MORT' : `\`${p.hp}/${p.maxHp}\``;
         return `${icon} **${p.name}**\n${hpBar} | ⚔️${p.atk}`;
     }).join('\n\n');
+
     embed.addFields({ name: `🛡️ **فريق المغامرين**`, value: teamStatus, inline: false });
-    embed.setDescription(`\`\`\`diff\n${log.join('\n')}\n\`\`\``);
+
+    // وضع السجل في Field منفصل بدلاً من الـ Description
+    if (log.length > 0) {
+        embed.addFields({ name: "📝 سجل المعركة:", value: log.join('\n'), inline: false });
+    }
+
     return embed;
 }
 
