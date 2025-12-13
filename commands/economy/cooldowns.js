@@ -13,7 +13,7 @@ try {
     fishingConfig.boats = [{ level: 1, speed_bonus: 0 }];
 }
 
-const sql = new SQLite('./mainDB.sqlite');
+// const sql = new SQLite('./mainDB.sqlite'); // يفضل استخدام client.sql الممرر، لكن لا بأس هنا
 
 const EMOJI_READY = '🟢';
 const EMOJI_WAIT = '🔴';
@@ -45,18 +45,18 @@ function getKSADateString(timestamp) {
     return new Date(timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
 }
 
-// قائمة الأوامر الثابتة (تم إزالة إيداع وتحويل)
+// قائمة الأوامر الثابتة
 const COMMANDS_TO_CHECK = [
     // { name: 'daily' ... } -> الراتب له معالجة خاصة
     { name: 'work', db_column: 'lastWork', cooldown: 1 * 60 * 60 * 1000, label: 'عمل' },
     { name: 'rob', db_column: 'lastRob', cooldown: 1 * 60 * 60 * 1000, label: 'سرقة' },
     { name: 'rps', db_column: 'lastRPS', cooldown: 1 * 60 * 60 * 1000, label: 'حجرة' },
-    { name: 'guess', db_column: 'lastGuess', cooldown: 1 * 60 * 60 * 1000, label: 'خمن' }, // تم تغيير الاسم
+    { name: 'guess', db_column: 'lastGuess', cooldown: 1 * 60 * 60 * 1000, label: 'خمن' },
     { name: 'roulette', db_column: 'lastRoulette', cooldown: 1 * 60 * 60 * 1000, label: 'روليت' },
     { name: 'emoji', db_column: 'lastMemory', cooldown: 1 * 60 * 60 * 1000, label: 'ايموجي' }, 
-    { name: 'arrange', db_column: 'lastArrange', cooldown: 1 * 60 * 60 * 1000, label: 'رتب' },
+    { name: 'arrange', db_column: 'lastArrange', cooldown: 1 * 60 * 60 * 1000, label: 'ترتيب' }, // ✅ تم التعديل إلى "ترتيب"
     { name: 'pvp', db_column: 'lastPVP', cooldown: 5 * 60 * 1000, label: 'تحدي' },
-    // تم إزالة transfer و deposit
+    { name: 'dungeon', db_column: 'lastDungeon', cooldown: 3 * 60 * 60 * 1000, label: 'دانجون' } // ✅ تم إضافة الدانجون (3 ساعات)
 ];
 
 module.exports = {
@@ -120,15 +120,13 @@ module.exports = {
             const lastDailyKSA = getKSADateString(lastDaily);
 
             if (todayKSA === lastDailyKSA) {
-                // استلم اليوم -> ينتظر لمنتصف الليل
                 const timeUntilMidnight = getTimeUntilNextMidnightKSA();
                 descriptionLines.push(`${EMOJI_WAIT} **راتب**: \`${formatTimeSimple(timeUntilMidnight)}\``);
             } else {
-                // لم يستلم اليوم -> جاهز
                 descriptionLines.push(`${EMOJI_READY} **راتب**`);
             }
 
-            // 2. حساب الأوامر الثابتة
+            // 2. حساب الأوامر الثابتة (بما فيها الدانجون والترتيب)
             for (const cmd of COMMANDS_TO_CHECK) {
                 const lastUsed = data[cmd.db_column] || 0;
                 const cooldownAmount = cmd.cooldown;
